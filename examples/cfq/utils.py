@@ -1,125 +1,150 @@
+# Copyright 2020 The Flax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Utils module"""
+import os
+import pickle
+from typing import Iterable, List, Sequence, Dict, Text, Any
+import collections
 
+import numpy as np
 import tensorflow_text as text
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
-from typing import Iterable, List, Sequence, Dict, Text, Any
-import numpy as np
-import collections
 from absl import logging
-import os
-import pickle
-import string
-import constants
-import preprocessing
 
-def _get_tokens(
-            input_features,
-            tokenizer: text.Tokenizer,
-            datasets: Iterable[tf.data.Dataset],
-            preprocessing_fun: Any) -> Iterable[List[bytes]]:
+import constants
+
+
+def _get_tokens(input_features: Dict, 
+                tokenizer: text.Tokenizer,
+                datasets: Iterable[tf.data.Dataset],
+                preprocessing_fun: Any) -> Iterable[List[bytes]]:
     """Returns a list of tokens for all input fields in the given datasets."""
 
-    def _tokenize_input_features(example: Dict[Text, tf.Tensor]) -> Dict[Text, tf.Tensor]:
-      """Tokenizes all input features in an example."""
-      if preprocessing_fun is not None:
+    def _tokenize_input_features(
+            example: Dict[Text, tf.Tensor]) -> Dict[Text, tf.Tensor]:
+        """Tokenizes all input features in an example."""
         example = preprocessing_fun(example)
-      for feature in example:
-        if feature in input_features:
-          example[feature] = tokenizer.tokenize(example[feature])
-      return example
+        for feature in example:
+            if feature in input_features:
+                example[feature] = tokenizer.tokenize(example[feature])
+        return example
 
     for dataset in datasets:
-      # Apply the tokenizer to all input features.
-      tokenized_dataset = dataset.map(
-          _tokenize_input_features, num_parallel_calls=constants.AUTOTUNE)
-      # Yield all tokenized input features (i.e., tokenized input sentences).
-      for example in tfds.as_numpy(tokenized_dataset):
-        for feature in input_features:
-          yield example[feature]
+        # Apply the tokenizer to all input features.
+        tokenized_dataset = dataset.map(_tokenize_input_features,
+                                        num_parallel_calls=constants.AUTOTUNE)
+        # Yield all tokenized input features (i.e., tokenized input sentences).
+        for example in tfds.as_numpy(tokenized_dataset):
+            for feature in input_features:
+                yield example[feature]
 
 
-def build_vocabulary(input_features,
-            tokenizer: text.Tokenizer,
-            datasets: Iterable[tf.data.Dataset],
-            special_tokens: Sequence[bytes] = (constants.PAD, constants.UNK,
-                                            constants.BOS, constants.EOS),
-            preprocessing_fun: Any = None,
-            min_freq: int = 1) -> Dict[bytes, int]:
+def build_vocabulary(input_features: Dict,
+                     tokenizer: text.Tokenizer,
+                     datasets: Iterable[tf.data.Dataset],
+                     special_tokens: Sequence[bytes] = (constants.PAD,
+                                                        constants.UNK,
+                                                        constants.BOS,
+                                                        constants.EOS),
+                     preprocessing_fun: Any = lambda x: x) -> Dict[bytes, int]:
     """Returns a vocabulary of tokens with optional minimum frequency.
+    The vocabulary is saved to a temps file 
+
     Args:
-    TODO: redo comment
-        sequences: An iterable with sequences of tokens.
+        
         special_tokens: Special tokens that will be the start of the vocabulary.
-        min_freq: The minimum frequency of each token to be included. Default: 1.
+        tokenizer: tf tokenizer (eg. WhitespaceTokenizer)
+        datasets: datasets from which the vocabulary should be extracted
+        special_tokens: special tokens to be added in the vocabulary; they are
+                        added at the begginig with PAD at index 0
+        preprocessing_fun: function for applying preprocessing on a dataset
+                           entry; by default the identity function 
+                           (no preprocessing)
     Returns:
         An ordered dictionary that maps tokens to their IDs in the vocabulary.
     """
 
-    vocab_path = 'dumps/vocab'
-    if not os.path.exists('dumps'):
-      os.makedirs('dumps')
+    vocab_path = 'temp/vocab'
+    if not os.path.exists('temp'):
+        os.makedirs('temp')
     # try to read the vocab
     if os.path.isfile(vocab_path):
-      with open(vocab_path, 'rb') as f:
-        vocab = pickle.load(f)
-        f.close()
-        return vocab
+        with open(vocab_path, 'rb') as vocab_file:
+            vocab = pickle.load(vocab_file)
+            vocab_file.close()
+            return vocab
 
-    sequences = _get_tokens(input_features, tokenizer, datasets, preprocessing_fun)
+    sequences = _get_tokens(input_features, tokenizer, datasets,
+                            preprocessing_fun)
 
     # Count all the tokens.
     counter = collections.Counter()
     for tokens in sequences:
-      counter.update(tokens)
+        counter.update(tokens)
 
     # Add special tokens to the start of vocab.
     vocab = collections.OrderedDict()
     for token in special_tokens:
-      vocab[token] = len(vocab)
+        vocab[token] = len(vocab)
 
-    # Add all other tokens to the vocab if their frequency is >= min_freq.
+    # Add all other tokens to the vocab 
     for token, freq in sorted(
-      # Sort by frequency (from high to low), and then by token string.
-      # This makes sure high frequency tokens get a low token ID.
-      counter.items(),
-      key=lambda token_freq: (-token_freq[1], token_freq[0])):
-      if freq >= min_freq:
+            # Sort by frequency (from high to low), and then by token string.
+            # This makes sure high frequency tokens get a low token ID.
+            counter.items(),
+            key=lambda token_freq: (-token_freq[1], token_freq[0])):
         vocab[token] = len(vocab)
 
     logging.info('Number of unfiltered tokens: %d', len(counter))
     logging.info('Vocabulary size: %d', len(vocab))
 
     # persist the vocab
-    f = open(vocab_path, 'wb')
-    pickle.dump(vocab,f)
-    f.close()
+    with open(vocab_path, 'wb') as vocab_file:
+        pickle.dump(vocab, vocab_file)
+        vocab_file.close()
 
     return vocab
 
 
 def build_tf_hashtable(vocabulary: Dict[bytes, int],
                        unk_idx: int) -> tf.lookup.StaticHashTable:
-  """Returns a TF lookup table from a vocabulary."""
-  return tf.lookup.StaticHashTable(
-      tf.lookup.KeyValueTensorInitializer(
-          list(vocabulary.keys()), list(vocabulary.values())),
-      default_value=unk_idx)
+    """Returns a TF lookup table from a vocabulary."""
+    return tf.lookup.StaticHashTable(tf.lookup.KeyValueTensorInitializer(
+        list(vocabulary.keys()), list(vocabulary.values())),
+                                     default_value=unk_idx)
+
 
 def cardinality(dataset: tf.data.Dataset) -> int:
-  """Returns the number of examples in the dataset by iterating over it once."""
-  return dataset.reduce(np.int64(0), lambda x, _: x + 1).numpy()
+    """Returns the number of examples in the dataset by iterating over it once."""
+    return dataset.reduce(np.int64(0), lambda x, _: x + 1).numpy()
+
 
 def get_max_length(dataset: tf.data.Dataset, len_fn: Any):
-  """Returns the max length in a dataset
+    """Returns the max length in a dataset
   Args:
     dataset: the tensorflow dataset
     len_fn: function that gets as argument a dataset example and returns the length of that example
   """
-  # why is the length field of type int32??
-  return dataset.reduce(np.int32(0), lambda old_max, ex: old_max if old_max > len_fn(ex) else len_fn(ex)).numpy()
+    # why is the length field of type int32??
+    return dataset.reduce(
+        np.int32(0), 
+        lambda m_len, ex: m_len if m_len > len_fn(ex) else len_fn(ex)).numpy()
+
 
 def get_bucket_boundaries(bucket_size: int, max_size: int) -> np.ndarray:
-  """Bucket boundaries with `bucket_size` items per bucket, up to `max_size`.
+    """Bucket boundaries with `bucket_size` items per bucket, up to `max_size`.
   Example:
   ```
   get_bucket_boundaries(8, 24)
@@ -134,20 +159,19 @@ def get_bucket_boundaries(bucket_size: int, max_size: int) -> np.ndarray:
   Returns:
     A list of (exclusive) bucket boundaries.
   """
-  return np.arange(bucket_size, max_size + bucket_size, bucket_size) + 1
+    return np.arange(bucket_size, max_size + bucket_size, bucket_size) + 1
 
-def get_bucketed_batches(
-    dataset: tf.data.Dataset,
-    batch_size: int,
-    bucket_size: int,
-    max_length: int,
-    padded_shapes: Any,
-    example_size_fn: Any,
-    seed: int = None,
-    shuffle: bool = False,
-    drop_remainder: bool = False,
-) -> tf.data.Dataset:
-  """Returns padded batches of shuffled CFQ examples bucketed by length.
+
+def get_bucketed_batches(dataset: tf.data.Dataset,
+                         batch_size: int,
+                         bucket_size: int,
+                         max_length: int,
+                         padded_shapes: Any,
+                         example_size_fn: Any,
+                         seed: int = None,
+                         shuffle: bool = False,
+                         drop_remainder: bool = False) -> tf.data.Dataset:
+    """Returns padded batches of shuffled CFQ examples bucketed by length.
   This shuffles the examples randomly each epoch. The random order is
   deterministic and controlled by the seed.
   Batches are padded because sentences have different lengths.
@@ -158,7 +182,7 @@ def get_bucketed_batches(
   controlled by the seed.
   Args:
     dataset: A TF Dataset with SST examples to be shuffled and batched.
-    batch_size: The size of each batch. 
+    batch_size: The size of each batch.
     bucket_size: How many different lengths go in each bucket.
     max_length: The maximum length to provide a bucket for.
     padded_shapes: A nested structure representing the shape to which the
@@ -173,38 +197,43 @@ def get_bucketed_batches(
   Returns:
     A TF Dataset containing padded bucketed batches.
   """
-  if shuffle:
-    assert seed is not None, 'When shuffling you must provide a seed.'
+    if shuffle:
+        assert seed is not None, 'When shuffling you must provide a seed.'
 
-  # For bucket_size 8 and max length 24, we get bucket boundaries [9, 17, 25].
-  max_length = max_length + bucket_size % max_length  # Multiple of bucket_size.
-  bucket_boundaries = get_bucket_boundaries(bucket_size, max_length)
-  logging.info('Batching bucket boundaries: %r', bucket_boundaries)
+    # Multiple of bucket_size.
+    if max_length==0:
+      print('Max length 0, wtf')
+    max_length = max_length + bucket_size % max_length
+    # For bucket_size 8 and max length 24, we get bucket boundaries [9, 17, 25].
+    bucket_boundaries = get_bucket_boundaries(bucket_size, max_length)
+    logging.info('Batching bucket boundaries: %r', bucket_boundaries)
 
-  # One batch size for each bucket plus one additional one (per requirement).
-  bucket_batch_sizes = [batch_size] * (len(bucket_boundaries) + 1)
-  bucket_fn = tf.data.experimental.bucket_by_sequence_length(
-      example_size_fn,
-      bucket_boundaries,
-      bucket_batch_sizes,
-      padded_shapes=padded_shapes,
-      pad_to_bucket_boundary=True,
-      drop_remainder=drop_remainder)
+    # One batch size for each bucket plus one additional one (per requirement).
+    bucket_batch_sizes = [batch_size] * (len(bucket_boundaries) + 1)
+    bucket_fn = tf.data.experimental.bucket_by_sequence_length(
+        example_size_fn,
+        bucket_boundaries,
+        bucket_batch_sizes,
+        padded_shapes=padded_shapes,
+        pad_to_bucket_boundary=True,
+        drop_remainder=drop_remainder)
 
-  if shuffle:
-    # For shuffling we need to know how many training examples we have.
-    num_examples = cardinality(dataset)
-    num_batches = num_examples // batch_size
-    return dataset.shuffle(
-        num_examples, seed=seed,
-        reshuffle_each_iteration=True).apply(bucket_fn).shuffle(
-            num_batches, seed=seed,
-            reshuffle_each_iteration=True).prefetch(constants.AUTOTUNE)
-  return dataset.apply(bucket_fn).prefetch(constants.AUTOTUNE)
+    if shuffle:
+        # For shuffling we need to know how many training examples we have.
+        num_examples = cardinality(dataset)
+        num_batches = num_examples // batch_size
+        return dataset.shuffle(
+            num_examples, seed=seed,
+            reshuffle_each_iteration=True).apply(bucket_fn).shuffle(
+                num_batches, seed=seed,
+                reshuffle_each_iteration=True).prefetch(constants.AUTOTUNE)
+    return dataset.apply(bucket_fn).prefetch(constants.AUTOTUNE)
+
 
 # TODO: types + maybe move in datasource class
 def indices_to_sequence_string(indices, data_source):
-  """Transforms a list of vocab indices into a string (eg. from token indices to question/query)"""
-  tokens = [data_source.i2w[i].decode() for i in indices]
-  str_seq = ' '.join(tokens)
-  return str_seq
+    """Transforms a list of vocab indices into a string
+    (eg. from token indices to question/query)"""
+    tokens = [data_source.i2w[i].decode() for i in indices]
+    str_seq = ' '.join(tokens)
+    return str_seq

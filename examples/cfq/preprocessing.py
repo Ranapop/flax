@@ -7,7 +7,9 @@ ExampleType = Dict[Text, tf.Tensor]
 
 
 def preprocess_example(example: ExampleType) -> ExampleType:
-    example[constants.QUESTION_KEY] = tf_wrap_seq_fun(preprocess_question, example[constants.QUESTION_KEY])
+    example[constants.QUESTION_KEY] = tf_wrap_seq_fun(
+      preprocess_question,
+      example[constants.QUESTION_KEY])
     example[constants.QUERY_KEY] = tf_wrap_seq_fun(preprocess_sparql, example[constants.QUERY_KEY])
     return example
 
