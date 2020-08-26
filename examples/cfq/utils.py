@@ -79,19 +79,21 @@ def build_vocabulary(input_features: Dict,
     vocab_path = 'temp/vocab'
     if not os.path.exists('temp'):
         os.makedirs('temp')
-    # try to read the vocab
+    # Try to read the vocabulary
     if os.path.isfile(vocab_path):
         with open(vocab_path, 'rb') as vocab_file:
             vocab = pickle.load(vocab_file)
             vocab_file.close()
             return vocab
 
-    sequences = _get_tokens(input_features, tokenizer, datasets,
-                            preprocessing_fun)
+    tokens_from_datasets = _get_tokens(input_features, 
+                                       tokenizer, 
+                                       datasets,
+                                       preprocessing_fun)
 
     # Count all the tokens.
     counter = collections.Counter()
-    for tokens in sequences:
+    for tokens in tokens_from_datasets:
         counter.update(tokens)
 
     # Add special tokens to the start of vocab.
@@ -110,7 +112,7 @@ def build_vocabulary(input_features: Dict,
     logging.info('Number of unfiltered tokens: %d', len(counter))
     logging.info('Vocabulary size: %d', len(vocab))
 
-    # persist the vocab
+    # Save the vocabulary to disk
     with open(vocab_path, 'wb') as vocab_file:
         pickle.dump(vocab, vocab_file)
         vocab_file.close()
@@ -230,10 +232,3 @@ def get_bucketed_batches(dataset: tf.data.Dataset,
     return dataset.apply(bucket_fn).prefetch(constants.AUTOTUNE)
 
 
-# TODO: types + maybe move in datasource class
-def indices_to_sequence_string(indices, data_source):
-    """Transforms a list of vocab indices into a string
-    (eg. from token indices to question/query)"""
-    tokens = [data_source.i2w[i].decode() for i in indices]
-    str_seq = ' '.join(tokens)
-    return str_seq

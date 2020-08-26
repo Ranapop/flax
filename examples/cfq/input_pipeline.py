@@ -21,6 +21,7 @@ from absl import logging
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 import tensorflow_text as text
+import jax.numpy as jnp
 
 import utils
 import preprocessing
@@ -30,19 +31,19 @@ ExampleType = Dict[Text, tf.Tensor]
 
 
 class CFQDataSource:
-    """Provides SST-2 data as pre-processed batches, a vocab, and embeddings."""
+    """Provides CFQ-2 data as pre-processed batches, a vocab, and embeddings."""
 
     # pylint: disable=too-few-public-methods
 
     def __init__(self,
                  seed: int = None,
-                 tokenizer=text.WhitespaceTokenizer(),
-                 max_output_length=None,
-                 cfq_split='mcd1'):
+                 tokenizer: text.Tokenizer = text.WhitespaceTokenizer(),
+                 max_output_length: int = None,
+                 cfq_split:Text = 'mcd1'):
         # Load datasets.
         data = tfds.load('cfq/' + cfq_split)
         train_raw = data['train']
-        valid_raw = data['validation']
+        dev_raw = data['validation']
         test_raw = data['test']
 
         # Print an example.
@@ -71,7 +72,7 @@ class CFQDataSource:
         self.train_dataset = train_raw.map(
             self.prepare_example,
             num_parallel_calls=constants.AUTOTUNE).cache()
-        self.valid_dataset = valid_raw.map(
+        self.dev_dataset = dev_raw.map(
             self.prepare_example,
             num_parallel_calls=constants.AUTOTUNE).cache()
         self.test_dataset = test_raw.map(
@@ -82,8 +83,8 @@ class CFQDataSource:
                                                      self.example_length_fn)
         self.max_length_test = utils.get_max_length(self.test_dataset,
                                                     self.example_length_fn)
-        self.max_length_valid = utils.get_max_length(self.valid_dataset,
-                                                     self.example_length_fn)
+        self.max_length_dev = utils.get_max_length(self.dev_dataset,
+                                                   self.example_length_fn)
 
     @property
     def padded_shapes(self):
@@ -136,6 +137,13 @@ class CFQDataSource:
         else:
             example_len = tf.math.maximum(question_len, query_len)
         return example_len
+
+    def indices_to_sequence_string(self, indices: jnp.ndarray) -> Text:
+        """Transforms a list of vocab indices into a string
+        (eg. from token indices to question/query)"""
+        tokens = [self.i2w[i].decode() for i in indices]
+        str_seq = ' '.join(tokens)
+        return str_seq
 
     def get_batches(self,
                     dataset: tf.data.Dataset,
@@ -190,10 +198,10 @@ if __name__ == '__main__':
     questions_strings = []
     print('Questions')
     for question in questions:
-        print(utils.indices_to_sequence_string(question, data_source))
+        print(data_source.indices_to_sequence_string(question))
     print()
     print('Queries')
     for query in queries:
-        print(utils.indices_to_sequence_string(query, data_source))
+        print(data_source.indices_to_sequence_string(query))
     print('Vocab size')
     print(data_source.vocab_size)

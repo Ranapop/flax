@@ -16,7 +16,7 @@
 """seq2seq addition example."""
 
 import os
-from typing import Any
+from typing import Any, Text, Dict
 from absl import app
 from absl import flags
 from absl import logging
@@ -34,13 +34,16 @@ import flax
 from flax import jax_utils
 from flax import nn
 
-import input_pipeline
+import input_pipeline as inp
 import constants
 
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # or pass as env var
 tf.config.experimental.set_visible_devices([], "GPU")
 
 FLAGS = flags.FLAGS
+
+# not sure the values are jnp.array (they are some arrays, but maybe not jnp.array)
+BatchType = Dict[Text, jnp.array]
 
 flags.DEFINE_float('learning_rate',
                    default=0.003,
@@ -79,18 +82,18 @@ def get_max_output_len():
     return FLAGS.max_query_length
 
 
-def onehot(sequence, vocab_size):
+def onehot(sequence: jnp.array, vocab_size: int) -> jnp.array:
     """One-hot encode a single sequence of integers."""
-    return jnp.array(sequence[:, np.newaxis] == jnp.arange(vocab_size),
+    return jnp.array(sequence[:, jnp.newaxis] == jnp.arange(vocab_size),
                      dtype=jnp.float32)
 
 
-def onehot_batch(batch, vocab_size: int):
-    "Encode a batch of examples into onehot (questions & queries)"
+def onehot_batch(batch: BatchType, vocab_size: int) -> BatchType:
+    """Encode a batch of examples into onehot (questions & queries)"""
     questions = batch[constants.QUESTION_KEY]
     queries = batch[constants.QUERY_KEY]
-    questions_ohe = np.array([onehot(q, vocab_size) for q in questions])
-    queries_ohe = np.array([onehot(q, vocab_size) for q in queries])
+    questions_ohe = jnp.array([onehot(q, vocab_size) for q in questions])
+    queries_ohe = jnp.array([onehot(q, vocab_size) for q in queries])
     return {
         constants.QUESTION_KEY: questions_ohe,
         constants.QUERY_KEY: queries_ohe,
@@ -99,29 +102,33 @@ def onehot_batch(batch, vocab_size: int):
     }
 
 
-def decode_ohe_seq(ohe_seq, data_source):
-    "Deocde sequence from ohe (list of ohe vectors) to string"
+def decode_ohe_seq(ohe_seq: jnp.ndarray,
+                   data_source: inp.CFQDataSource) -> Text:
+    """Deocde sequence from ohe (list of ohe vectors) to string"""
     indices = ohe_seq.argmax(axis=-1)
     tokens = [data_source.i2w[i].decode() for i in indices]
     str_seq = ' '.join(tokens)
     return str_seq
 
 
-def decode_onehot(batch_inputs, data_source):
+def decode_onehot(batch_inputs: jnp.ndarray, data_source: inp.CFQDataSource):
     """Decode a batch of one-hot encoding to strings."""
-    return np.array([decode_ohe_seq(seq, data_source) for seq in batch_inputs])
+    return jnp.array([decode_ohe_seq(seq, data_source) for seq in batch_inputs])
 
 
-def mask_sequences(sequence_batch, lengths):
+def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
     """Set positions beyond the length of each sequence to 0."""
-    return sequence_batch * (lengths[:, np.newaxis] > np.arange(
+    return sequence_batch * (lengths[:, jnp.newaxis] > jnp.arange(
         sequence_batch.shape[1]))
 
 
 class Encoder(nn.Module):
     """LSTM encoder, returning state after EOS is input."""
 
-    def apply(self, inputs, eos_id, hidden_size=constants.LSTM_HIDDEN_SIZE):
+    def apply(self,
+              inputs: jnp.array,
+              eos_id: int,
+              hidden_size: int = constants.LSTM_HIDDEN_SIZE):
         "Apply encoder module"
         # inputs.shape = (batch_size, seq_length, vocab_size).
         batch_size = inputs.shape[0]
@@ -137,7 +144,7 @@ class Encoder(nn.Module):
 
             # Pass forward the previous state if EOS has already been reached.
             def select_carried_state(new_state, old_state):
-                return jnp.where(is_eos[:, np.newaxis], old_state, new_state)
+                return jnp.where(is_eos[:, jnp.newaxis], old_state, new_state)
 
             # LSTM state is a tuple (c, h).
             carried_lstm_state = tuple(
@@ -162,7 +169,7 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     """LSTM decoder."""
 
-    def apply(self, init_state, inputs, teacher_force=False):
+    def apply(self, init_state, inputs: jnp.array, teacher_force: bool = False):
         """Apply decoder model"""
         # inputs.shape = (batch_size, seq_length, vocab_size).
         vocab_size = inputs.shape[2]
@@ -204,11 +211,11 @@ class Seq2seq(nn.Module):
         return encoder, decoder
 
     def apply(self,
-              encoder_inputs,
-              decoder_inputs,
-              teacher_force=True,
-              eos_id=1,
-              hidden_size=constants.LSTM_HIDDEN_SIZE):
+              encoder_inputs: jnp.array,
+              decoder_inputs: jnp.array,
+              eos_id: int,
+              teacher_force: bool = True,
+              hidden_size: int = constants.LSTM_HIDDEN_SIZE):
         """Run the seq2seq model.
 
     Args:
@@ -243,7 +250,7 @@ class Seq2seq(nn.Module):
         return logits, predictions
 
 
-def create_model(vocab_size: int, eos_id):
+def create_model(vocab_size: int, eos_id: int) -> nn.Module:
     """Creates a seq2seq model."""
     _, initial_params = Seq2seq.partial(eos_id=eos_id).init_by_shape(
         nn.make_rng(), [((1, get_max_input_len(), vocab_size), jnp.float32),
@@ -252,7 +259,8 @@ def create_model(vocab_size: int, eos_id):
     return model
 
 
-def cross_entropy_loss(logits, labels, lengths):
+def cross_entropy_loss(logits: jnp.array, labels: jnp.array,
+                       lengths: jnp.array):
     """Returns cross-entropy loss."""
     log_soft = nn.log_softmax(logits)
     log_sum = jnp.sum(log_soft * labels, axis=-1)
@@ -260,8 +268,15 @@ def cross_entropy_loss(logits, labels, lengths):
     return -masked_log_sum
 
 
-def compute_metrics(logits, labels, queries_lengths):
-    """Computes metrics and returns them."""
+def compute_metrics(logits: jnp.array, labels: jnp.array,
+                    queries_lengths: jnp.array) -> Dict:
+    """Computes metrics for a batch of logist & labels and returns those metrics
+
+    The metrics computed are cross entropy loss and accuracy
+    How: it computes the accuracy by comparing that the tokens in the two
+         sequences mathc perfectly (accuracy 1 or 0 per sequence). The
+         accuracies are then averaged at batch level
+    """
     lengths = queries_lengths
     loss = cross_entropy_loss(logits, labels, lengths)
     # Computes sequence accuracy, which is the same as the accuracy during
@@ -277,21 +292,22 @@ def compute_metrics(logits, labels, queries_lengths):
     return metrics
 
 
-def log(epoch, train_metrics, valid_metrics):
+def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
     """Logs performance for an epoch.
-  Args:
-    epoch: The epoch number.
-    train_metrics: A dict with the train metrics for this epoch.
-    valid_metrics: A dict with the validation metrics for this epoch.
-  """
-    logging.info('Epoch %02d train loss %.4f valid loss %.4f acc %.2f',
-                 epoch + 1, train_metrics[constants.LOSS_KEY],
-                 valid_metrics[constants.LOSS_KEY],
-                 valid_metrics[constants.ACC_KEY])
+
+    Args:
+      epoch: The epoch number.
+      train_metrics: A dict with the train metrics for this epoch.
+      dev_metrics: A dict with the validation metrics for this epoch.
+    """
+    logging.info('Epoch %02d train loss %.4f dev loss %.4f acc %.2f', epoch + 1,
+                 train_metrics[constants.LOSS_KEY],
+                 dev_metrics[constants.LOSS_KEY],
+                 dev_metrics[constants.ACC_KEY])
 
 
 @jax.jit
-def train_step(optimizer, batch, rng, eos_id):
+def train_step(optimizer: Any, batch: BatchType, rng: Any, eos_id: int):
     """Train one step."""
 
     inputs = batch[constants.QUESTION_KEY]
@@ -302,7 +318,9 @@ def train_step(optimizer, batch, rng, eos_id):
     def loss_fn(model):
         """Compute cross-entropy loss."""
         with nn.stochastic(rng):
-            logits, _ = model(inputs, labels, eos_id=eos_id)
+            logits, _ = model(encoder_inputs=inputs,
+                              decoder_inputs=labels,
+                              eos_id=eos_id)
         loss = cross_entropy_loss(logits, labels_no_bos, queries_lengths)
         return loss, logits
 
@@ -314,26 +332,42 @@ def train_step(optimizer, batch, rng, eos_id):
 
 
 @jax.jit
-def infer(model, inputs, rng, bos_encoding):
+def infer(model: nn.Module, inputs: jnp.array, rng: Any, eos_id: int,
+          bos_encoding: jnp.array):
     """Apply model on inference flow and return predictions."""
     # This simply creates a batch (batch size = inputs.shape[0])
     # filled with sequences of max_output_len of only the bos encoding
     init_decoder_inputs = jnp.tile(bos_encoding,
                                    (inputs.shape[0], get_max_output_len(), 1))
     with nn.stochastic(rng):
-        _, predictions = model(inputs, init_decoder_inputs, teacher_force=False)
+        _, predictions = model(encoder_inputs=inputs,
+                               decoder_inputs=init_decoder_inputs,
+                               eos_id=eos_id,
+                               teacher_force=False)
     return predictions
 
 
-def evaluate_model(model, batches, data_source, bos_encoding, logging_step):
-    # Evaluate the model on the validation/test batches
+def evaluate_model(model: nn.Module, batches: tf.data.Dataset,
+                   data_source: inp.CFQDataSource, bos_encoding: jnp.array,
+                   logging_step: int):
+    """Evaluate the model on the validation/test batches
+
+    Args:
+        model: model
+        batches: validation batches
+        data_source: CFQ data source (needed for vocab size, w2i etc.)
+        bos_encoding: encoding of BOS token
+        logging_step: at what batch interval should the logging be done
+                      (eg. if logging_step=3 logging is done every 3 batches)
+    """
     no_batches = 0
     avg_metrics = {constants.ACC_KEY: 0, constants.LOSS_KEY: 0}
     for batch in tfds.as_numpy(batches):
         batch_ohe = onehot_batch(batch, data_source.vocab_size)
         inputs = batch_ohe[constants.QUESTION_KEY]
         gold_outputs = batch_ohe[constants.QUERY_KEY][:, 1:]
-        inferred_outputs = infer(model, inputs, nn.make_rng(), bos_encoding)
+        inferred_outputs = infer(model, inputs, nn.make_rng(),
+                                 data_source.eos_idx, bos_encoding)
         metrics = compute_metrics(inferred_outputs, gold_outputs,
                                   batch_ohe[constants.QUERY_LEN_KEY])
         avg_metrics = {
@@ -353,10 +387,11 @@ def evaluate_model(model, batches, data_source, bos_encoding, logging_step):
 def train_model(learning_rate: float = None,
                 num_epochs: int = None,
                 seed: int = None,
-                data_source: Any = None,
+                data_source: inp.CFQDataSource = None,
                 batch_size: int = None,
                 bucketing: bool = False):
     """ Train model on num_epochs
+
     Do the training on data_source.train_dataset and evaluate on
     data_source.dev_dataset at each epoch and log the results
     """
@@ -419,8 +454,8 @@ def train_model(learning_rate: float = None,
 def main(_):
     """Load the cfq data and train the model"""
     # prepare data source
-    data_source = input_pipeline.CFQDataSource(
-        seed=FLAGS.seed, max_output_length=FLAGS.max_query_length)
+    data_source = inp.CFQDataSource(seed=FLAGS.seed,
+                                    max_output_length=FLAGS.max_query_length)
 
     # train model
     trained_model = train_model(
