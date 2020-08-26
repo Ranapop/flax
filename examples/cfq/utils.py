@@ -8,18 +8,21 @@ import collections
 from absl import logging
 import os
 import pickle
+import string
 import constants
-
-
+import preprocessing
 
 def _get_tokens(
             input_features,
             tokenizer: text.Tokenizer,
-            datasets: Iterable[tf.data.Dataset]) -> Iterable[List[bytes]]:
+            datasets: Iterable[tf.data.Dataset],
+            preprocessing_fun: Any) -> Iterable[List[bytes]]:
     """Returns a list of tokens for all input fields in the given datasets."""
 
     def _tokenize_input_features(example: Dict[Text, tf.Tensor]) -> Dict[Text, tf.Tensor]:
       """Tokenizes all input features in an example."""
+      if preprocessing_fun is not None:
+        example = preprocessing_fun(example)
       for feature in example:
         if feature in input_features:
           example[feature] = tokenizer.tokenize(example[feature])
@@ -40,6 +43,7 @@ def build_vocabulary(input_features,
             datasets: Iterable[tf.data.Dataset],
             special_tokens: Sequence[bytes] = (constants.PAD, constants.UNK,
                                             constants.BOS, constants.EOS),
+            preprocessing_fun: Any = None,
             min_freq: int = 1) -> Dict[bytes, int]:
     """Returns a vocabulary of tokens with optional minimum frequency.
     Args:
@@ -61,7 +65,7 @@ def build_vocabulary(input_features,
         f.close()
         return vocab
 
-    sequences = _get_tokens(input_features, tokenizer, datasets)
+    sequences = _get_tokens(input_features, tokenizer, datasets, preprocessing_fun)
 
     # Count all the tokens.
     counter = collections.Counter()
@@ -197,3 +201,10 @@ def get_bucketed_batches(
             num_batches, seed=seed,
             reshuffle_each_iteration=True).prefetch(constants.AUTOTUNE)
   return dataset.apply(bucket_fn).prefetch(constants.AUTOTUNE)
+
+# TODO: types + maybe move in datasource class
+def indices_to_sequence_string(indices, data_source):
+  """Transforms a list of vocab indices into a string (eg. from token indices to question/query)"""
+  tokens = [data_source.i2w[i].decode() for i in indices]
+  str_seq = ' '.join(tokens)
+  return str_seq

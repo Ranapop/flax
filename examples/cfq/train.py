@@ -314,7 +314,7 @@ def infer(model, inputs, rng, bos_encoding):
   return predictions
 
 
-def evaluate_model(model, batches, data_source, bos_encoding, logging_step=None):
+def evaluate_model(model, batches, data_source, bos_encoding, logging_step):
   # Evaluate the model on the validation/test batches
   no_batches = 0
   avg_metrics = {constants.ACC_KEY: 0, constants.LOSS_KEY: 0}
@@ -369,9 +369,11 @@ def train_model(learning_rate: float = None,
           optimizer, metrics = train_step(optimizer, batch_ohe, nn.make_rng(), data_source.eos_idx)
           train_metrics = {key : train_metrics[key] + metrics[key] for key in train_metrics}
           no_batches += 1
+          if no_batches == 1:
+            break
         train_metrics = {key : train_metrics[key] / no_batches for key in train_metrics}
         # evaluate  
-        valid_metrics = evaluate_model(optimizer.target, valid_batches, data_source, bos_encoding, logging_step=None)   
+        valid_metrics = evaluate_model(optimizer.target, valid_batches, data_source, bos_encoding, logging_step=10)   
         log(epoch, train_metrics, valid_metrics)
         
     logging.info('Done training')

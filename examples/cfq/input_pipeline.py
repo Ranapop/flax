@@ -27,6 +27,7 @@ import tensorflow_datasets as tfds
 import tensorflow_text as text
 
 import utils
+import preprocessing
 import constants
 
 ExampleType = Dict[Text, tf.Tensor]
@@ -59,7 +60,8 @@ class CFQDataSource:
     # self.vocab = build_vocab((train_raw,), min_freq=min_freq)
     self.vocab = utils.build_vocabulary(input_features = {constants.QUESTION_KEY, constants.QUERY_KEY},
                               tokenizer = tokenizer,
-                              datasets = (train_raw,))
+                              datasets = (train_raw,),
+                              preprocessing_fun = preprocessing.preprocess_example)
 
     self.unk_idx = self.vocab[constants.UNK]
     self.bos_idx = self.vocab[constants.BOS]
@@ -111,8 +113,11 @@ class CFQDataSource:
 
   def prepare_example(self, example: ExampleType) -> ExampleType:
     """Prepares an example by converting to IDs and wrapping in <s> and </s>."""
+    example = preprocessing.preprocess_example(example)
     example[constants.QUESTION_KEY] = self.prepare_sequence(example[constants.QUESTION_KEY])
     example[constants.QUERY_KEY] = self.prepare_sequence(example[constants.QUERY_KEY], self.max_output_length)
+    # example[constants.QUESTION_KEY] = self.prepare_sequence(preprocessing.tf_preprocess_question(example[constants.QUESTION_KEY]))
+    # example[constants.QUERY_KEY] = self.prepare_sequence(preprocessing.tf_preprocess_sparql(example[constants.QUERY_KEY]), self.max_output_length)
     example[constants.QUESTION_LEN_KEY] = tf.size(example[constants.QUESTION_KEY])
     example[constants.QUERY_LEN_KEY] = tf.size(example[constants.QUERY_KEY])
     return example
@@ -178,16 +183,14 @@ if __name__ == '__main__':
     batch = next(tfds.as_numpy(train_batches.skip(4)))
     questions, queries, lengths = batch[constants.QUESTION_KEY], batch[constants.QUERY_KEY], batch[constants.QUESTION_LEN_KEY]
     questions_strings = []
-    for question in questions:
-      qt = [data_source.i2w[i] for i in question]
-      qt_str = [token.decode() for token in qt]
-      qs = ' '.join(qt_str) 
-      questions_strings.append(qs)
     print('Questions')
-    print(questions)
-    print('Questions (tokens)')
-    print(questions_strings)
+    for question in questions:
+      qs = utils.indices_to_sequence_string(question, data_source)
+      print(qs)
+    print()
     print('Queries')
-    print(queries)
-    print('Lengths')
-    print(lengths)
+    for query in queries:
+      qs = utils.indices_to_sequence_string(query, data_source)
+      print(qs)
+    print('Vocab size')
+    print(data_source.vocab_size)
