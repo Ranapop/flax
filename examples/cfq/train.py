@@ -58,28 +58,13 @@ flags.DEFINE_integer('num_epochs',
                      help=('Number of epochs.'))
 
 flags.DEFINE_integer(
-    'max_question_length',
-    default=30,  #28 max in the train dataset
-    help=('Maximum length of a question.'))
-
-flags.DEFINE_integer(
     'max_query_length',
     default=100,  #92 max in the train dataset
-    help=('Maximum length of a query.'))
+    help=('Length of the predicted query.'))
 
 flags.DEFINE_integer('seed',
                      default=0,
                      help=('Random seed for network initialization.'))
-
-
-def get_max_input_len():
-    """Returns the max length of an input sequence."""
-    return FLAGS.max_question_length
-
-
-def get_max_output_len():
-    """Returns the max length of an output sequence."""
-    return FLAGS.max_query_length
 
 
 def onehot(sequence: jnp.array, vocab_size: int) -> jnp.array:
@@ -233,9 +218,9 @@ class Seq2seq(nn.Module):
       eos_id: int, the token signaling when the end of a sequence is reached.
       hidden_size: int, the number of hidden dimensions in the encoder and
         decoder LSTMs.
-    Returns:
-      Array of decoded logits.
-    """
+      Returns:
+        Array of decoded logits.
+      """
         encoder, decoder = self._create_modules(eos_id, hidden_size)
 
         # Encode inputs
@@ -253,8 +238,9 @@ class Seq2seq(nn.Module):
 def create_model(vocab_size: int, eos_id: int) -> nn.Module:
     """Creates a seq2seq model."""
     _, initial_params = Seq2seq.partial(eos_id=eos_id).init_by_shape(
-        nn.make_rng(), [((1, get_max_input_len(), vocab_size), jnp.float32),
-                        ((1, get_max_output_len(), vocab_size), jnp.float32)])
+        # need to pass 2 for decoder length as the first token is cut off
+        nn.make_rng(), [((1, 1, vocab_size), jnp.float32),
+                        ((1, 2, vocab_size), jnp.float32)])
     model = nn.Model(Seq2seq, initial_params)
     return model
 
@@ -272,15 +258,16 @@ def compute_metrics(logits: jnp.array, labels: jnp.array,
                     queries_lengths: jnp.array) -> Dict:
     """Computes metrics for a batch of logist & labels and returns those metrics
 
-    The metrics computed are cross entropy loss and accuracy
-    How: it computes the accuracy by comparing that the tokens in the two
-         sequences mathc perfectly (accuracy 1 or 0 per sequence). The
-         accuracies are then averaged at batch level
+    The metrics computed are cross entropy loss and mean batch accuracy. The 
+    accuracy at sequence level needs perfect matching of the compared sequences
     """
     lengths = queries_lengths
+    # make sure the gold and predicted sequence have the same length by 
+    # truncating them
+    min_out_seq_len = min(labels.shape[1],logits.shape[1])
+    labels = labels[0:,:min_out_seq_len,0:]
+    logits = logits[0:,:min_out_seq_len,0:]
     loss = cross_entropy_loss(logits, labels, lengths)
-    # Computes sequence accuracy, which is the same as the accuracy during
-    # inference, since teacher forcing is irrelevant when all output are correct.
     token_accuracy = jnp.argmax(logits, -1) == jnp.argmax(labels, -1)
     sequence_accuracy = (jnp.sum(mask_sequences(token_accuracy, lengths),
                                  axis=-1) == lengths)
@@ -331,24 +318,36 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, eos_id: int):
     return optimizer, metrics
 
 
-@jax.jit
+@jax.partial(jax.jit, static_argnums=5)
 def infer(model: nn.Module, inputs: jnp.array, rng: Any, eos_id: int,
-          bos_encoding: jnp.array):
-    """Apply model on inference flow and return predictions."""
+          bos_encoding: jnp.array, predicted_output_length: int):
+    """Apply model on inference flow and return predictions.
+    
+    Args:
+        model: the seq2seq model applied
+        inputs: batch of input sequences
+        rng: rng
+        eos_id: index of EOS token in the vocabulary
+        bos_encoding: encoding of the BOS token
+        predicted_output_length: what length should predict for the output
+    """
     # This simply creates a batch (batch size = inputs.shape[0])
     # filled with sequences of max_output_len of only the bos encoding
-    init_decoder_inputs = jnp.tile(bos_encoding,
-                                   (inputs.shape[0], get_max_output_len(), 1))
+    initial_dec_inputs = jnp.tile(bos_encoding,
+                                 (inputs.shape[0], predicted_output_length, 1))
     with nn.stochastic(rng):
         _, predictions = model(encoder_inputs=inputs,
-                               decoder_inputs=init_decoder_inputs,
+                               decoder_inputs=initial_dec_inputs,
                                eos_id=eos_id,
                                teacher_force=False)
     return predictions
 
 
-def evaluate_model(model: nn.Module, batches: tf.data.Dataset,
-                   data_source: inp.CFQDataSource, bos_encoding: jnp.array,
+def evaluate_model(model: nn.Module,
+                   batches: tf.data.Dataset,
+                   data_source: inp.CFQDataSource,
+                   bos_encoding: jnp.array,
+                   predicted_output_length: int,
                    logging_step: int):
     """Evaluate the model on the validation/test batches
 
@@ -357,8 +356,9 @@ def evaluate_model(model: nn.Module, batches: tf.data.Dataset,
         batches: validation batches
         data_source: CFQ data source (needed for vocab size, w2i etc.)
         bos_encoding: encoding of BOS token
+        predicted_output_length: how long the predicted sequence should be
         logging_step: at what batch interval should the logging be done
-                      (eg. if logging_step=3 logging is done every 3 batches)
+                      (e.g. if logging_step=3 logging is done every 3 batches)
     """
     no_batches = 0
     avg_metrics = {constants.ACC_KEY: 0, constants.LOSS_KEY: 0}
@@ -366,8 +366,12 @@ def evaluate_model(model: nn.Module, batches: tf.data.Dataset,
         batch_ohe = onehot_batch(batch, data_source.vocab_size)
         inputs = batch_ohe[constants.QUESTION_KEY]
         gold_outputs = batch_ohe[constants.QUERY_KEY][:, 1:]
-        inferred_outputs = infer(model, inputs, nn.make_rng(),
-                                 data_source.eos_idx, bos_encoding)
+        inferred_outputs = infer(model, 
+                                 inputs,
+                                 nn.make_rng(),
+                                 data_source.eos_idx,
+                                 bos_encoding,
+                                 predicted_output_length)
         metrics = compute_metrics(inferred_outputs, gold_outputs,
                                   batch_ohe[constants.QUERY_LEN_KEY])
         avg_metrics = {
@@ -386,6 +390,7 @@ def evaluate_model(model: nn.Module, batches: tf.data.Dataset,
 
 def train_model(learning_rate: float = None,
                 num_epochs: int = None,
+                max_out_len: int = None,
                 seed: int = None,
                 data_source: inp.CFQDataSource = None,
                 batch_size: int = None,
@@ -439,10 +444,11 @@ def train_model(learning_rate: float = None,
                 key: train_metrics[key] / no_batches for key in train_metrics
             }
             # evaluate
-            dev_metrics = evaluate_model(optimizer.target,
-                                         dev_batches,
-                                         data_source,
-                                         bos_encoding,
+            dev_metrics = evaluate_model(model = optimizer.target,
+                                         batches = dev_batches,
+                                         data_source = data_source,
+                                         bos_encoding = bos_encoding,
+                                         predicted_output_length = max_out_len,
                                          logging_step=10)
             log(epoch, train_metrics, dev_metrics)
 
@@ -454,13 +460,14 @@ def train_model(learning_rate: float = None,
 def main(_):
     """Load the cfq data and train the model"""
     # prepare data source
-    data_source = inp.CFQDataSource(seed=FLAGS.seed,
-                                    max_output_length=FLAGS.max_query_length)
-
+    data_source = inp.CFQDataSource(seed=FLAGS.seed, 
+                                    fixed_output_len=False)
+    
     # train model
     trained_model = train_model(
         learning_rate=FLAGS.learning_rate,
         num_epochs=1,
+        max_out_len = FLAGS.max_query_length,
         # num_epochs=FLAGS.num_epochs,
         seed=FLAGS.seed,
         data_source=data_source,

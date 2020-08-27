@@ -31,14 +31,14 @@ ExampleType = Dict[Text, tf.Tensor]
 
 
 class CFQDataSource:
-    """Provides CFQ-2 data as pre-processed batches, a vocab, and embeddings."""
+    """Provides CFQ data as pre-processed batches, a vocab, and embeddings."""
 
     # pylint: disable=too-few-public-methods
 
     def __init__(self,
-                 seed: int = None,
+                 seed: int,
+                 fixed_output_len: bool,
                  tokenizer: text.Tokenizer = text.WhitespaceTokenizer(),
-                 max_output_length: int = None,
                  cfq_split:Text = 'mcd1'):
         # Load datasets.
         data = tfds.load('cfq/' + cfq_split)
@@ -51,7 +51,7 @@ class CFQDataSource:
 
         self.tokenizer = tokenizer
         self.seed = seed
-        self.max_output_length = max_output_length
+        self.fixed_output_len = fixed_output_len
         self.vocab = utils.build_vocabulary(
             input_features={constants.QUESTION_KEY, constants.QUERY_KEY},
             tokenizer=tokenizer,
@@ -79,17 +79,12 @@ class CFQDataSource:
             self.prepare_example,
             num_parallel_calls=constants.AUTOTUNE).cache()
 
-        self.max_length_train = utils.get_max_length(self.train_dataset,
-                                                     self.example_length_fn)
-        self.max_length_test = utils.get_max_length(self.test_dataset,
-                                                    self.example_length_fn)
-        self.max_length_dev = utils.get_max_length(self.dev_dataset,
-                                                   self.example_length_fn)
 
-    @property
-    def padded_shapes(self):
+    def get_padded_shapes(self, output_len):
         """The padded shapes used by batching functions."""
-        query_pad = self.max_output_length
+        query_pad = None
+        if self.fixed_output_len:
+            query_pad = output_len
         return {
             constants.QUESTION_KEY: [None],
             constants.QUERY_KEY: [query_pad],
@@ -101,14 +96,10 @@ class CFQDataSource:
         """Prepends BOS ID and appends EOS ID to a sequence of token IDs."""
         return tf.concat([[self.bos_idx], sequence, [self.eos_idx]], 0)
 
-    def prepare_sequence(self, sequence: Text, max_length=None):
+    def prepare_sequence(self, sequence: Text):
         """Prepares a sequence(question or query) by tokenizing it, transforming
         it to a list of vocabulary indices, and adding the BOS and EOS tokens"""
         tokenized_seq = self.tf_vocab.lookup(self.tokenizer.tokenize(sequence))
-        # truncate if needed
-        if max_length is not None:
-            # -2 because of the BOS and EOS tokens
-            tokenized_seq = tokenized_seq[0:max_length - 2]
         wrapped_seq = self.add_bos_eos(tokenized_seq)
         return wrapped_seq
 
@@ -118,21 +109,25 @@ class CFQDataSource:
         example[constants.QUESTION_KEY] = self.prepare_sequence(
             example[constants.QUESTION_KEY])
         example[constants.QUERY_KEY] = self.prepare_sequence(
-            example[constants.QUERY_KEY], self.max_output_length)
+            example[constants.QUERY_KEY])
         example[constants.QUESTION_LEN_KEY] = tf.size(
             example[constants.QUESTION_KEY])
         example[constants.QUERY_LEN_KEY] = tf.size(example[constants.QUERY_KEY])
         return example
 
+    def ouput_length_fn(self, example: ExampleType) -> tf.Tensor:
+        """Function that takes a dataset entry and returns the query length"""
+        return example[constants.QUERY_LEN_KEY]
+
     def example_length_fn(self, example: ExampleType) -> tf.Tensor:
         """Returns the length of the example for the purpose of the bucketing
-        If the output should be of a fixed length (self.max_output_length set),
+        If the output should be of fixed length (self.fixed_output_len=True),
         then the length of the example is given by the the input/question length
         """
         question_len = example[constants.QUESTION_LEN_KEY]
         query_len = example[constants.QUERY_LEN_KEY]
         example_len = 0
-        if self.max_output_length is not None:
+        if self.fixed_output_len:
             example_len = question_len
         else:
             example_len = tf.math.maximum(question_len, query_len)
@@ -140,7 +135,7 @@ class CFQDataSource:
 
     def indices_to_sequence_string(self, indices: jnp.ndarray) -> Text:
         """Transforms a list of vocab indices into a string
-        (eg. from token indices to question/query)"""
+        (e.g. from token indices to question/query)"""
         tokens = [self.i2w[i].decode() for i in indices]
         str_seq = ' '.join(tokens)
         return str_seq
@@ -156,8 +151,14 @@ class CFQDataSource:
             dataset = dataset.shuffle(buffer_size,
                                       seed=self.seed,
                                       reshuffle_each_iteration=True)
+        if self.fixed_output_len:
+            # only compute the max output length if I need it
+            max_output_len = utils.get_max_length(dataset,self.ouput_length_fn)
+            padded_shapes = self.get_padded_shapes(max_output_len)
+        else:
+            padded_shapes = self.get_padded_shapes(None)
         return dataset.padded_batch(batch_size,
-                                    padded_shapes=self.padded_shapes,
+                                    padded_shapes=padded_shapes,
                                     drop_remainder=drop_remainder)
 
     def get_bucketed_batches(self,
@@ -167,31 +168,33 @@ class CFQDataSource:
                              drop_remainder: bool = False,
                              shuffle: bool = False):
         """Returns an iterator with bucketed batches for the provided dataset."""
-        return utils.get_bucketed_batches(dataset,
-                                          batch_size,
-                                          bucket_size,
-                                          self.max_length_train,
-                                          self.padded_shapes,
-                                          self.example_length_fn,
-                                          seed=self.seed,
+        max_length = utils.get_max_length(dataset,self.ouput_length_fn)
+        padded_shapes = self.get_padded_shapes(max_length)
+        return utils.get_bucketed_batches(dataset = dataset,
+                                          batch_size = batch_size,
+                                          bucket_size = bucket_size,
+                                          max_length = max_length,
+                                          padded_shapes = padded_shapes,
+                                          example_size_fn = self.example_length_fn,
+                                          seed = self.seed,
                                           shuffle=shuffle,
                                           drop_remainder=drop_remainder)
 
 
 if __name__ == '__main__':
     #TODO: remove this and add tests
-    data_source = CFQDataSource(seed=13467, max_output_length=10)
+    data_source = CFQDataSource(seed=13467, fixed_output_len=True)
     # train_batches = get_batches(
     #     data_source.train_dataset, batch_size=5)
-    # train_batches = data_source.get_batches(data_source.train_dataset,
-    #                                         batch_size = 5,
-    #                                         drop_remainder = False,
-    #                                         shuffle = True)
-    train_batches = data_source.get_bucketed_batches(data_source.train_dataset,
-                                                     batch_size=20,
-                                                     bucket_size=8,
-                                                     drop_remainder=False,
-                                                     shuffle=True)
+    train_batches = data_source.get_batches(data_source.train_dataset,
+                                            batch_size = 5,
+                                            drop_remainder = False,
+                                            shuffle = True)
+    # train_batches = data_source.get_bucketed_batches(data_source.train_dataset,
+    #                                                  batch_size=20,
+    #                                                  bucket_size=8,
+    #                                                  drop_remainder=False,
+    #                                                  shuffle=True)
     batch = next(tfds.as_numpy(train_batches.skip(4)))
     questions, queries, lengths = batch[constants.QUESTION_KEY], batch[
         constants.QUERY_KEY], batch[constants.QUESTION_LEN_KEY]

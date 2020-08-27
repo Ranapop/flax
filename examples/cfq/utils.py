@@ -203,8 +203,6 @@ def get_bucketed_batches(dataset: tf.data.Dataset,
         assert seed is not None, 'When shuffling you must provide a seed.'
 
     # Multiple of bucket_size.
-    if max_length==0:
-      print('Max length 0, wtf')
     max_length = max_length + bucket_size % max_length
     # For bucket_size 8 and max length 24, we get bucket boundaries [9, 17, 25].
     bucket_boundaries = get_bucket_boundaries(bucket_size, max_length)
