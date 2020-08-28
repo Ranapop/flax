@@ -51,7 +51,8 @@ def _get_tokens(input_features: Dict,
                 yield example[feature]
 
 
-def build_vocabulary(input_features: Dict,
+def build_vocabulary(file_name: Text,
+                     input_features: Dict,
                      tokenizer: text.Tokenizer,
                      datasets: Iterable[tf.data.Dataset],
                      special_tokens: Sequence[bytes] = (constants.PAD,
@@ -60,7 +61,7 @@ def build_vocabulary(input_features: Dict,
                                                         constants.EOS),
                      preprocessing_fun: Any = lambda x: x) -> Dict[bytes, int]:
     """Returns a vocabulary of tokens with optional minimum frequency.
-    The vocabulary is saved to a temps file 
+    The vocabulary is saved to a temps file
 
     Args:
         
@@ -70,15 +71,16 @@ def build_vocabulary(input_features: Dict,
         special_tokens: special tokens to be added in the vocabulary; they are
                         added at the begginig with PAD at index 0
         preprocessing_fun: function for applying preprocessing on a dataset
-                           entry; by default the identity function 
+                           entry; by default the identity function
                            (no preprocessing)
     Returns:
         An ordered dictionary that maps tokens to their IDs in the vocabulary.
     """
 
-    vocab_path = 'temp/vocab'
-    if not os.path.exists('temp'):
-        os.makedirs('temp')
+    vocab_dir = 'temp'
+    vocab_path = vocab_dir+'/'+file_name
+    if not os.path.exists(vocab_dir):
+        os.makedirs(vocab_dir)
     # Try to read the vocabulary
     if os.path.isfile(vocab_path):
         with open(vocab_path, 'rb') as vocab_file:
@@ -86,7 +88,7 @@ def build_vocabulary(input_features: Dict,
             vocab_file.close()
             return vocab
 
-    tokens_from_datasets = _get_tokens(input_features, 
+    tokens_from_datasets = _get_tokens(input_features,
                                        tokenizer, 
                                        datasets,
                                        preprocessing_fun)

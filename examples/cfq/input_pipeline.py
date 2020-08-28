@@ -53,6 +53,7 @@ class CFQDataSource:
         self.seed = seed
         self.fixed_output_len = fixed_output_len
         self.vocab = utils.build_vocabulary(
+            file_name = 'vocab_'+cfq_split,
             input_features={constants.QUESTION_KEY, constants.QUERY_KEY},
             tokenizer=tokenizer,
             datasets=(train_raw,),

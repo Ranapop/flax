@@ -98,7 +98,7 @@ def decode_ohe_seq(ohe_seq: jnp.ndarray,
 
 def decode_onehot(batch_inputs: jnp.ndarray, data_source: inp.CFQDataSource):
     """Decode a batch of one-hot encoding to strings."""
-    return jnp.array([decode_ohe_seq(seq, data_source) for seq in batch_inputs])
+    return np.array([decode_ohe_seq(seq, data_source) for seq in batch_inputs])
 
 
 def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
@@ -287,9 +287,10 @@ def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
       train_metrics: A dict with the train metrics for this epoch.
       dev_metrics: A dict with the validation metrics for this epoch.
     """
-    logging.info('Epoch %02d train loss %.4f dev loss %.4f acc %.2f', epoch + 1,
+    logging.info('Epoch %02d train loss %.4f dev loss %.4f train acc %.2f acc %.2f', epoch + 1,
                  train_metrics[constants.LOSS_KEY],
                  dev_metrics[constants.LOSS_KEY],
+                 train_metrics[constants.ACC_KEY],
                  dev_metrics[constants.ACC_KEY])
 
 
@@ -348,7 +349,7 @@ def evaluate_model(model: nn.Module,
                    data_source: inp.CFQDataSource,
                    bos_encoding: jnp.array,
                    predicted_output_length: int,
-                   logging_step: int):
+                   no_logged_examples: int = None):
     """Evaluate the model on the validation/test batches
 
     Args:
@@ -357,8 +358,10 @@ def evaluate_model(model: nn.Module,
         data_source: CFQ data source (needed for vocab size, w2i etc.)
         bos_encoding: encoding of BOS token
         predicted_output_length: how long the predicted sequence should be
-        logging_step: at what batch interval should the logging be done
-                      (e.g. if logging_step=3 logging is done every 3 batches)
+        no_logged_examples: how many examples to log (they will be taken 
+                            from the first batch, so no_logged_examples
+                            should be < batch_size)
+                            if Nine, no logging
     """
     no_batches = 0
     avg_metrics = {constants.ACC_KEY: 0, constants.LOSS_KEY: 0}
@@ -377,13 +380,14 @@ def evaluate_model(model: nn.Module,
         avg_metrics = {
             key: avg_metrics[key] + metrics[key] for key in avg_metrics
         }
-        no_batches += 1
-        if logging_step is not None and no_batches % logging_step == 0:
-            #log the first example in the batch
+        if no_logged_examples is not None and no_batches == 0:
+            #log the first examples in the batch
             gold_seq = decode_onehot(gold_outputs, data_source)
             inferred_seq = decode_onehot(inferred_outputs, data_source)
-            logging.info('Gold seq: %s\nInferred seq: %s\n', gold_seq[0],
-                         inferred_seq[0])
+            for i in range(0,no_logged_examples):
+                logging.info('\nGold seq:\n %s\nInferred seq:\n %s\n', gold_seq[i],
+                            inferred_seq[i])
+        no_batches += 1
     avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
     return avg_metrics
 
@@ -438,8 +442,8 @@ def train_model(learning_rate: float = None,
                 }
                 no_batches += 1
                 # only train for 1 batch (for now)
-                if no_batches == 1:
-                    break
+                # if no_batches == 1:
+                #     break
             train_metrics = {
                 key: train_metrics[key] / no_batches for key in train_metrics
             }
@@ -449,7 +453,7 @@ def train_model(learning_rate: float = None,
                                          data_source = data_source,
                                          bos_encoding = bos_encoding,
                                          predicted_output_length = max_out_len,
-                                         logging_step=10)
+                                         no_logged_examples=3)
             log(epoch, train_metrics, dev_metrics)
 
         logging.info('Done training')
@@ -461,18 +465,19 @@ def main(_):
     """Load the cfq data and train the model"""
     # prepare data source
     data_source = inp.CFQDataSource(seed=FLAGS.seed, 
-                                    fixed_output_len=False)
+                                    fixed_output_len=False,
+                                    cfq_split='random_split')
     
     # train model
     trained_model = train_model(
         learning_rate=FLAGS.learning_rate,
-        num_epochs=1,
+        num_epochs=2,
         max_out_len = FLAGS.max_query_length,
         # num_epochs=FLAGS.num_epochs,
         seed=FLAGS.seed,
         data_source=data_source,
         batch_size=FLAGS.batch_size,
-        bucketing=False)
+        bucketing=True)
 
 
 if __name__ == '__main__':
