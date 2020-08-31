@@ -24,6 +24,8 @@ from absl import logging
 import tensorflow_datasets as tfds
 import tensorflow.compat.v2 as tf
 import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
 
 import jax
 import jax.numpy as jnp
@@ -412,6 +414,28 @@ def evaluate_model(model: nn.Module,
     avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
     return avg_metrics
 
+def plot_metrics(metrics: Dict[Text,float], no_epochs):
+  """Plot metrics and save figs in temp"""
+  x = range(1,no_epochs+1)
+
+  # plot accuracies
+  plt.plot(x, metrics[constants.TRAIN_ACCURACIES], label='train acc')
+  plt.plot(x, metrics[constants.TEST_ACCURACIES], label='test acc')
+  plt.xlabel('Epoch')
+  plt.title("Accuracies")
+  plt.legend()
+  plt.show()
+  plt.savefig('temp/accuracies.png')
+  plt.clf()
+  # plot losses
+  plt.plot(x, metrics[constants.TRAIN_LOSSES], label='train loss')
+  plt.plot(x, metrics[constants.TEST_LOSSES], label='test loss')
+  plt.xlabel('Epoch')
+  plt.title("Losses")
+  plt.legend()
+  plt.show()
+  plt.savefig('temp/losses.png')
+  plt.clf()
 
 def train_model(learning_rate: float = None,
                 num_epochs: int = None,
@@ -449,6 +473,10 @@ def train_model(learning_rate: float = None,
         bos_encoding = onehot(np.array([data_source.bos_idx]),
                               data_source.vocab_size)
         train_metrics = {constants.ACC_KEY: 0, constants.LOSS_KEY: 0}
+        metrics_per_epoch = {constants.TRAIN_ACCURACIES:[],
+                             constants.TRAIN_LOSSES: [],
+                             constants.TEST_ACCURACIES: [],
+                             constants.TEST_LOSSES: []}
         for epoch in range(num_epochs):
 
             no_batches = 0
@@ -463,8 +491,8 @@ def train_model(learning_rate: float = None,
                 }
                 no_batches += 1
                 # only train for 1 batch (for now)
-                if no_batches == 1:
-                    break
+                # if no_batches == 1:
+                #     break
             train_metrics = {
                 key: train_metrics[key] / no_batches for key in train_metrics
             }
@@ -476,7 +504,12 @@ def train_model(learning_rate: float = None,
                                          predicted_output_length = max_out_len,
                                          no_logged_examples=3)
             log(epoch, train_metrics, dev_metrics)
-
+            metrics_per_epoch[constants.TRAIN_ACCURACIES].append(train_metrics[constants.ACC_KEY])
+            metrics_per_epoch[constants.TRAIN_LOSSES].append(train_metrics[constants.LOSS_KEY])
+            metrics_per_epoch[constants.TEST_ACCURACIES].append(dev_metrics[constants.ACC_KEY])
+            metrics_per_epoch[constants.TEST_LOSSES].append(dev_metrics[constants.LOSS_KEY])
+        
+        plot_metrics(metrics_per_epoch,num_epochs)
         logging.info('Done training')
 
     return optimizer.target
@@ -492,7 +525,7 @@ def main(_):
     # train model
     trained_model = train_model(
         learning_rate=FLAGS.learning_rate,
-        num_epochs=2,
+        num_epochs=3,
         max_out_len = FLAGS.max_query_length,
         # num_epochs=FLAGS.num_epochs,
         seed=FLAGS.seed,
