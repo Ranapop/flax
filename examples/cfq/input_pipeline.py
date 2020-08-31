@@ -14,7 +14,6 @@
 """CFQ input pipeline."""
 
 # pylint: disable=too-many-arguments,import-error,too-many-instance-attributes,too-many-locals
-import collections
 from typing import Dict, Text
 
 from absl import logging

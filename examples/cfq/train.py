@@ -15,22 +15,16 @@
 # Lint as: python3
 """seq2seq addition example."""
 
-import os
 from typing import Any, Text, Dict
-from absl import app
-from absl import flags
 from absl import logging
 
 import tensorflow_datasets as tfds
 import tensorflow.compat.v2 as tf
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
 
 import jax
 import jax.numpy as jnp
-from jax.config import config
-config.enable_omnistaging()
 
 import flax
 from flax import jax_utils
@@ -39,34 +33,16 @@ from flax import nn
 import input_pipeline as inp
 import constants
 
-os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # or pass as env var
-tf.config.experimental.set_visible_devices([], "GPU")
-
-FLAGS = flags.FLAGS
-
-# not sure the values are jnp.array (they are some arrays, but maybe not jnp.array)
 BatchType = Dict[Text, jnp.array]
 
-flags.DEFINE_float('learning_rate',
-                   default=0.003,
-                   help=('The learning rate for the Adam optimizer.'))
-
-flags.DEFINE_integer('batch_size',
-                     default=constants.DEFAULT_BATCH_SIZE,
-                     help=('Batch size for training.'))
-
-flags.DEFINE_integer('num_epochs',
-                     default=constants.NUM_EPOCHS,
-                     help=('Number of epochs.'))
-
-flags.DEFINE_integer(
-    'max_query_length',
-    default=100,  #92 max in the train dataset
-    help=('Length of the predicted query.'))
-
-flags.DEFINE_integer('seed',
-                     default=0,
-                     help=('Random seed for network initialization.'))
+ACC_KEY = 'accuracy'
+LOSS_KEY = 'loss'
+TRAIN_ACCURACIES = 'train acc'
+TRAIN_LOSSES = 'train loss'
+TEST_ACCURACIES = 'test acc'
+TEST_LOSSES = 'test loss'
+# hyperparams
+LSTM_HIDDEN_SIZE = 512
 
 
 def onehot(sequence: jnp.array, vocab_size: int) -> jnp.array:
@@ -115,7 +91,7 @@ class Encoder(nn.Module):
     def apply(self,
               inputs: jnp.array,
               eos_id: int,
-              hidden_size: int = constants.LSTM_HIDDEN_SIZE):
+              hidden_size: int = LSTM_HIDDEN_SIZE):
         "Apply encoder module"
         # inputs.shape = (batch_size, seq_length, vocab_size).
         batch_size = inputs.shape[0]
@@ -202,7 +178,7 @@ class Seq2seq(nn.Module):
               decoder_inputs: jnp.array,
               eos_id: int,
               teacher_force: bool = True,
-              hidden_size: int = constants.LSTM_HIDDEN_SIZE):
+              hidden_size: int = LSTM_HIDDEN_SIZE):
         """Run the seq2seq model.
 
     Args:
@@ -241,8 +217,8 @@ def create_model(vocab_size: int, eos_id: int) -> nn.Module:
     """Creates a seq2seq model."""
     _, initial_params = Seq2seq.partial(eos_id=eos_id).init_by_shape(
         # need to pass 2 for decoder length as the first token is cut off
-        nn.make_rng(), [((1, 1, vocab_size), jnp.float32),
-                        ((1, 2, vocab_size), jnp.float32)])
+        nn.make_rng(),
+        [((1, 1, vocab_size), jnp.float32), ((1, 2, vocab_size), jnp.float32)])
     model = nn.Model(Seq2seq, initial_params)
     return model
 
@@ -255,17 +231,18 @@ def cross_entropy_loss(logits: jnp.array, labels: jnp.array,
     masked_log_sum = jnp.mean(mask_sequences(log_sum, lengths))
     return -masked_log_sum
 
-def pad_batch_to_max(batch: jnp.array, len: int, max_len: int):
+
+def pad_batch_to_max(batch: jnp.array, seq_len: int, max_len: int):
     """Pads the input array on the 2nd dimension to the given length
     (padding is done with 0)
 
     Args:
       batch: batch array
-      len: 2nd dimension current value
+      seq_len: 2nd dimension current value
       max_len: 2nd dimension desired value
     """
-    padding_size = max_len - len
-    padding = tf.constant([[0,0], [0, padding_size], [0,0]])
+    padding_size = max_len - seq_len
+    padding = tf.constant([[0, 0], [0, padding_size], [0, 0]])
     return tf.pad(batch, padding, "CONSTANT").numpy()
 
 
@@ -278,17 +255,17 @@ def compute_metrics(logits: jnp.array, labels: jnp.array,
     Args:
       logits: predictions, shape (batch_size, logits seq_len, embedding_size)
       labels: predictions, shape (batch_size, labels seq_len, embedding_size)
-      queries_lengths: lengths of gold queries (until eos) 
+      queries_lengths: lengths of gold queries (until eos)
 
     """
     lengths = queries_lengths
     labels_seq_len = labels.shape[1]
     logits_seq_len = logits.shape[1]
-    max_seq_len = max(labels_seq_len,logits_seq_len)
+    max_seq_len = max(labels_seq_len, logits_seq_len)
     if labels_seq_len != max_seq_len:
-      labels = pad_batch_to_max(labels, labels_seq_len, max_seq_len)
+        labels = pad_batch_to_max(labels, labels_seq_len, max_seq_len)
     elif logits_seq_len != max_seq_len:
-      logits = pad_batch_to_max(logits, logits_seq_len, max_seq_len)
+        logits = pad_batch_to_max(logits, logits_seq_len, max_seq_len)
 
     loss = cross_entropy_loss(logits, labels, lengths)
     token_accuracy = jnp.argmax(logits, -1) == jnp.argmax(labels, -1)
@@ -310,11 +287,10 @@ def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
       train_metrics: A dict with the train metrics for this epoch.
       dev_metrics: A dict with the validation metrics for this epoch.
     """
-    logging.info('Epoch %02d train loss %.4f dev loss %.4f train acc %.2f acc %.2f', epoch + 1,
-                 train_metrics[constants.LOSS_KEY],
-                 dev_metrics[constants.LOSS_KEY],
-                 train_metrics[constants.ACC_KEY],
-                 dev_metrics[constants.ACC_KEY])
+    logging.info(
+        'Epoch %02d train loss %.4f dev loss %.4f train acc %.2f dev acc %.2f',
+        epoch + 1, train_metrics[LOSS_KEY], dev_metrics[LOSS_KEY],
+        train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
 @jax.jit
@@ -346,7 +322,7 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, eos_id: int):
 def infer(model: nn.Module, inputs: jnp.array, rng: Any, eos_id: int,
           bos_encoding: jnp.array, predicted_output_length: int):
     """Apply model on inference flow and return predictions.
-    
+
     Args:
         model: the seq2seq model applied
         inputs: batch of input sequences
@@ -358,7 +334,7 @@ def infer(model: nn.Module, inputs: jnp.array, rng: Any, eos_id: int,
     # This simply creates a batch (batch size = inputs.shape[0])
     # filled with sequences of max_output_len of only the bos encoding
     initial_dec_inputs = jnp.tile(bos_encoding,
-                                 (inputs.shape[0], predicted_output_length, 1))
+                                  (inputs.shape[0], predicted_output_length, 1))
     with nn.stochastic(rng):
         _, predictions = model(encoder_inputs=inputs,
                                decoder_inputs=initial_dec_inputs,
@@ -381,22 +357,19 @@ def evaluate_model(model: nn.Module,
         data_source: CFQ data source (needed for vocab size, w2i etc.)
         bos_encoding: encoding of BOS token
         predicted_output_length: how long the predicted sequence should be
-        no_logged_examples: how many examples to log (they will be taken 
+        no_logged_examples: how many examples to log (they will be taken
                             from the first batch, so no_logged_examples
                             should be < batch_size)
-                            if Nine, no logging
+                            if None, no logging
     """
     no_batches = 0
-    avg_metrics = {constants.ACC_KEY: 0, constants.LOSS_KEY: 0}
+    avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
     for batch in tfds.as_numpy(batches):
         batch_ohe = onehot_batch(batch, data_source.vocab_size)
         inputs = batch_ohe[constants.QUESTION_KEY]
         gold_outputs = batch_ohe[constants.QUERY_KEY][:, 1:]
-        inferred_outputs = infer(model, 
-                                 inputs,
-                                 nn.make_rng(),
-                                 data_source.eos_idx,
-                                 bos_encoding,
+        inferred_outputs = infer(model, inputs, nn.make_rng(),
+                                 data_source.eos_idx, bos_encoding,
                                  predicted_output_length)
         metrics = compute_metrics(inferred_outputs, gold_outputs,
                                   batch_ohe[constants.QUERY_LEN_KEY])
@@ -407,35 +380,37 @@ def evaluate_model(model: nn.Module,
             #log the first examples in the batch
             gold_seq = decode_onehot(gold_outputs, data_source)
             inferred_seq = decode_onehot(inferred_outputs, data_source)
-            for i in range(0,no_logged_examples):
-                logging.info('\nGold seq:\n %s\nInferred seq:\n %s\n', gold_seq[i],
-                            inferred_seq[i])
+            for i in range(0, no_logged_examples):
+                logging.info('\nGold seq:\n %s\nInferred seq:\n %s\n',
+                             gold_seq[i], inferred_seq[i])
         no_batches += 1
     avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
     return avg_metrics
 
-def plot_metrics(metrics: Dict[Text,float], no_epochs):
-  """Plot metrics and save figs in temp"""
-  x = range(1,no_epochs+1)
 
-  # plot accuracies
-  plt.plot(x, metrics[constants.TRAIN_ACCURACIES], label='train acc')
-  plt.plot(x, metrics[constants.TEST_ACCURACIES], label='test acc')
-  plt.xlabel('Epoch')
-  plt.title("Accuracies")
-  plt.legend()
-  plt.show()
-  plt.savefig('temp/accuracies.png')
-  plt.clf()
-  # plot losses
-  plt.plot(x, metrics[constants.TRAIN_LOSSES], label='train loss')
-  plt.plot(x, metrics[constants.TEST_LOSSES], label='test loss')
-  plt.xlabel('Epoch')
-  plt.title("Losses")
-  plt.legend()
-  plt.show()
-  plt.savefig('temp/losses.png')
-  plt.clf()
+def plot_metrics(metrics: Dict[Text, float], no_epochs):
+    """Plot metrics and save figs in temp"""
+    x = range(1, no_epochs + 1)
+
+    # plot accuracies
+    plt.plot(x, metrics[TRAIN_ACCURACIES], label='train acc')
+    plt.plot(x, metrics[TEST_ACCURACIES], label='test acc')
+    plt.xlabel('Epoch')
+    plt.title("Accuracies")
+    plt.legend()
+    plt.show()
+    plt.savefig('temp/accuracies.png')
+    plt.clf()
+    # plot losses
+    plt.plot(x, metrics[TRAIN_LOSSES], label='train loss')
+    plt.plot(x, metrics[TEST_LOSSES], label='test loss')
+    plt.xlabel('Epoch')
+    plt.title("Losses")
+    plt.legend()
+    plt.show()
+    plt.savefig('temp/losses.png')
+    plt.clf()
+
 
 def train_model(learning_rate: float = None,
                 num_epochs: int = None,
@@ -472,11 +447,13 @@ def train_model(learning_rate: float = None,
 
         bos_encoding = onehot(np.array([data_source.bos_idx]),
                               data_source.vocab_size)
-        train_metrics = {constants.ACC_KEY: 0, constants.LOSS_KEY: 0}
-        metrics_per_epoch = {constants.TRAIN_ACCURACIES:[],
-                             constants.TRAIN_LOSSES: [],
-                             constants.TEST_ACCURACIES: [],
-                             constants.TEST_LOSSES: []}
+        train_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
+        metrics_per_epoch = {
+            TRAIN_ACCURACIES: [],
+            TRAIN_LOSSES: [],
+            TEST_ACCURACIES: [],
+            TEST_LOSSES: []
+        }
         for epoch in range(num_epochs):
 
             no_batches = 0
@@ -497,42 +474,21 @@ def train_model(learning_rate: float = None,
                 key: train_metrics[key] / no_batches for key in train_metrics
             }
             # evaluate
-            dev_metrics = evaluate_model(model = optimizer.target,
-                                         batches = dev_batches,
-                                         data_source = data_source,
-                                         bos_encoding = bos_encoding,
-                                         predicted_output_length = max_out_len,
+            dev_metrics = evaluate_model(model=optimizer.target,
+                                         batches=dev_batches,
+                                         data_source=data_source,
+                                         bos_encoding=bos_encoding,
+                                         predicted_output_length=max_out_len,
                                          no_logged_examples=3)
             log(epoch, train_metrics, dev_metrics)
-            metrics_per_epoch[constants.TRAIN_ACCURACIES].append(train_metrics[constants.ACC_KEY])
-            metrics_per_epoch[constants.TRAIN_LOSSES].append(train_metrics[constants.LOSS_KEY])
-            metrics_per_epoch[constants.TEST_ACCURACIES].append(dev_metrics[constants.ACC_KEY])
-            metrics_per_epoch[constants.TEST_LOSSES].append(dev_metrics[constants.LOSS_KEY])
-        
-        plot_metrics(metrics_per_epoch,num_epochs)
+            metrics_per_epoch[TRAIN_ACCURACIES].append(train_metrics[ACC_KEY])
+            metrics_per_epoch[TRAIN_LOSSES].append(train_metrics[LOSS_KEY])
+            metrics_per_epoch[TEST_ACCURACIES].append(dev_metrics[ACC_KEY])
+            metrics_per_epoch[TEST_LOSSES].append(dev_metrics[LOSS_KEY])
+
+        plot_metrics(metrics_per_epoch, num_epochs)
         logging.info('Done training')
 
     return optimizer.target
 
 
-def main(_):
-    """Load the cfq data and train the model"""
-    # prepare data source
-    data_source = inp.CFQDataSource(seed=FLAGS.seed, 
-                                    fixed_output_len=False,
-                                    cfq_split='random_split')
-    
-    # train model
-    trained_model = train_model(
-        learning_rate=FLAGS.learning_rate,
-        num_epochs=3,
-        max_out_len = FLAGS.max_query_length,
-        # num_epochs=FLAGS.num_epochs,
-        seed=FLAGS.seed,
-        data_source=data_source,
-        batch_size=FLAGS.batch_size,
-        bucketing=True)
-
-
-if __name__ == '__main__':
-    app.run(main)

@@ -25,14 +25,3 @@ QUESTION_KEY = 'question'
 QUERY_KEY = 'query'
 QUESTION_LEN_KEY = 'question_len'
 QUERY_LEN_KEY = 'query_len'
-
-ACC_KEY = 'accuracy'
-LOSS_KEY = 'loss'
-TRAIN_ACCURACIES = 'train acc'
-TRAIN_LOSSES = 'train loss'
-TEST_ACCURACIES = 'test acc'
-TEST_LOSSES = 'test loss'
-# hyperparams
-NUM_EPOCHS = 750
-LSTM_HIDDEN_SIZE = 512
-DEFAULT_BATCH_SIZE = 2048
