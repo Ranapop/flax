@@ -56,9 +56,13 @@ flags.DEFINE_integer('seed',
                      default=0,
                      help=('Random seed for network initialization.'))
 
-flags.DEFINE_integer('model_dir',
-                     default=None,
-                     help=('Model dir to save model to/load model from.'))                     
+flags.DEFINE_boolean('test',
+                     default=False,
+                     help=('Boolean flag indicating wheter to test model.')) 
+
+flags.DEFINE_string('model_dir',
+                    default=None,
+                    help=('Model dir to save model to/load model from.'))                     
 
 
 def main(_):
@@ -68,16 +72,25 @@ def main(_):
                                     fixed_output_len=False,
                                     cfq_split='random_split')
 
-    # train model
-    trained_model = train.train_model(
-        learning_rate=FLAGS.learning_rate,
-        num_epochs=2,
-        max_out_len=FLAGS.max_query_length,
-        # num_epochs=FLAGS.num_epochs,
-        seed=FLAGS.seed,
-        data_source=data_source,
-        batch_size=FLAGS.batch_size,
-        bucketing=True)
+    should_test = FLAGS.test
+    if should_test:
+        train.test_model(model_dir=FLAGS.model_dir,
+                         data_source=data_source,
+                         max_out_len=FLAGS.max_query_length,
+                         seed=FLAGS.seed,
+                         batch_size=FLAGS.batch_size)
+    else:
+        # train model
+        trained_model = train.train_model(
+            learning_rate=FLAGS.learning_rate,
+            num_epochs=2,
+            max_out_len=FLAGS.max_query_length,
+            # num_epochs=FLAGS.num_epochs,
+            seed=FLAGS.seed,
+            data_source=data_source,
+            batch_size=FLAGS.batch_size,
+            bucketing=True,
+            model_dir=FLAGS.model_dir)
 
 
 if __name__ == '__main__':

@@ -29,6 +29,7 @@ import jax.numpy as jnp
 import flax
 from flax import jax_utils
 from flax import nn
+from flax.training import checkpoints
 
 import input_pipeline as inp
 import constants
@@ -254,7 +255,7 @@ def compute_metrics(logits: jnp.array, labels: jnp.array,
     accuracy at sequence level needs perfect matching of the compared sequences
     Args:
       logits: predictions, shape (batch_size, logits seq_len, embedding_size)
-      labels: predictions, shape (batch_size, labels seq_len, embedding_size)
+      labels: gold labels, shape (batch_size, labels seq_len, embedding_size)
       queries_lengths: lengths of gold queries (until eos)
 
     """
@@ -418,7 +419,8 @@ def train_model(learning_rate: float = None,
                 seed: int = None,
                 data_source: inp.CFQDataSource = None,
                 batch_size: int = None,
-                bucketing: bool = False):
+                bucketing: bool = False,
+                model_dir=None):
     """ Train model on num_epochs
 
     Do the training on data_source.train_dataset and evaluate on
@@ -468,8 +470,8 @@ def train_model(learning_rate: float = None,
                 }
                 no_batches += 1
                 # only train for 1 batch (for now)
-                # if no_batches == 1:
-                #     break
+                if no_batches == 1:
+                    break
             train_metrics = {
                 key: train_metrics[key] / no_batches for key in train_metrics
             }
@@ -488,7 +490,36 @@ def train_model(learning_rate: float = None,
 
         plot_metrics(metrics_per_epoch, num_epochs)
         logging.info('Done training')
+        
+    #is it ok to only save at the end?
+    if model_dir is not None:
+        logging.info('Saving model at %s', model_dir)
+        checkpoints.save_checkpoint(model_dir, optimizer, num_epochs)
 
     return optimizer.target
 
 
+def test_model(model_dir,
+               data_source: inp.CFQDataSource,
+               max_out_len: int,
+               seed: int,
+               batch_size: int):
+    
+    with nn.stochastic(jax.random.PRNGKey(seed)):
+        model = create_model(data_source.vocab_size, data_source.eos_idx)
+        #do I need to pass learning_rate?
+        optimizer = flax.optim.Adam().create(model)
+        dev_batches = data_source.get_batches(data_source.dev_dataset,
+                                              batch_size=batch_size,
+                                              shuffle=True)
+        bos_encoding = onehot(np.array([data_source.bos_idx]),
+                              data_source.vocab_size)
+        # evaluate
+        dev_metrics = evaluate_model(model=optimizer.target,
+                                     batches=dev_batches,
+                                     data_source=data_source,
+                                     bos_encoding=bos_encoding,
+                                     predicted_output_length=max_out_len,
+                                     no_logged_examples=3)
+        logging.info('Loss %.4f, acc %.2f',
+                      dev_metrics[LOSS_KEY],dev_metrics[ACC_KEY])
