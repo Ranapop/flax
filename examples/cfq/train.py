@@ -253,20 +253,41 @@ def cross_entropy_loss(logits: jnp.array, labels: jnp.array,
     masked_log_sum = jnp.mean(mask_sequences(log_sum, lengths))
     return -masked_log_sum
 
+def pad_batch_to_max(batch: jnp.array, len: int, max_len: int):
+    """Pads the input array on the 2nd dimension to the given length
+    (padding is done with 0)
+
+    Args:
+      batch: batch array
+      len: 2nd dimension current value
+      max_len: 2nd dimension desired value
+    """
+    padding_size = max_len - len
+    padding = tf.constant([[0,0], [0, padding_size], [0,0]])
+    return tf.pad(batch, padding, "CONSTANT").numpy()
+
 
 def compute_metrics(logits: jnp.array, labels: jnp.array,
                     queries_lengths: jnp.array) -> Dict:
     """Computes metrics for a batch of logist & labels and returns those metrics
 
-    The metrics computed are cross entropy loss and mean batch accuracy. The 
+    The metrics computed are cross entropy loss and mean batch accuracy. The
     accuracy at sequence level needs perfect matching of the compared sequences
+    Args:
+      logits: predictions, shape (batch_size, logits seq_len, embedding_size)
+      labels: predictions, shape (batch_size, labels seq_len, embedding_size)
+      queries_lengths: lengths of gold queries (until eos) 
+
     """
     lengths = queries_lengths
-    # make sure the gold and predicted sequence have the same length by 
-    # truncating them
-    min_out_seq_len = min(labels.shape[1],logits.shape[1])
-    labels = labels[0:,:min_out_seq_len,0:]
-    logits = logits[0:,:min_out_seq_len,0:]
+    labels_seq_len = labels.shape[1]
+    logits_seq_len = logits.shape[1]
+    max_seq_len = max(labels_seq_len,logits_seq_len)
+    if labels_seq_len != max_seq_len:
+      labels = pad_batch_to_max(labels, labels_seq_len, max_seq_len)
+    elif logits_seq_len != max_seq_len:
+      logits = pad_batch_to_max(logits, logits_seq_len, max_seq_len)
+
     loss = cross_entropy_loss(logits, labels, lengths)
     token_accuracy = jnp.argmax(logits, -1) == jnp.argmax(labels, -1)
     sequence_accuracy = (jnp.sum(mask_sequences(token_accuracy, lengths),
@@ -442,8 +463,8 @@ def train_model(learning_rate: float = None,
                 }
                 no_batches += 1
                 # only train for 1 batch (for now)
-                # if no_batches == 1:
-                #     break
+                if no_batches == 1:
+                    break
             train_metrics = {
                 key: train_metrics[key] / no_batches for key in train_metrics
             }
