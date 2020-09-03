@@ -11,9 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Preprocessing module"""
+"""Preprocessing module
 
-from typing import Dict, Text, Any
+The preprocessing here is taken from
+https://github.com/google-research/google-research/tree/master/cfq
+to ensure comparable results with the CFQ paper
+"""
+
+from typing import Dict, Text, Callable
 import string
 import tensorflow.compat.v2 as tf
 import constants
@@ -22,7 +27,7 @@ ExampleType = Dict[Text, tf.Tensor]
 
 
 def preprocess_example(example: ExampleType) -> ExampleType:
-    """Preprocess qustion and query"""
+    """Preprocess question and query"""
     example[constants.QUESTION_KEY] = tf_wrap_seq_fun(
         preprocess_question, example[constants.QUESTION_KEY])
     example[constants.QUERY_KEY] = tf_wrap_seq_fun(preprocess_sparql,
@@ -36,7 +41,7 @@ def preprocess_question(tensor: tf.Tensor):
     text = tensor.numpy().decode()
     mapped = map(lambda c: f' {c} ' if c in string.punctuation else c, text)
     preprocessed = ' '.join(''.join(mapped).split())
-    return [preprocessed]
+    return preprocessed
 
 
 def preprocess_sparql(tensor: tf.Tensor):
@@ -59,7 +64,7 @@ def preprocess_sparql(tensor: tf.Tensor):
     return preprocessed_query
 
 
-def tf_wrap_seq_fun(fun: Any, text: tf.Tensor):
+def tf_wrap_seq_fun(fun: Callable[[tf.Tensor], Text], text: tf.Tensor):
     "Apply fun on a string (sequence) with py_function"
     fun_output = tf.py_function(fun, [text], Tout=tf.string)
     fun_output.set_shape(text.get_shape())

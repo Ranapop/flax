@@ -26,7 +26,7 @@ from absl import logging
 import constants
 
 
-def _get_tokens(input_features: Dict, 
+def _get_tokens(input_features: Dict,
                 tokenizer: text.Tokenizer,
                 datasets: Iterable[tf.data.Dataset],
                 preprocessing_fun: Any) -> Iterable[List[bytes]]:
@@ -61,10 +61,10 @@ def build_vocabulary(file_name: Text,
                                                         constants.EOS),
                      preprocessing_fun: Any = lambda x: x) -> Dict[bytes, int]:
     """Returns a vocabulary of tokens with optional minimum frequency.
-    The vocabulary is saved to a temps file
+    The vocabulary is saved in the file `./temp/<file_name>`.
 
     Args:
-        
+
         special_tokens: Special tokens that will be the start of the vocabulary.
         tokenizer: tf tokenizer (eg. WhitespaceTokenizer)
         datasets: datasets from which the vocabulary should be extracted
@@ -78,18 +78,17 @@ def build_vocabulary(file_name: Text,
     """
 
     vocab_dir = 'temp'
-    vocab_path = vocab_dir+'/'+file_name
+    vocab_path = os.path.join(vocab_dir, file_name)
     if not os.path.exists(vocab_dir):
         os.makedirs(vocab_dir)
-    # Try to read the vocabulary
+    # Try to read the vocabulary.
     if os.path.isfile(vocab_path):
         with open(vocab_path, 'rb') as vocab_file:
             vocab = pickle.load(vocab_file)
-            vocab_file.close()
-            return vocab
+        return vocab
 
     tokens_from_datasets = _get_tokens(input_features,
-                                       tokenizer, 
+                                       tokenizer,
                                        datasets,
                                        preprocessing_fun)
 
@@ -103,7 +102,7 @@ def build_vocabulary(file_name: Text,
     for token in special_tokens:
         vocab[token] = len(vocab)
 
-    # Add all other tokens to the vocab 
+    # Add all other tokens to the vocab
     for token, freq in sorted(
             # Sort by frequency (from high to low), and then by token string.
             # This makes sure high frequency tokens get a low token ID.
@@ -117,7 +116,6 @@ def build_vocabulary(file_name: Text,
     # Save the vocabulary to disk
     with open(vocab_path, 'wb') as vocab_file:
         pickle.dump(vocab, vocab_file)
-        vocab_file.close()
 
     return vocab
 
@@ -141,9 +139,8 @@ def get_max_length(dataset: tf.data.Dataset, len_fn: Any):
     dataset: the tensorflow dataset
     len_fn: function that gets as argument a dataset example and returns the length of that example
   """
-    # why is the length field of type int32??
     return dataset.reduce(
-        np.int32(0), 
+        np.int32(0),
         lambda m_len, ex: m_len if m_len > len_fn(ex) else len_fn(ex)).numpy()
 
 
@@ -175,7 +172,7 @@ def get_bucketed_batches(dataset: tf.data.Dataset,
                          seed: int = None,
                          shuffle: bool = False,
                          drop_remainder: bool = False) -> tf.data.Dataset:
-    """Returns padded batches of shuffled CFQ examples bucketed by length.
+    """Returns padded batches of shuffled examples bucketed by length.
   This shuffles the examples randomly each epoch. The random order is
   deterministic and controlled by the seed.
   Batches are padded because sentences have different lengths.
@@ -185,7 +182,7 @@ def get_bucketed_batches(dataset: tf.data.Dataset,
   the contents of the buckets and their order is random each epoch, and
   controlled by the seed.
   Args:
-    dataset: A TF Dataset with SST examples to be shuffled and batched.
+    dataset: A TF Dataset with examples to be shuffled and batched.
     batch_size: The size of each batch.
     bucket_size: How many different lengths go in each bucket.
     max_length: The maximum length to provide a bucket for.
@@ -230,5 +227,3 @@ def get_bucketed_batches(dataset: tf.data.Dataset,
                 num_batches, seed=seed,
                 reshuffle_each_iteration=True).prefetch(constants.AUTOTUNE)
     return dataset.apply(bucket_fn).prefetch(constants.AUTOTUNE)
-
-

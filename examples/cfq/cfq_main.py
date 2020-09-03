@@ -25,11 +25,11 @@ from jax.config import config
 import input_pipeline as inp
 import train
 
-# hyperparam defaults
-DEFAULT_BATCH_SIZE = 2048
-NUM_EPOCHS = 750
-
+# stage out as much as possible to XLA, not only computations depending
+# on arguments, see https://github.com/google/jax/pull/3370
 config.enable_omnistaging()
+# "magic commands" to make sure jax doesn't take too much memory
+# that cuBLAS can't load its kernels into memory.
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # or pass as env var
 tf.config.experimental.set_visible_devices([], "GPU")
 
@@ -40,11 +40,12 @@ flags.DEFINE_float('learning_rate',
                    help=('The learning rate for the Adam optimizer.'))
 
 flags.DEFINE_integer('batch_size',
-                     default=DEFAULT_BATCH_SIZE,
+                     default=2048,
                      help=('Batch size for training.'))
 
-flags.DEFINE_integer('num_epochs',
-                     default=NUM_EPOCHS,
+flags.DEFINE_integer('epochs',
+                     short_name='e',
+                     default=750,
                      help=('Number of epochs.'))
 
 flags.DEFINE_integer(
@@ -56,7 +57,8 @@ flags.DEFINE_integer('seed',
                      default=0,
                      help=('Random seed for network initialization.'))
 
-flags.DEFINE_boolean('test',
+flags.DEFINE_boolean('only_run_test',
+                     short_name='t',
                      default=False,
                      help=('Boolean flag indicating wheter to test model.')) 
 
@@ -72,8 +74,7 @@ def main(_):
                                     fixed_output_len=False,
                                     cfq_split='random_split')
 
-    should_test = FLAGS.test
-    if should_test:
+    if FlAGS.only_run_test:
         train.test_model(model_dir=FLAGS.model_dir,
                          data_source=data_source,
                          max_out_len=FLAGS.max_query_length,
@@ -83,9 +84,8 @@ def main(_):
         # train model
         trained_model = train.train_model(
             learning_rate=FLAGS.learning_rate,
-            num_epochs=2,
+            num_epochs=FLAGS.epochs,
             max_out_len=FLAGS.max_query_length,
-            # num_epochs=FLAGS.num_epochs,
             seed=FLAGS.seed,
             data_source=data_source,
             batch_size=FLAGS.batch_size,
