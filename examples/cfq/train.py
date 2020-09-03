@@ -490,7 +490,7 @@ def train_model(learning_rate: float = None,
 
         plot_metrics(metrics_per_epoch, num_epochs)
         logging.info('Done training')
-        
+
     #is it ok to only save at the end?
     if model_dir is not None:
         logging.info('Saving model at %s', model_dir)
@@ -504,7 +504,7 @@ def test_model(model_dir,
                max_out_len: int,
                seed: int,
                batch_size: int):
-    
+    """Evaluate model at model_dir on dev subset"""
     with nn.stochastic(jax.random.PRNGKey(seed)):
         model = create_model(data_source.vocab_size, data_source.eos_idx)
         #do I need to pass learning_rate?

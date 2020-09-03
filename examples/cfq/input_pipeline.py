@@ -22,7 +22,7 @@ import tensorflow_datasets as tfds
 import tensorflow_text as text
 import jax.numpy as jnp
 
-import utils
+import input_pipeline_utils as inp_utils
 import preprocessing
 import constants
 
@@ -51,17 +51,17 @@ class CFQDataSource:
         self.tokenizer = tokenizer
         self.seed = seed
         self.fixed_output_len = fixed_output_len
-        self.vocab = utils.build_vocabulary(
+        self.vocab = inp_utils.build_vocabulary(
             file_name = 'vocab_'+cfq_split,
-            input_features={constants.QUESTION_KEY, constants.QUERY_KEY},
-            tokenizer=tokenizer,
-            datasets=(train_raw,),
-            preprocessing_fun=preprocessing.preprocess_example)
+            input_features = {constants.QUESTION_KEY, constants.QUERY_KEY},
+            tokenizer = tokenizer,
+            datasets = (train_raw,),
+            preprocessing_fun = preprocessing.preprocess_example)
 
         self.unk_idx = self.vocab[constants.UNK]
         self.bos_idx = self.vocab[constants.BOS]
         self.eos_idx = self.vocab[constants.EOS]
-        self.tf_vocab = utils.build_tf_hashtable(self.vocab, self.unk_idx)
+        self.tf_vocab = inp_utils.build_tf_hashtable(self.vocab, self.unk_idx)
         self.vocab_size = len(self.vocab)
         self.i2w = list(self.vocab.keys())
 
@@ -115,14 +115,16 @@ class CFQDataSource:
         example[constants.QUERY_LEN_KEY] = tf.size(example[constants.QUERY_KEY])
         return example
 
-    def ouput_length_fn(self, example: ExampleType) -> tf.Tensor:
+    def get_output_length(self, example: ExampleType) -> tf.Tensor:
         """Function that takes a dataset entry and returns the query length"""
         return example[constants.QUERY_LEN_KEY]
 
-    def example_length_fn(self, example: ExampleType) -> tf.Tensor:
+    def get_example_length(self, example: ExampleType) -> tf.Tensor:
         """Returns the length of the example for the purpose of the bucketing
         If the output should be of fixed length (self.fixed_output_len=True),
-        then the length of the example is given by the the input/question length
+        then the length of the example is given by the the input (question)
+        length, otherwise the example length is the maximum length of the 2 
+        sequences (input and output)
         """
         question_len = example[constants.QUESTION_LEN_KEY]
         query_len = example[constants.QUERY_LEN_KEY]
@@ -147,13 +149,15 @@ class CFQDataSource:
                     shuffle: bool = False):
         """Returns an iterator with padded batches for the provided dataset."""
         if shuffle:
-            buffer_size = utils.cardinality(dataset)  # The number of examples.
+            buffer_size = inp_utils.cardinality(dataset)  # number of examples.
             dataset = dataset.shuffle(buffer_size,
                                       seed=self.seed,
                                       reshuffle_each_iteration=True)
         if self.fixed_output_len:
-            # only compute the max output length if I need it
-            max_output_len = utils.get_max_length(dataset,self.ouput_length_fn)
+            # max_output_len only needs to be computed if the output is padded
+            # to a fixed length across the dataset
+            max_output_len = inp_utils.get_max_length(dataset,
+                                                      self.get_output_length)
             padded_shapes = self.get_padded_shapes(max_output_len)
         else:
             padded_shapes = self.get_padded_shapes(None)
@@ -168,33 +172,27 @@ class CFQDataSource:
                              drop_remainder: bool = False,
                              shuffle: bool = False):
         """Returns an iterator with bucketed batches for the provided dataset."""
-        max_length = utils.get_max_length(dataset,self.ouput_length_fn)
+        max_length = inp_utils.get_max_length(dataset, self.get_output_length)
         padded_shapes = self.get_padded_shapes(max_length)
-        return utils.get_bucketed_batches(dataset = dataset,
-                                          batch_size = batch_size,
-                                          bucket_size = bucket_size,
-                                          max_length = max_length,
-                                          padded_shapes = padded_shapes,
-                                          example_size_fn = self.example_length_fn,
-                                          seed = self.seed,
-                                          shuffle=shuffle,
-                                          drop_remainder=drop_remainder)
+        return inp_utils.get_bucketed_batches(
+            dataset = dataset,
+            batch_size = batch_size,
+            bucket_size = bucket_size,
+            max_length = max_length,
+            padded_shapes = padded_shapes,
+            example_size_fn = self.get_example_length,
+            seed = self.seed,
+            shuffle=shuffle,
+            drop_remainder=drop_remainder)
 
 
 if __name__ == '__main__':
     #TODO: remove this and add tests
     data_source = CFQDataSource(seed=13467, fixed_output_len=True)
-    # train_batches = get_batches(
-    #     data_source.train_dataset, batch_size=5)
     train_batches = data_source.get_batches(data_source.train_dataset,
                                             batch_size = 5,
                                             drop_remainder = False,
                                             shuffle = True)
-    # train_batches = data_source.get_bucketed_batches(data_source.train_dataset,
-    #                                                  batch_size=20,
-    #                                                  bucket_size=8,
-    #                                                  drop_remainder=False,
-    #                                                  shuffle=True)
     batch = next(tfds.as_numpy(train_batches.skip(4)))
     questions, queries, lengths = batch[constants.QUESTION_KEY], batch[
         constants.QUERY_KEY], batch[constants.QUESTION_LEN_KEY]
