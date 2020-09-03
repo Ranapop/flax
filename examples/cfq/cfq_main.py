@@ -74,7 +74,7 @@ def main(_):
                                     fixed_output_len=False,
                                     cfq_split='random_split')
 
-    if FlAGS.only_run_test:
+    if FLAGS.only_run_test:
         train.test_model(model_dir=FLAGS.model_dir,
                          data_source=data_source,
                          max_out_len=FLAGS.max_query_length,
