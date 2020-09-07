@@ -192,13 +192,6 @@ class Seq2seq(nn.Module):
           embedding_init=nn.initializers.normal(stddev=1.0))
         encoder, decoder = self._create_modules(eos_id, hidden_size)
 
-        embedding = nn.Embed(
-          encoder_inputs,
-          num_embeddings=vocab_size,
-          features=emb_dim,
-          embedding_init=nn.initializers.normal(stddev=1.0))
-        # emb_inputs = embedding(encoder_inputs)
-
         # Encode inputs
         init_decoder_state = encoder(
             encoder_inputs,
