@@ -59,15 +59,17 @@ def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
         sequence_batch.shape[1]))
 
 
-def create_model(vocab_size: int, eos_id: int) -> nn.Module:
+def create_model(vocab_size: int) -> nn.Module:
     """Creates a seq2seq model."""
-    _, initial_params = models.Seq2seq.partial(eos_id=eos_id,
-                                        vocab_size=vocab_size).init_by_shape(
-                                            nn.make_rng(),
-                                            [((1, 1), jnp.int32),
-                                            # need to pass 2 for decoder length
-                                            # as the first token is cut off
-                                            ((1, 2), jnp.int32)])
+    _, initial_params = models.Seq2seq.partial(
+        vocab_size=vocab_size).init_by_shape(nn.make_rng(),
+                                             #encoder_inputs
+                                             [((1, 1), jnp.int32),
+                                             #decoder_inputs
+                                             # need to pass 2 for decoder length
+                                             # as the first token is cut off
+                                             ((1, 2), jnp.int32),
+                                             ((1,), jnp.int32)])
     model = nn.Model(models.Seq2seq, initial_params)
     return model
 
@@ -143,15 +145,15 @@ def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
         train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
-@jax.partial(jax.jit, static_argnums=4)
+@jax.partial(jax.jit, static_argnums=3)
 def train_step(optimizer: Any,
                batch: BatchType,
                rng: Any,
-               eos_id: int,
                vocab_size: int):
     """Train one step."""
 
     inputs = batch[constants.QUESTION_KEY]
+    input_lengths = batch[constants.QUESTION_LEN_KEY]
     labels = batch[constants.QUERY_KEY]
     labels_no_bos = labels[:, 1:]
     queries_lengths = batch[constants.QUERY_LEN_KEY]
@@ -161,7 +163,7 @@ def train_step(optimizer: Any,
         with nn.stochastic(rng):
             logits, predictions = model(encoder_inputs=inputs,
                                   decoder_inputs=labels,
-                                  eos_id=eos_id,
+                                  encoder_inputs_lengths=input_lengths,
                                   vocab_size=vocab_size)
         loss = cross_entropy_loss(logits,
                                   common_utils.onehot(labels_no_bos, vocab_size),
@@ -181,8 +183,8 @@ def train_step(optimizer: Any,
 @jax.partial(jax.jit, static_argnums=[4,6])
 def infer(model: nn.Module,
           inputs: jnp.array,
+          inputs_lengths: jnp.array,
           rng: Any,
-          eos_id: int,
           vocab_size: int,
           bos_encoding: jnp.array,
           predicted_output_length: int):
@@ -192,7 +194,6 @@ def infer(model: nn.Module,
         model: the seq2seq model applied
         inputs: batch of input sequences
         rng: rng
-        eos_id: index of EOS token in the vocabulary
         vocab_size: size of vocabulary
         bos_encoding: id the BOS token
         predicted_output_length: what length should predict for the output
@@ -205,7 +206,7 @@ def infer(model: nn.Module,
     with nn.stochastic(rng):
         logits, predictions = model(encoder_inputs=inputs,
                                decoder_inputs=initial_dec_inputs,
-                               eos_id=eos_id,
+                               encoder_inputs_lengths=inputs_lengths,
                                vocab_size=vocab_size,
                                teacher_force=False)
     return logits, predictions
@@ -232,9 +233,11 @@ def evaluate_model(model: nn.Module,
     avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
     for batch in tfds.as_numpy(batches):
         inputs = batch[constants.QUESTION_KEY]
+        input_lengths = batch[constants.QUESTION_LEN_KEY]
         gold_outputs = batch[constants.QUERY_KEY][:, 1:]
-        _, inferred_outputs = infer(model, inputs, nn.make_rng(),
-                                         data_source.eos_idx,
+        _, inferred_outputs = infer(model, inputs,
+                                         input_lengths,
+                                         nn.make_rng(),
                                          data_source.vocab_size,
                                          data_source.bos_idx,
                                          predicted_output_length)
@@ -298,7 +301,7 @@ def train_model(learning_rate: float = None,
     """
 
     with nn.stochastic(jax.random.PRNGKey(seed)):
-        model = create_model(data_source.vocab_size, data_source.eos_idx)
+        model = create_model(data_source.vocab_size)
         optimizer = flax.optim.Adam(learning_rate=learning_rate).create(model)
 
         if bucketing:
@@ -331,7 +334,6 @@ def train_model(learning_rate: float = None,
                 optimizer, metrics = train_step(optimizer, 
                                                 batch,
                                                 nn.make_rng(),
-                                                data_source.eos_idx,
                                                 data_source.vocab_size)
                 train_metrics = {
                     key: train_metrics[key] + metrics[key]
@@ -374,7 +376,7 @@ def test_model(model_dir,
                batch_size: int):
     """Evaluate model at model_dir on dev subset"""
     with nn.stochastic(jax.random.PRNGKey(seed)):
-        model = create_model(data_source.vocab_size, data_source.eos_idx)
+        model = create_model(data_source.vocab_size)
         optimizer = flax.optim.Adam().create(model)
         dev_batches = data_source.get_batches(data_source.dev_dataset,
                                               batch_size=batch_size,

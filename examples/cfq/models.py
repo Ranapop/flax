@@ -30,45 +30,17 @@ class Encoder(nn.Module):
 
     def apply(self,
               inputs: jnp.array,
+              lengths: jnp.array,
               shared_embedding: nn.Module,
-              eos_id: int,
               hidden_size: int = LSTM_HIDDEN_SIZE):
         "Apply encoder module"
-        # inputs.shape = (batch_size, seq_length, vocab_size).
-        batch_size = inputs.shape[0]
-
-        lstm_cell = nn.LSTMCell.shared(name='lstm')
-        init_lstm_state = nn.LSTMCell.initialize_carry(nn.make_rng(),
-                                                       (batch_size,),
-                                                       hidden_size)
-
-        def encode_step_fn(carry, x):
-            lstm_state, is_eos = carry
-            new_lstm_state, y = lstm_cell(lstm_state, x)
-
-            # Pass forward the previous state if EOS has already been reached.
-            def select_carried_state(new_state, old_state):
-                return jnp.where(is_eos[:, jnp.newaxis], old_state, new_state)
-
-            # LSTM state is a tuple (c, h).
-            carried_lstm_state = tuple(
-                select_carried_state(*s)
-                for s in zip(new_lstm_state, lstm_state))
-            # Update `is_eos`.
-            is_eos = jnp.logical_or(is_eos, x[:, eos_id])
-            return (carried_lstm_state, is_eos), y
-
+        
         inputs = shared_embedding(inputs)
-        init_carry = (init_lstm_state, jnp.zeros(batch_size, dtype=np.bool))
-        if self.is_initializing():
-            # initialize parameters before scan
-            encode_step_fn(init_carry, inputs[:, 0])
+        lstm = nn.LSTM.partial(hidden_size=hidden_size,
+                               num_layers=1).shared(name='lstm')
+        outputs, final_states = lstm(inputs, lengths)
+        return final_states[-1]
 
-        (final_state, _), _ = jax_utils.scan_in_dim(encode_step_fn,
-                                                    init=init_carry,
-                                                    xs=inputs,
-                                                    axis=1)
-        return final_state
 
 class Decoder(nn.Module):
     """LSTM decoder."""
@@ -110,16 +82,16 @@ class Decoder(nn.Module):
 class Seq2seq(nn.Module):
     """Sequence-to-sequence class using encoder/decoder architecture."""
 
-    def _create_modules(self, eos_id, hidden_size):
-        encoder = Encoder.partial(
-            eos_id=eos_id, hidden_size=hidden_size).shared(name='encoder')
+    def _create_modules(self, hidden_size):
+        encoder = Encoder.partial(hidden_size=hidden_size).shared(
+                                                            name='encoder')
         decoder = Decoder.shared(name='decoder')
         return encoder, decoder
 
     def apply(self,
               encoder_inputs: jnp.array,
               decoder_inputs: jnp.array,
-              eos_id: int,
+              encoder_inputs_lengths: jnp.array,
               vocab_size: int,
               emb_dim: int = EMBEDDING_DIM,
               teacher_force: bool = True,
@@ -136,12 +108,12 @@ class Seq2seq(nn.Module):
         is forced into the model and samples are used for the following inputs.
         The second dimension of this tensor determines how many steps will be
         decoded, regardless of the value of `teacher_force`.
+      encoder_inputs_lengths: input sequences lengths [batch_size]
       vocab_size: size of vocabulary
       emb_dim: embedding dimension
       teacher_force: bool, whether to use `decoder_inputs` as input to the
         decoder at every step. If False, only the first input is used, followed
         by samples taken from the previous output logits.
-      eos_id: int, the token signaling when the end of a sequence is reached.
       hidden_size: int, the number of hidden dimensions in the encoder and
         decoder LSTMs.
       Returns:
@@ -153,11 +125,12 @@ class Seq2seq(nn.Module):
           num_embeddings=vocab_size,
           features=emb_dim,
             embedding_init=nn.initializers.normal(stddev=1.0))
-        encoder, decoder = self._create_modules(eos_id, hidden_size)
+        encoder, decoder = self._create_modules(hidden_size)
 
         # Encode inputs
         init_decoder_state = encoder(
             encoder_inputs,
+            encoder_inputs_lengths,
             shared_embedding)
         # Decode outputs.
         logits, predictions = decoder(
