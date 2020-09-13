@@ -41,6 +41,51 @@ class Encoder(nn.Module):
         outputs, final_states = lstm(inputs, lengths)
         return final_states[-1]
 
+class MlpAttention(nn.Module):
+  """MLP attention module that returns a scalar score for each key."""
+
+  def apply(self,
+            query: jnp.ndarray,
+            keys: jnp.ndarray,
+            mask: jnp.ndarray,
+            hidden_size: int = None) -> jnp.ndarray:
+    """Computes MLP-based attention based on keys and a query.
+
+    Attention scores are computed by feeding the keys and query through an MLP. 
+    This results in a single scalar per key, and for each sequence the attention
+    scores are normalized using a softmax so that they sum to 1. Invalid key
+    positions are ignored as indicated by the mask. This is also called
+    "Bahdanau attention" and was originally proposed in:
+    ```
+    Bahdanau et al., 2015. Neural Machine Translation by Jointly Learning to
+    Align and Translate. ICLR. https://arxiv.org/abs/1409.0473
+    ```
+
+    Args:
+      query: The query with which to compute attention. Shape: 
+        <float32>[batch_size, 1, query_size].
+      keys: The inputs for which to compute an attention score. Shape:
+        <float32>[batch_size, seq_length, keys_size].
+      mask: A mask that determinines which values in `keys` are valid. Only
+        values for which the mask is True will get non-zero attention scores.
+        <bool>[batch_size, seq_length].
+      hidden_size: The hidden size of the MLP that computes the attention score.
+
+    Returns:
+      The normalized attention scores. <float32>[batch_size, seq_length].
+    """
+    # The projected_keys could be cached, since typically multiple keys are
+    # compared with the same projected_keys.
+    projected_keys = nn.Dense(keys, hidden_size, name='keys', bias=False)
+    projected_query = nn.Dense(query, hidden_size, name='query', bias=False)
+    # Query broadcasts in the sum below along the time (seq_length) dimension.
+    energy = nn.tanh(projected_keys + projected_query)
+    scores = nn.Dense(energy, 1, name='energy', bias=False)
+    scores = scores.squeeze(-1)  # New shape: <float32>[batch_size, seq_len].
+    scores = jnp.where(mask, scores, -jnp.inf)  # Using exp(-inf) = 0 below.
+    scores = nn.softmax(scores, axis=-1)
+
+    return scores  # Shape: <float32>[batch_size, seq_len]
 
 class Decoder(nn.Module):
     """LSTM decoder."""

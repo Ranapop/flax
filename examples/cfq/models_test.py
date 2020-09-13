@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 from flax import nn
 
-from models import Encoder, Decoder, Seq2seq
+from models import Encoder, MlpAttention, Decoder, Seq2seq
 
 class ModelsTest(parameterized.TestCase):
 
@@ -79,6 +79,25 @@ class ModelsTest(parameterized.TestCase):
                                      teacher_force=False)
         self.assertEqual(logits.shape, (batch_size, max_len, vocab_size))
         self.assertEqual(predictions.shape, (batch_size, max_len))
+
+
+    def test_mlp_attenntion(self):
+      batch_size = 2
+      seq_len = 4
+      q1 = [1,2,3]
+      q2 = [4,5,6]
+      query = jnp.array([[q1],[q2]])
+      keys = jnp.array([[[1,1,1,1],[2,2,2,2],[3,3,3,3],[4,4,4,4]],
+                        [[5,5,5,5],[6,6,6,6],[7,7,7,7],[8,8,8,8]]])
+      mask = jnp.array([[True,True,False,False],
+                        [True,True,True,False]])
+      mlp_attention = MlpAttention.partial(hidden_size=20)
+      with nn.stochastic(jax.random.PRNGKey(0)):
+        scores, _ = mlp_attention.init(nn.make_rng(),
+                                  query=query,
+                                  keys=keys,
+                                  mask=mask)
+        self.assertEqual(scores.shape, (batch_size, seq_len))
 
     def test_seq_2_seq(self):
       vocab_size = 10
