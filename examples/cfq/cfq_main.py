@@ -31,6 +31,7 @@ config.enable_omnistaging()
 # "magic commands" to make sure jax doesn't take too much memory
 # that cuBLAS can't load its kernels into memory.
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # or pass as env var
+# prevent tf from using the GPU
 tf.config.experimental.set_visible_devices([], "GPU")
 
 FLAGS = flags.FLAGS
@@ -40,7 +41,7 @@ flags.DEFINE_float('learning_rate',
                    help=('The learning rate for the Adam optimizer.'))
 
 flags.DEFINE_integer('batch_size',
-                     default=2048,
+                     default=256,
                      help=('Batch size for training.'))
 
 flags.DEFINE_integer('epochs',

@@ -14,7 +14,7 @@
 
 # Lint as: python3
 """Module with defined models"""
-
+from typing import Tuple
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -24,6 +24,7 @@ from flax import nn
 # hyperparams
 LSTM_HIDDEN_SIZE = 512
 EMBEDDING_DIM = 200
+ATTENTION_SIZE = 100
 
 class Encoder(nn.Module):
     """LSTM encoder, returning state after EOS is input."""
@@ -39,14 +40,15 @@ class Encoder(nn.Module):
         lstm = nn.LSTM.partial(hidden_size=hidden_size,
                                num_layers=1).shared(name='lstm')
         outputs, final_states = lstm(inputs, lengths)
-        return final_states[-1]
+        return outputs, final_states[-1]
 
 class MlpAttention(nn.Module):
   """MLP attention module that returns a scalar score for each key."""
 
   def apply(self,
             query: jnp.ndarray,
-            keys: jnp.ndarray,
+            projected_keys: jnp.ndarray,
+            values: jnp.ndarray,
             mask: jnp.ndarray,
             hidden_size: int = None) -> jnp.ndarray:
     """Computes MLP-based attention based on keys and a query.
@@ -62,36 +64,41 @@ class MlpAttention(nn.Module):
     ```
 
     Args:
-      query: The query with which to compute attention. Shape: 
+      query: The query with which to compute attention. Shape:
         <float32>[batch_size, 1, query_size].
-      keys: The inputs for which to compute an attention score. Shape:
-        <float32>[batch_size, seq_length, keys_size].
+      projected_keys: The inputs multiplied with a weight matrix. Shape:
+        <float32>[batch_size, seq_length, attention_size].
+      values: The values to be weighted [batch_size, seq_length, values_size]
       mask: A mask that determinines which values in `keys` are valid. Only
         values for which the mask is True will get non-zero attention scores.
         <bool>[batch_size, seq_length].
       hidden_size: The hidden size of the MLP that computes the attention score.
 
     Returns:
-      The normalized attention scores. <float32>[batch_size, seq_length].
+      The weighted values (context vector) [batch_size, seq_len]
     """
     # The projected_keys could be cached, since typically multiple keys are
     # compared with the same projected_keys.
-    projected_keys = nn.Dense(keys, hidden_size, name='keys', bias=False)
+    # projected_keys = nn.Dense(keys, hidden_size, name='keys', bias=False)
     projected_query = nn.Dense(query, hidden_size, name='query', bias=False)
     # Query broadcasts in the sum below along the time (seq_length) dimension.
     energy = nn.tanh(projected_keys + projected_query)
     scores = nn.Dense(energy, 1, name='energy', bias=False)
     scores = scores.squeeze(-1)  # New shape: <float32>[batch_size, seq_len].
+    # TODO: see if I can rewrite this to not have the squeezing and unsqueezing
     scores = jnp.where(mask, scores, -jnp.inf)  # Using exp(-inf) = 0 below.
     scores = nn.softmax(scores, axis=-1)
 
-    return scores  # Shape: <float32>[batch_size, seq_len]
+    attention = jnp.sum(jnp.expand_dims(scores,2) * values, axis=1)
+    return attention  # Shape: <float32>[batch_size, seq_len]
 
 class Decoder(nn.Module):
     """LSTM decoder."""
 
     def apply(self, 
               init_state,
+              encoder_hidden_states,
+              attention_mask,
               inputs: jnp.array,
               shared_embedding: nn.Module,
               vocab_size: int,
@@ -99,17 +106,27 @@ class Decoder(nn.Module):
         """Apply decoder model"""
         lstm_cell = nn.LSTMCell.shared(name='lstm')
         projection = nn.Dense.shared(features=vocab_size, name='projection')
+        mlp_attention = MlpAttention.partial(
+                                       hidden_size=ATTENTION_SIZE).shared(name = 'attention')
+        projected_keys = nn.Dense(encoder_hidden_states, ATTENTION_SIZE, name='keys', bias=False)
 
         def decode_step_fn(carry, x):
-            rng, lstm_state, last_prediction = carry
+            rng, (c,h), last_prediction = carry
             carry_rng, categorical_rng = jax.random.split(rng, 2)
             if not teacher_force:
                 x = last_prediction
             x = shared_embedding(x)
-            lstm_state, y = lstm_cell(lstm_state, x)
+            dec_prev_state = jnp.expand_dims(h,1)
+            attention = mlp_attention(dec_prev_state,
+                                        projected_keys,
+                                        encoder_hidden_states,
+                                        attention_mask)
+            lstm_state, y = lstm_cell((c,attention), x)
+            # lstm_state, y = lstm_cell((c,h), x)
             logits = projection(y)
             predicted_tokens = jax.random.categorical(categorical_rng, logits)
-            return (carry_rng, lstm_state, predicted_tokens), (logits, predicted_tokens)
+            predicted_tokens_uint8 = jnp.asarray(predicted_tokens,dtype=jnp.uint8)
+            return (carry_rng, lstm_state, predicted_tokens_uint8), (logits, predicted_tokens_uint8)
 
         init_carry = (nn.make_rng(), init_state, inputs[:, 0])
 
@@ -123,6 +140,12 @@ class Decoder(nn.Module):
             xs=inputs,
             axis=1)
         return logits, predictions
+
+def compute_attention_masks(mask_shape: Tuple,
+                            lengths: jnp.array):
+    mask = np.ones(mask_shape, dtype=bool)
+    mask = mask * (lengths[:, jnp.newaxis] > jnp.arange(mask.shape[1]))
+    return mask
 
 class Seq2seq(nn.Module):
     """Sequence-to-sequence class using encoder/decoder architecture."""
@@ -172,15 +195,20 @@ class Seq2seq(nn.Module):
             embedding_init=nn.initializers.normal(stddev=1.0))
         encoder, decoder = self._create_modules(hidden_size)
 
+        # compute attention masks
+        mask = compute_attention_masks(encoder_inputs.shape,
+                                       encoder_inputs_lengths)
+
         # Encode inputs
-        init_decoder_state = encoder(
+        hidden_states, init_decoder_state = encoder(
             encoder_inputs,
             encoder_inputs_lengths,
             shared_embedding)
         # Decode outputs.
         logits, predictions = decoder(
             init_decoder_state,
-            # why remove the last elem??
+            hidden_states,
+            mask,
             decoder_inputs[:, :-1],
             shared_embedding,
             vocab_size,

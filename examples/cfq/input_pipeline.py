@@ -21,6 +21,7 @@ import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 import tensorflow_text as text
 import jax.numpy as jnp
+import numpy as np
 
 import input_pipeline_utils as inp_utils
 import preprocessing
@@ -59,7 +60,7 @@ class CFQDataSource:
             preprocessing_fun = preprocessing.preprocess_example)
 
         self.unk_idx = self.vocab[constants.UNK]
-        self.bos_idx = self.vocab[constants.BOS]
+        self.bos_idx = np.dtype('uint8').type(self.vocab[constants.BOS])
         self.eos_idx = self.vocab[constants.EOS]
         self.tf_vocab = inp_utils.build_tf_hashtable(self.vocab, self.unk_idx)
         self.vocab_size = len(self.vocab)
@@ -101,7 +102,7 @@ class CFQDataSource:
         it to a list of vocabulary indices, and adding the BOS and EOS tokens"""
         tokenized_seq = self.tf_vocab.lookup(self.tokenizer.tokenize(sequence))
         wrapped_seq = self.add_bos_eos(tokenized_seq)
-        return wrapped_seq
+        return tf.cast(wrapped_seq, tf.uint8)
 
     def prepare_example(self, example: ExampleType) -> ExampleType:
         """Prepares an example by converting to IDs and wrapping in <s> and </s>."""

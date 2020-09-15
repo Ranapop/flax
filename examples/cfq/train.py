@@ -64,12 +64,12 @@ def create_model(vocab_size: int) -> nn.Module:
     _, initial_params = models.Seq2seq.partial(
         vocab_size=vocab_size).init_by_shape(nn.make_rng(),
                                              #encoder_inputs
-                                             [((1, 1), jnp.int32),
+                                             [((1, 1), jnp.uint8),
                                              #decoder_inputs
                                              # need to pass 2 for decoder length
                                              # as the first token is cut off
-                                             ((1, 2), jnp.int32),
-                                             ((1,), jnp.int32)])
+                                             ((1, 2), jnp.uint8),
+                                             ((1,), jnp.uint8)])
     model = nn.Model(models.Seq2seq, initial_params)
     return model
 
@@ -341,7 +341,7 @@ def train_model(learning_rate: float = None,
                 }
                 no_batches += 1
                 # only train for 1 batch (for now)
-                # if no_batches == 2:
+                # if no_batches == 1:
                 #     break
             train_metrics = {
                 key: train_metrics[key] / no_batches for key in train_metrics
@@ -357,6 +357,8 @@ def train_model(learning_rate: float = None,
             metrics_per_epoch[TRAIN_LOSSES].append(train_metrics[LOSS_KEY])
             metrics_per_epoch[TEST_ACCURACIES].append(dev_metrics[ACC_KEY])
             metrics_per_epoch[TEST_LOSSES].append(dev_metrics[LOSS_KEY])
+            # dev_metrics.block_until_ready()
+            jax.profiler.save_device_memory_profile(f"memory{epoch}.prof")
 
         plot_metrics(metrics_per_epoch, num_epochs)
         logging.info('Done training')
