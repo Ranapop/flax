@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Lint as: python3
-"""Module with defined models"""
+"""Flax modules composing the seq2seq LSTM architecture for CFQ"""
 from typing import Tuple
 import numpy as np
 import jax
@@ -26,21 +26,22 @@ LSTM_HIDDEN_SIZE = 512
 EMBEDDING_DIM = 200
 ATTENTION_SIZE = 100
 
-class Encoder(nn.Module):
-    """LSTM encoder, returning state after EOS is input."""
 
-    def apply(self,
-              inputs: jnp.array,
-              lengths: jnp.array,
-              shared_embedding: nn.Module,
-              hidden_size: int = LSTM_HIDDEN_SIZE):
-        "Apply encoder module"
-        
-        inputs = shared_embedding(inputs)
-        lstm = nn.LSTM.partial(hidden_size=hidden_size,
-                               num_layers=1).shared(name='lstm')
-        outputs, final_states = lstm(inputs, lengths)
-        return outputs, final_states[-1]
+class Encoder(nn.Module):
+  """LSTM encoder, returning state after EOS is input."""
+
+  def apply(self,
+            inputs: jnp.array,
+            lengths: jnp.array,
+            shared_embedding: nn.Module,
+            hidden_size: int = LSTM_HIDDEN_SIZE):
+
+    inputs = shared_embedding(inputs)
+    lstm = nn.LSTM.partial(hidden_size=hidden_size,
+                           num_layers=1).shared(name='lstm')
+    outputs, final_states = lstm(inputs, lengths)
+    return outputs, final_states[-1]
+
 
 class MlpAttention(nn.Module):
   """MLP attention module that returns a scalar score for each key."""
@@ -69,17 +70,14 @@ class MlpAttention(nn.Module):
       projected_keys: The inputs multiplied with a weight matrix. Shape:
         <float32>[batch_size, seq_length, attention_size].
       values: The values to be weighted [batch_size, seq_length, values_size]
-      mask: A mask that determinines which values in `keys` are valid. Only
-        values for which the mask is True will get non-zero attention scores.
-        <bool>[batch_size, seq_length].
+      mask: A mask that determines which values in `projected_keys` are valid.
+        Only values for which the mask is True will get non-zero attention
+        scores. <bool>[batch_size, seq_length].
       hidden_size: The hidden size of the MLP that computes the attention score.
 
     Returns:
       The weighted values (context vector) [batch_size, seq_len]
     """
-    # The projected_keys could be cached, since typically multiple keys are
-    # compared with the same projected_keys.
-    # projected_keys = nn.Dense(keys, hidden_size, name='keys', bias=False)
     projected_query = nn.Dense(query, hidden_size, name='query', bias=False)
     # Query broadcasts in the sum below along the time (seq_length) dimension.
     energy = nn.tanh(projected_keys + projected_query)
@@ -89,82 +87,84 @@ class MlpAttention(nn.Module):
     scores = jnp.where(mask, scores, -jnp.inf)  # Using exp(-inf) = 0 below.
     scores = nn.softmax(scores, axis=-1)
 
-    attention = jnp.sum(jnp.expand_dims(scores,2) * values, axis=1)
+    attention = jnp.sum(jnp.expand_dims(scores, 2) * values, axis=1)
     return attention  # Shape: <float32>[batch_size, seq_len]
 
+
 class Decoder(nn.Module):
-    """LSTM decoder."""
+  """LSTM decoder."""
 
-    def apply(self, 
-              init_state,
-              encoder_hidden_states,
-              attention_mask,
-              inputs: jnp.array,
-              shared_embedding: nn.Module,
-              vocab_size: int,
-              teacher_force: bool = False):
-        """Apply decoder model"""
-        lstm_cell = nn.LSTMCell.shared(name='lstm')
-        projection = nn.Dense.shared(features=vocab_size, name='projection')
-        mlp_attention = MlpAttention.partial(
-                                       hidden_size=ATTENTION_SIZE).shared(name = 'attention')
-        projected_keys = nn.Dense(encoder_hidden_states, ATTENTION_SIZE, name='keys', bias=False)
+  def apply(self,
+            init_state,
+            encoder_hidden_states,
+            attention_mask,
+            inputs: jnp.array,
+            shared_embedding: nn.Module,
+            vocab_size: int,
+            teacher_force: bool = False):
+    lstm_cell = nn.LSTMCell.shared(name='lstm')
+    projection = nn.Dense.shared(features=vocab_size, name='projection')
+    mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE).shared(
+        name='attention')
+    # The keys projection can be calculated once for the whole sequence.
+    projected_keys = nn.Dense(encoder_hidden_states,
+                              ATTENTION_SIZE,
+                              name='keys',
+                              bias=False)
 
-        def decode_step_fn(carry, x):
-            rng, (c,h), last_prediction = carry
-            carry_rng, categorical_rng = jax.random.split(rng, 2)
-            if not teacher_force:
-                x = last_prediction
-            x = shared_embedding(x)
-            dec_prev_state = jnp.expand_dims(h,1)
-            attention = mlp_attention(dec_prev_state,
-                                        projected_keys,
-                                        encoder_hidden_states,
-                                        attention_mask)
-            lstm_state, y = lstm_cell((c,attention), x)
-            # lstm_state, y = lstm_cell((c,h), x)
-            logits = projection(y)
-            predicted_tokens = jax.random.categorical(categorical_rng, logits)
-            predicted_tokens_uint8 = jnp.asarray(predicted_tokens,dtype=jnp.uint8)
-            return (carry_rng, lstm_state, predicted_tokens_uint8), (logits, predicted_tokens_uint8)
+    def decode_step_fn(carry, x):
+      rng, (c, h), last_prediction = carry
+      carry_rng, categorical_rng = jax.random.split(rng, 2)
+      if not teacher_force:
+        x = last_prediction
+      x = shared_embedding(x)
+      dec_prev_state = jnp.expand_dims(h, 1)
+      attention = mlp_attention(dec_prev_state, projected_keys,
+                                encoder_hidden_states, attention_mask)
+      lstm_state, y = lstm_cell((c, attention), x)
+      logits = projection(y)
+      predicted_tokens = jax.random.categorical(categorical_rng, logits)
+      predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
+      return (carry_rng, lstm_state,
+              predicted_tokens_uint8), (logits, predicted_tokens_uint8)
 
-        init_carry = (nn.make_rng(), init_state, inputs[:, 0])
+    init_carry = (nn.make_rng(), init_state, inputs[:, 0])
 
-        if self.is_initializing():
-            # initialize parameters before scan
-            decode_step_fn(init_carry, inputs[:, 0])
+    if self.is_initializing():
+      # initialize parameters before scan
+      decode_step_fn(init_carry, inputs[:, 0])
 
-        _, (logits, predictions) = jax_utils.scan_in_dim(
-            decode_step_fn,
-            init=init_carry,  # rng, lstm_state, last_pred
-            xs=inputs,
-            axis=1)
-        return logits, predictions
+    _, (logits, predictions) = jax_utils.scan_in_dim(
+        decode_step_fn,
+        init=init_carry,  # rng, lstm_state, last_pred
+        xs=inputs,
+        axis=1)
+    return logits, predictions
 
-def compute_attention_masks(mask_shape: Tuple,
-                            lengths: jnp.array):
-    mask = np.ones(mask_shape, dtype=bool)
-    mask = mask * (lengths[:, jnp.newaxis] > jnp.arange(mask.shape[1]))
-    return mask
+
+def compute_attention_masks(mask_shape: Tuple, lengths: jnp.array):
+  mask = np.ones(mask_shape, dtype=bool)
+  mask = mask * (lengths[:, jnp.newaxis] > jnp.arange(mask.shape[1]))
+  return mask
+
 
 class Seq2seq(nn.Module):
-    """Sequence-to-sequence class using encoder/decoder architecture."""
+  """Sequence-to-sequence class using encoder/decoder architecture."""
 
-    def _create_modules(self, hidden_size):
-        encoder = Encoder.partial(hidden_size=hidden_size).shared(
-                                                            name='encoder')
-        decoder = Decoder.shared(name='decoder')
-        return encoder, decoder
+  def _create_modules(self, hidden_size):
+    encoder = Encoder.partial(hidden_size=hidden_size).shared(name='encoder')
+    decoder = Decoder.shared(name='decoder')
+    return encoder, decoder
 
-    def apply(self,
-              encoder_inputs: jnp.array,
-              decoder_inputs: jnp.array,
-              encoder_inputs_lengths: jnp.array,
-              vocab_size: int,
-              emb_dim: int = EMBEDDING_DIM,
-              teacher_force: bool = True,
-              hidden_size: int = LSTM_HIDDEN_SIZE):
-        """Run the seq2seq model.
+  def apply(self,
+            encoder_inputs: jnp.array,
+            decoder_inputs: jnp.array,
+            encoder_inputs_lengths: jnp.array,
+            vocab_size: int,
+            emb_dim: int = EMBEDDING_DIM,
+            teacher_force: bool = True,
+            hidden_size: int = LSTM_HIDDEN_SIZE):
+    """Run the seq2seq model.
 
     Args:
       encoder_inputs: padded batch of input sequences to encode (as vocab 
@@ -187,33 +187,26 @@ class Seq2seq(nn.Module):
       Returns:
         Array of decoded logits.
       """
+    shared_embedding = nn.Embed.shared(
+        num_embeddings=vocab_size,
+        features=emb_dim,
+        embedding_init=nn.initializers.normal(stddev=1.0))
+    encoder, decoder = self._create_modules(hidden_size)
 
-        
-        shared_embedding = nn.Embed.shared(
-          num_embeddings=vocab_size,
-          features=emb_dim,
-            embedding_init=nn.initializers.normal(stddev=1.0))
-        encoder, decoder = self._create_modules(hidden_size)
+    # compute attention masks
+    mask = compute_attention_masks(encoder_inputs.shape, encoder_inputs_lengths)
 
-        # compute attention masks
-        mask = compute_attention_masks(encoder_inputs.shape,
-                                       encoder_inputs_lengths)
+    # Encode inputs
+    hidden_states, init_decoder_state = encoder(encoder_inputs,
+                                                encoder_inputs_lengths,
+                                                shared_embedding)
+    # Decode outputs.
+    logits, predictions = decoder(init_decoder_state,
+                                  hidden_states,
+                                  mask,
+                                  decoder_inputs[:, :-1],
+                                  shared_embedding,
+                                  vocab_size,
+                                  teacher_force=teacher_force)
 
-        # Encode inputs
-        hidden_states, init_decoder_state = encoder(
-            encoder_inputs,
-            encoder_inputs_lengths,
-            shared_embedding)
-        # Decode outputs.
-        logits, predictions = decoder(
-            init_decoder_state,
-            hidden_states,
-            mask,
-            decoder_inputs[:, :-1],
-            shared_embedding,
-            vocab_size,
-            teacher_force=teacher_force)
-
-        return logits, predictions
-
-
+    return logits, predictions

@@ -61,38 +61,39 @@ flags.DEFINE_integer('seed',
 flags.DEFINE_boolean('only_run_test',
                      short_name='t',
                      default=False,
-                     help=('Boolean flag indicating wheter to test model.')) 
+                     help=('Boolean flag indicating wheter to test model.'))
 
 flags.DEFINE_string('model_dir',
                     default=None,
-                    help=('Model dir to save model to/load model from.'))                     
+                    help=('Model dir to save model to/load model from.'))
 
 
 def main(_):
-    """Load the cfq data and train the model"""
-    # prepare data source
-    data_source = inp.CFQDataSource(seed=FLAGS.seed,
-                                    fixed_output_len=False,
-                                    cfq_split='random_split')
+  """Load the cfq data and train the model"""
+  # prepare data source
+  data_source = inp.CFQDataSource(
+      seed=FLAGS.seed,
+      fixed_output_len=False,
+      #TODO: flag for split
+      cfq_split='mcd1')
 
-    if FLAGS.only_run_test:
-        train.test_model(model_dir=FLAGS.model_dir,
-                         data_source=data_source,
-                         max_out_len=FLAGS.max_query_length,
-                         seed=FLAGS.seed,
-                         batch_size=FLAGS.batch_size)
-    else:
-        # train model
-        trained_model = train.train_model(
-            learning_rate=FLAGS.learning_rate,
-            num_epochs=FLAGS.epochs,
-            max_out_len=FLAGS.max_query_length,
-            seed=FLAGS.seed,
-            data_source=data_source,
-            batch_size=FLAGS.batch_size,
-            bucketing=True,
-            model_dir=FLAGS.model_dir)
+  if FLAGS.only_run_test:
+    train.test_model(model_dir=FLAGS.model_dir,
+                     data_source=data_source,
+                     max_out_len=FLAGS.max_query_length,
+                     seed=FLAGS.seed,
+                     batch_size=FLAGS.batch_size)
+  else:
+    # train model
+    trained_model = train.train_model(learning_rate=FLAGS.learning_rate,
+                                      num_epochs=FLAGS.epochs,
+                                      max_out_len=FLAGS.max_query_length,
+                                      seed=FLAGS.seed,
+                                      data_source=data_source,
+                                      batch_size=FLAGS.batch_size,
+                                      bucketing=True,
+                                      model_dir=FLAGS.model_dir)
 
 
 if __name__ == '__main__':
-    app.run(main)
+  app.run(main)
