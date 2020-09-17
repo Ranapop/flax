@@ -211,7 +211,7 @@ def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
                                 decoder_inputs=initial_dec_inputs,
                                 encoder_inputs_lengths=inputs_lengths,
                                 vocab_size=vocab_size,
-                                teacher_force=False)
+                                train=False)
   return logits, predictions
 
 
