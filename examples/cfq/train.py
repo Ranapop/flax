@@ -23,6 +23,7 @@ import tensorflow.compat.v2 as tf
 import numpy as np
 import matplotlib.pyplot as plt
 
+import functools
 import jax
 import jax.numpy as jnp
 
@@ -149,10 +150,12 @@ def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
-@jax.partial(jax.jit, static_argnums=3)
-def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
+# @jax.partial(jax.jit, static_argnums=3) Will I not have a drop in performance
+@functools.partial(jax.pmap, axis_name='batch', static_broadcasted_argnums=(2))
+def train_step(optimizer: Any, batch: BatchType, vocab_size: int):
   """Train one step."""
 
+  rng = nn.make_rng()
   inputs = batch[constants.QUESTION_KEY]
   input_lengths = batch[constants.QUESTION_LEN_KEY]
   labels = batch[constants.QUERY_KEY]
@@ -173,11 +176,13 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
 
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
   (_, logits), grad = grad_fn(optimizer.target)
+  grad = jax.lax.pmean(grad, axis_name='batch')
   optimizer = optimizer.apply_gradient(grad)
   metrics = {}
   metrics = compute_metrics(logits,
                             common_utils.onehot(labels_no_bos, vocab_size),
                             queries_lengths)
+  metrics = jax.lax.pmean(metrics, axis_name='batch')
   return optimizer, metrics
 
 
@@ -277,6 +282,9 @@ def plot_metrics(metrics: Dict[Text, float], no_epochs):
   plt.savefig('temp/losses.png')
   plt.clf()
 
+def shard(xs):
+  return jax.tree_map(
+      lambda x: x.reshape((jax.device_count(), -1) + x.shape[1:]), xs)
 
 def train_model(learning_rate: float = None,
                 num_epochs: int = None,
@@ -285,7 +293,8 @@ def train_model(learning_rate: float = None,
                 data_source: inp.CFQDataSource = None,
                 batch_size: int = None,
                 bucketing: bool = False,
-                model_dir=None):
+                model_dir=None,
+                multiple_devices=True):
   """ Train model on num_epochs
 
     Do the training on data_source.train_dataset and evaluate on
@@ -295,13 +304,15 @@ def train_model(learning_rate: float = None,
   with nn.stochastic(jax.random.PRNGKey(seed)):
     model = create_model(data_source.vocab_size)
     optimizer = flax.optim.Adam(learning_rate=learning_rate).create(model)
+    if multiple_devices:
+      optimizer = jax_utils.replicate(optimizer)
 
     if bucketing:
       train_batches = data_source.get_bucketed_batches(
           data_source.train_dataset,
           batch_size=batch_size,
           bucket_size=8,
-          drop_remainder=False,
+          drop_remainder=True,
           shuffle=True)
     else:
       train_batches = data_source.get_batches(data_source.train_dataset,
@@ -322,9 +333,15 @@ def train_model(learning_rate: float = None,
     for epoch in range(num_epochs):
       no_batches = 0
       for batch in tfds.as_numpy(train_batches):
-        batch = jax.tree_map(lambda x: x, batch)
-        optimizer, metrics = train_step(optimizer, batch, nn.make_rng(),
+        if batch_size % jax.device_count() > 0:
+          raise ValueError('Batch size must be divisible by the number of devices')
+        batch = shard(batch)
+        optimizer, metrics = train_step(optimizer, batch,
                                         data_source.vocab_size)
+        if jax.device_count() > 0:
+          metrics = {
+            key: sum(metrics[key]) / len(metrics[key]) for key in metrics
+          }
         train_metrics = {
             key: train_metrics[key] + metrics[key] for key in train_metrics
         }
@@ -336,11 +353,14 @@ def train_model(learning_rate: float = None,
           key: train_metrics[key] / no_batches for key in train_metrics
       }
       # evaluate
-      dev_metrics = evaluate_model(model=optimizer.target,
+      model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
+      dev_metrics = evaluate_model(model=model,
                                    batches=dev_batches,
                                    data_source=data_source,
                                    predicted_output_length=max_out_len,
                                    no_logged_examples=3)
+      print('train metrics')
+      print(train_metrics)
       log(epoch, train_metrics, dev_metrics)
       metrics_per_epoch[TRAIN_ACCURACIES].append(train_metrics[ACC_KEY])
       metrics_per_epoch[TRAIN_LOSSES].append(train_metrics[LOSS_KEY])
