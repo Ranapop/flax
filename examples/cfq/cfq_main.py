@@ -41,7 +41,7 @@ flags.DEFINE_float('learning_rate',
                    help=('The learning rate for the Adam optimizer.'))
 
 flags.DEFINE_integer('batch_size',
-                     default=256,
+                     default=526,
                      help=('Batch size for training.'))
 
 flags.DEFINE_integer('epochs',
@@ -75,7 +75,7 @@ def main(_):
       seed=FLAGS.seed,
       fixed_output_len=False,
       #TODO: flag for split
-      cfq_split='mcd1')
+      cfq_split='random_split')
 
   if FLAGS.only_run_test:
     train.test_model(model_dir=FLAGS.model_dir,

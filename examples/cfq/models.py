@@ -28,6 +28,7 @@ EMBEDDING_DIM = 200
 ATTENTION_SIZE = 100
 NUM_LAYERS = 2
 DROPOUT = 0.4
+NUM_ATTENTION_HEADS = 4
 
 class Encoder(nn.Module):
   """LSTM encoder, returning state after EOS is input."""
@@ -85,7 +86,7 @@ class MlpAttention(nn.Module):
       hidden_size: The hidden size of the MLP that computes the attention score.
 
     Returns:
-      The weighted values (context vector) [batch_size, seq_len]
+      The weighted values (context vector) [batch_size, values_size]
     """
     projected_query = nn.Dense(query, hidden_size, name='query', bias=False)
     # Query broadcasts in the sum below along the time (seq_length) dimension.
@@ -97,8 +98,34 @@ class MlpAttention(nn.Module):
     scores = nn.softmax(scores, axis=-1)
 
     attention = jnp.sum(jnp.expand_dims(scores, 2) * values, axis=1)
-    return attention  # Shape: <float32>[batch_size, seq_len]
+    return attention  # Shape: <float32>[batch_size, values_size]
 
+
+class MultiheadMlpAttention(nn.Module):
+  """MLP attention module with configurable number of heads"""
+
+  def apply(self,
+            num_heads: int,
+            query: jnp.ndarray,
+            projected_keys_list: List,
+            values: jnp.ndarray,
+            mask: jnp.ndarray,
+            hidden_size: int = None) -> jnp.ndarray:
+    values_size = values.shape[-1]
+    dense = nn.Dense.shared(features=values_size, name='attention_projection')
+
+    attentions = []
+    for i in range(num_heads):
+      mlp_attention = MlpAttention.partial(hidden_size=hidden_size)
+      attention = mlp_attention(
+        query,
+        projected_keys_list[i],
+        values,
+        mask)
+      attentions.append(attention)
+    attentions = jnp.concatenate(attentions, axis=0)
+    attention = dense(attentions)
+    return attention
 
 class MultilayerLSTM(nn.Module):
   "LSTM cell with multiple layers"
@@ -175,7 +202,8 @@ class Decoder(nn.Module):
             num_layers: int,
             horizontal_dropout_rate: int,
             vertical_dropout_rate: int,
-            train: bool = False):
+            train: bool = False,
+            num_heads: int = NUM_ATTENTION_HEADS):
     """
     Args
       init_state: state to initialize the decoder hidden state (coming from the
@@ -196,11 +224,16 @@ class Decoder(nn.Module):
     projection = nn.Dense.shared(features=vocab_size, name='projection')
     mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE).shared(
         name='attention')
+    multi_attention = MultiheadMlpAttention.partial(num_heads=1,hidden_size=ATTENTION_SIZE).shared(
+        name='multi_attention')
+    
     # The keys projection can be calculated once for the whole sequence.
-    projected_keys = nn.Dense(encoder_hidden_states,
-                              ATTENTION_SIZE,
-                              name='keys',
-                              bias=False)
+    projected_keys_list = []
+    for i in range(0, num_heads):
+      projected_keys = nn.Dense(encoder_hidden_states,
+                               ATTENTION_SIZE,
+                               bias=False)
+      projected_keys_list.append(projected_keys)
     
     batch_size = encoder_hidden_states.shape[0]
     hidden_size = encoder_hidden_states.shape[-1]
@@ -219,10 +252,19 @@ class Decoder(nn.Module):
         x = last_prediction
       x = shared_embedding(x)
       dec_prev_state = jnp.expand_dims(h, 1)
-      attention = mlp_attention(dec_prev_state, projected_keys,
-                                encoder_hidden_states, attention_mask)
+      attention = multi_attention(
+        query=dec_prev_state,
+        projected_keys_list = projected_keys_list,
+        values = encoder_hidden_states,
+        mask = attention_mask)
+      # print('Multi attention shape')
+      # print(attention)
+      # attention = mlp_attention(dec_prev_state, projected_keys,
+      #                           encoder_hidden_states, attention_mask)
+      # print('Attention shape')
+      # print(attention.shape)
       previous_states[0] = (previous_states[0][0],attention)
-      
+    
       states, y = multilayer_lstm_cell(horizontal_dropout_masks=h_dropout_masks,
                                        vertical_dropout_masks=v_dropout_masks,
                                        input=x,

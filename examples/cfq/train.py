@@ -135,7 +135,7 @@ def compute_metrics(logits: jnp.array, labels: jnp.array,
   return metrics
 
 
-def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
+def log(epoch: int, total_batches: int, train_metrics: Dict, dev_metrics: Dict):
   """Logs performance for an epoch.
 
     Args:
@@ -144,8 +144,8 @@ def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
       dev_metrics: A dict with the validation metrics for this epoch.
     """
   logging.info(
-      'Epoch %02d train loss %.4f dev loss %.4f train acc %.2f dev acc %.2f',
-      epoch + 1, train_metrics[LOSS_KEY], dev_metrics[LOSS_KEY],
+      'Epoch %02d (train example %02d) train loss %.4f dev loss %.4f train acc %.2f dev acc %.2f',
+      epoch + 1, total_batches, train_metrics[LOSS_KEY], dev_metrics[LOSS_KEY],
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
@@ -295,13 +295,14 @@ def train_model(learning_rate: float = None,
   with nn.stochastic(jax.random.PRNGKey(seed)):
     model = create_model(data_source.vocab_size)
     optimizer = flax.optim.Adam(learning_rate=learning_rate).create(model)
+    # optimizer = flax.optim.GradientDescent(learning_rate=learning_rate).create(model)
 
     if bucketing:
       train_batches = data_source.get_bucketed_batches(
           data_source.train_dataset,
           batch_size=batch_size,
-          bucket_size=8,
-          drop_remainder=False,
+          bucket_size=16,
+          drop_remainder=True,
           shuffle=True)
     else:
       train_batches = data_source.get_batches(data_source.train_dataset,
@@ -319,6 +320,7 @@ def train_model(learning_rate: float = None,
         TEST_ACCURACIES: [],
         TEST_LOSSES: []
     }
+    total_batches = 0
     for epoch in range(num_epochs):
       no_batches = 0
       for batch in tfds.as_numpy(train_batches):
@@ -341,7 +343,8 @@ def train_model(learning_rate: float = None,
                                    data_source=data_source,
                                    predicted_output_length=max_out_len,
                                    no_logged_examples=3)
-      log(epoch, train_metrics, dev_metrics)
+      total_batches += no_batches
+      log(epoch, total_batches, train_metrics, dev_metrics)
       metrics_per_epoch[TRAIN_ACCURACIES].append(train_metrics[ACC_KEY])
       metrics_per_epoch[TRAIN_LOSSES].append(train_metrics[LOSS_KEY])
       metrics_per_epoch[TEST_ACCURACIES].append(dev_metrics[ACC_KEY])

@@ -41,15 +41,14 @@ class ModelsTest(parameterized.TestCase):
   def test_mlp_attenntion(self):
     batch_size = 2
     seq_len = 4
+    values_size = 3
     attention_size = 20
     q1 = [1, 2, 3]
     q2 = [4, 5, 6]
     query = jnp.array([[q1], [q2]])
     projected_keys = jnp.zeros((batch_size, seq_len, attention_size))
-    values = jnp.array([[[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4,
-                                                                    4]],
-                        [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8,
-                                                                    8]]])
+    values = jnp.array([[[1, 1, 1], [2, 2, 2], [3, 3, 3], [4, 4, 4]],
+                        [[5, 5, 5], [6, 6, 6], [7, 7, 7], [8, 8, 8]]])
     mask = jnp.array([[True, True, False, False], [True, True, True, False]])
     mlp_attention = MlpAttention.partial(hidden_size=attention_size)
     with nn.stochastic(jax.random.PRNGKey(0)):
@@ -58,7 +57,37 @@ class ModelsTest(parameterized.TestCase):
                                      projected_keys=projected_keys,
                                      values=values,
                                      mask=mask)
-      self.assertEqual(scores.shape, (batch_size, seq_len))
+      self.assertEqual(scores.shape, (batch_size, values_size))
+
+    def test_multi_attenntion(self):
+      batch_size = 2
+      seq_len = 4
+      num_heads = 5
+      values_size = 3
+      attention_size = 20
+      q1 = [1, 2, 3]
+      q2 = [4, 5, 6]
+      query = jnp.array([[q1], [q2]])
+      # list of num_heads elements
+      projected_keys = [jnp.zeros((batch_size, seq_len, attention_size)),
+                        jnp.zeros((batch_size, seq_len, attention_size)),
+                        jnp.zeros((batch_size, seq_len, attention_size)),
+                        jnp.zeros((batch_size, seq_len, attention_size)),
+                        jnp.zeros((batch_size, seq_len, attention_size))]
+      values = jnp.array(
+                [[[1, 1, 1], [2, 2, 2], [3, 3, 3], [4, 4, 4]],
+                [[5, 5, 5], [6, 6, 6], [7, 7, 7], [8, 8, 8]]])
+      mask = jnp.array([[True, True, False, False], [True, True, True, False]])
+      mlp_attention = MlpAttention.partial(
+        num_heads=num_heads,
+        hidden_size=attention_size)
+      with nn.stochastic(jax.random.PRNGKey(0)):
+        scores, _ = mlp_attention.init(nn.make_rng(),
+                                       query=query,
+                                       projected_keys=projected_keys,
+                                       values=values,
+                                       mask=mask)
+        self.assertEqual(scores.shape, (batch_size, values_size))
 
   def test_multilayer_LSTM(self):
     num_layers = 3

@@ -185,20 +185,28 @@ class CFQDataSource:
 if __name__ == '__main__':
   #TODO: remove this and add tests
   data_source = CFQDataSource(seed=13467, fixed_output_len=True)
-  train_batches = data_source.get_batches(data_source.train_dataset,
-                                          batch_size=5,
-                                          drop_remainder=False,
-                                          shuffle=True)
-  batch = next(tfds.as_numpy(train_batches.skip(4)))
-  questions, queries, lengths = batch[constants.QUESTION_KEY], batch[
-      constants.QUERY_KEY], batch[constants.QUESTION_LEN_KEY]
-  questions_strings = []
-  print('Questions')
-  for question in questions:
-    print(data_source.indices_to_sequence_string(question))
-  print()
-  print('Queries')
-  for query in queries:
-    print(data_source.indices_to_sequence_string(query))
-  print('Vocab size')
-  print(data_source.vocab_size)
+  # train_batches = data_source.get_batches(data_source.train_dataset,
+  #                                         batch_size=1024,
+  #                                         drop_remainder=False,
+  #                                         shuffle=True)
+  train_batches = data_source.get_bucketed_batches(
+          data_source.train_dataset,
+          batch_size=1024,
+          bucket_size=8,
+          drop_remainder=True,
+          shuffle=True)
+  for batch in tfds.as_numpy(train_batches):
+    print('Batch size'+str(batch[constants.QUESTION_KEY].shape))
+  # batch = next(tfds.as_numpy(train_batches.skip(4)))
+  # questions, queries, lengths = batch[constants.QUESTION_KEY], batch[
+  #     constants.QUERY_KEY], batch[constants.QUESTION_LEN_KEY]
+  # questions_strings = []
+  # print('Questions')
+  # for question in questions:
+  #   print(data_source.indices_to_sequence_string(question))
+  # print()
+  # print('Queries')
+  # for query in queries:
+  #   print(data_source.indices_to_sequence_string(query))
+  # print('Vocab size')
+  # print(data_source.vocab_size)
