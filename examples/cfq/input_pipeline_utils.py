@@ -137,8 +137,9 @@ def get_max_length(dataset: tf.data.Dataset, len_fn: Any):
     len_fn: function that gets as argument a dataset example and returns the length of that example
   """
   return dataset.reduce(
-      np.int32(0), lambda m_len, ex: m_len
-      if m_len > len_fn(ex) else len_fn(ex)).numpy()
+    np.int32(0),
+    lambda m_len, ex: m_len if m_len > len_fn(ex) else len_fn(ex)
+    ).numpy()
 
 
 def get_bucket_boundaries(bucket_size: int, max_size: int) -> np.ndarray:

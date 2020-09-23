@@ -101,7 +101,9 @@ def pad_batch_to_max(batch: jnp.array, seq_len: int, max_len: int):
   return tf.pad(batch, padding, "CONSTANT").numpy()
 
 
-def compute_metrics(logits: jnp.array, labels: jnp.array,
+def compute_metrics(logits: jnp.array,
+                    predictions: jnp.array,
+                    labels: jnp.array,
                     queries_lengths: jnp.array) -> Dict:
   """Computes metrics for a batch of logist & labels and returns those metrics
 
@@ -110,6 +112,7 @@ def compute_metrics(logits: jnp.array, labels: jnp.array,
     Args:
       logits: logits (train time) or ohe predictions (test time)
               [batch_size, logits seq_len, vocab_size]
+      predictions: ohe predictions
       labels: ohe gold labels, shape [batch_size, labels seq_len, vocab_size]
       queries_lengths: lengths of gold queries (until eos)
 
@@ -122,9 +125,10 @@ def compute_metrics(logits: jnp.array, labels: jnp.array,
     labels = pad_batch_to_max(labels, labels_seq_len, max_seq_len)
   elif logits_seq_len != max_seq_len:
     logits = pad_batch_to_max(logits, logits_seq_len, max_seq_len)
+    predictions = pad_batch_to_max(predictions, logits_seq_len, max_seq_len)
 
   loss = cross_entropy_loss(logits, labels, lengths)
-  token_accuracy = jnp.argmax(logits, -1) == jnp.argmax(labels, -1)
+  token_accuracy = jnp.argmax(predictions, -1) == jnp.argmax(labels, -1)
   sequence_accuracy = (jnp.sum(mask_sequences(token_accuracy, lengths),
                                axis=-1) == lengths)
   accuracy = jnp.mean(sequence_accuracy)
@@ -169,13 +173,15 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
     loss = cross_entropy_loss(logits,
                               common_utils.onehot(labels_no_bos, vocab_size),
                               queries_lengths)
-    return loss, logits
+    return loss, (logits, predictions)
 
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-  (_, logits), grad = grad_fn(optimizer.target)
+  (_, output), grad = grad_fn(optimizer.target)
+  logits, predictions = output
   optimizer = optimizer.apply_gradient(grad)
   metrics = {}
   metrics = compute_metrics(logits,
+                            common_utils.onehot(predictions, vocab_size),
                             common_utils.onehot(labels_no_bos, vocab_size),
                             queries_lengths)
   return optimizer, metrics
@@ -232,12 +238,13 @@ def evaluate_model(model: nn.Module,
     inputs = batch[constants.QUESTION_KEY]
     input_lengths = batch[constants.QUESTION_LEN_KEY]
     gold_outputs = batch[constants.QUERY_KEY][:, 1:]
-    _, inferred_outputs = infer(model, inputs, input_lengths, nn.make_rng(),
+    logits, inferred_outputs = infer(model, inputs, input_lengths, nn.make_rng(),
                                 data_source.vocab_size, data_source.bos_idx,
                                 predicted_output_length)
     ohe_predictions = common_utils.onehot(inferred_outputs,
                                           data_source.vocab_size)
     metrics = compute_metrics(
+        logits,
         ohe_predictions,
         common_utils.onehot(gold_outputs, data_source.vocab_size),
         batch[constants.QUERY_LEN_KEY])
@@ -301,16 +308,18 @@ def train_model(learning_rate: float = None,
           data_source.train_dataset,
           batch_size=batch_size,
           bucket_size=8,
-          drop_remainder=False,
+          drop_remainder=True,
           shuffle=True)
     else:
       train_batches = data_source.get_batches(data_source.train_dataset,
                                               batch_size=batch_size,
-                                              shuffle=True)
+                                              shuffle=True,
+                                              drop_remainder=True)
 
     dev_batches = data_source.get_batches(data_source.dev_dataset,
                                           batch_size=batch_size,
-                                          shuffle=True)
+                                          shuffle=True,
+                                          drop_remainder=True)
 
     train_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
     metrics_per_epoch = {
