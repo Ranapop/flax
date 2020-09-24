@@ -305,21 +305,21 @@ def train_model(learning_rate: float = None,
 
     if bucketing:
       train_batches = data_source.get_bucketed_batches(
-          data_source.train_dataset,
-          batch_size=batch_size,
-          bucket_size=8,
-          drop_remainder=True,
-          shuffle=True)
+          split = 'train',
+          batch_size = batch_size,
+          bucket_size = 8,
+          drop_remainder = True,
+          shuffle = True)
     else:
-      train_batches = data_source.get_batches(data_source.train_dataset,
-                                              batch_size=batch_size,
-                                              shuffle=True,
+      train_batches = data_source.get_batches(split = 'train',
+                                              batch_size = batch_size,
+                                              shuffle = True,
                                               drop_remainder=True)
 
-    dev_batches = data_source.get_batches(data_source.dev_dataset,
-                                          batch_size=batch_size,
-                                          shuffle=True,
-                                          drop_remainder=True)
+    dev_batches = data_source.get_batches(split = 'dev',
+                                          batch_size = batch_size,
+                                          shuffle = True,
+                                          drop_remainder = True)
 
     train_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
     metrics_per_epoch = {

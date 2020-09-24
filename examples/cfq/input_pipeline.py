@@ -70,12 +70,14 @@ class CFQDataSource:
     # into a sequence of token IDs. Also pre-prepend a beginning-of-sequence
     # token <s> and append an end-of-sequence token </s>.
 
-    self.train_dataset = train_raw.map(
+    self.splits = {
+      'train': train_raw.map(
+        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache(),
+      'dev': dev_raw.map(
+        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache(),
+      'test': test_raw.map(
         self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache()
-    self.dev_dataset = dev_raw.map(
-        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache()
-    self.test_dataset = test_raw.map(
-        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache()
+    }
 
   def get_padded_shapes(self, output_len):
     """The padded shapes used by batching functions."""
@@ -140,11 +142,12 @@ class CFQDataSource:
     return str_seq
 
   def get_batches(self,
-                  dataset: tf.data.Dataset,
+                  split: Text,
                   batch_size: int,
                   drop_remainder: bool = False,
                   shuffle: bool = False):
     """Returns an iterator with padded batches for the provided dataset."""
+    dataset = self.splits[split]
     if shuffle:
       buffer_size = inp_utils.cardinality(dataset)  # number of examples.
       dataset = dataset.shuffle(buffer_size,
@@ -162,12 +165,13 @@ class CFQDataSource:
                                 drop_remainder=drop_remainder)
 
   def get_bucketed_batches(self,
-                           dataset: tf.data.Dataset,
+                           split: Text,
                            batch_size: int,
                            bucket_size: int,
                            drop_remainder: bool = False,
                            shuffle: bool = False):
     """Returns an iterator with bucketed batches for the provided dataset."""
+    dataset = self.splits[split]
     max_length = inp_utils.get_max_length(dataset, self.get_output_length)
     padded_shapes = self.get_padded_shapes(max_length)
     return inp_utils.get_bucketed_batches(
@@ -185,7 +189,7 @@ class CFQDataSource:
 if __name__ == '__main__':
   #TODO: remove this and add tests
   data_source = CFQDataSource(seed=13467, fixed_output_len=True)
-  train_batches = data_source.get_batches(data_source.train_dataset,
+  train_batches = data_source.get_batches('train',
                                           batch_size=5,
                                           drop_remainder=False,
                                           shuffle=True)
