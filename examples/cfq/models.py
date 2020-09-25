@@ -145,7 +145,8 @@ class MultilayerLSTM(nn.Module):
 class Decoder(nn.Module):
   """LSTM decoder."""
 
-  def create_dropout_masks(self, num_masks: int, shape: Tuple,
+  @staticmethod
+  def create_dropout_masks(num_masks: int, shape: Tuple,
                            dropout_rate: float):
     if dropout_rate == 0:
       return [None] * num_masks
@@ -202,11 +203,11 @@ class Decoder(nn.Module):
 
     batch_size = encoder_hidden_states.shape[0]
     hidden_size = encoder_hidden_states.shape[-1]
-    h_dropout_masks = self.create_dropout_masks(
+    h_dropout_masks = Decoder.create_dropout_masks(
         num_masks=num_layers,
         shape=(batch_size, hidden_size),
         dropout_rate=horizontal_dropout_rate)
-    v_dropout_masks = self.create_dropout_masks(
+    v_dropout_masks = Decoder.create_dropout_masks(
         num_masks=num_layers - 1,
         shape=(batch_size, hidden_size),
         dropout_rate=vertical_dropout_rate)
