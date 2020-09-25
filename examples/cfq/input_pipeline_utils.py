@@ -45,7 +45,7 @@ def create_reversed_dataset(no_examples: int, min_len: int, max_len: int):
   return tf_data
 
 def create_dummy_data(
-    no_examples: Tuple[int,int,int] = (800,100,100),
+    no_examples: Tuple[int,int,int] = (8000,1000,1000),
     example_length: Tuple[int, int] = tuple((20,50))
   ):
   """Create a tf dummy dataset with reversed sequences ('a b c' -> 'c b a')
