@@ -39,9 +39,17 @@ class CFQDataSource:
                seed: int,
                fixed_output_len: bool,
                tokenizer: text.Tokenizer = text.WhitespaceTokenizer(),
-               cfq_split: Text = 'mcd1'):
+               cfq_split: Text = 'mcd1',
+               replace_with_dummy: bool = True):
     # Load datasets.
-    data = tfds.load('cfq/' + cfq_split)
+    if replace_with_dummy:
+      # Load dummy data 
+      data = inp_utils.create_dummy_data()
+      vocab_file = 'dummy_vocab'
+    else:
+      data = tfds.load('cfq/' + cfq_split)
+      vocab_file = 'vocab_' + cfq_split
+
     train_raw = data['train']
     dev_raw = data['validation']
     test_raw = data['test']
@@ -53,11 +61,12 @@ class CFQDataSource:
     self.seed = seed
     self.fixed_output_len = fixed_output_len
     self.vocab = inp_utils.build_vocabulary(
-        file_name='vocab_' + cfq_split,
+        file_name=vocab_file,
         input_features={constants.QUESTION_KEY, constants.QUERY_KEY},
         tokenizer=tokenizer,
         datasets=(train_raw,),
-        preprocessing_fun=preprocessing.preprocess_example)
+        preprocessing_fun=preprocessing.preprocess_example,
+        force_generation=replace_with_dummy)
 
     self.unk_idx = self.vocab[constants.UNK]
     self.bos_idx = np.dtype('uint8').type(self.vocab[constants.BOS])
@@ -98,8 +107,9 @@ class CFQDataSource:
   def prepare_sequence(self, sequence: Text):
     """Prepares a sequence(question or query) by tokenizing it, transforming
         it to a list of vocabulary indices, and adding the BOS and EOS tokens"""
-    tokenized_seq = self.tf_vocab.lookup(self.tokenizer.tokenize(sequence))
-    wrapped_seq = self.add_bos_eos(tokenized_seq)
+    tokenized_seq = self.tokenizer.tokenize(sequence)
+    indices = self.tf_vocab.lookup(tokenized_seq)
+    wrapped_seq = self.add_bos_eos(indices)
     return tf.cast(wrapped_seq, tf.uint8)
 
   def prepare_example(self, example: ExampleType) -> ExampleType:

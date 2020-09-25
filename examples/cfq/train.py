@@ -373,7 +373,7 @@ def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
   with nn.stochastic(jax.random.PRNGKey(seed)):
     model = create_model(data_source.vocab_size)
     optimizer = flax.optim.Adam().create(model)
-    dev_batches = data_source.get_batches(data_source.dev_dataset,
+    dev_batches = data_source.get_batches(split = 'dev',
                                           batch_size=batch_size,
                                           shuffle=True)
     # evaluate
