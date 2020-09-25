@@ -176,12 +176,12 @@ def build_tf_hashtable(vocabulary: Dict[bytes, int],
 
 
 def cardinality(dataset: tf.data.Dataset) -> int:
-  """Returns the number of examples in the dataset by iterating over it once."""
-  return dataset.reduce(np.int64(0), lambda x, _: x + 1).numpy()
+    """Returns the number of examples in the dataset by iterating over it once."""
+    return dataset.reduce(np.int64(0), lambda x, _: x + 1).numpy()
 
 
 def get_max_length(dataset: tf.data.Dataset, len_fn: Any):
-  """Returns the max length in a dataset
+    """Returns the max length in a dataset
   Args:
     dataset: the tensorflow dataset
     len_fn: function that gets as argument a dataset example and returns the length of that example
@@ -193,7 +193,7 @@ def get_max_length(dataset: tf.data.Dataset, len_fn: Any):
 
 
 def get_bucket_boundaries(bucket_size: int, max_size: int) -> np.ndarray:
-  """Bucket boundaries with `bucket_size` items per bucket, up to `max_size`.
+    """Bucket boundaries with `bucket_size` items per bucket, up to `max_size`.
   Example:
   ```
   get_bucket_boundaries(8, 24)
@@ -208,7 +208,7 @@ def get_bucket_boundaries(bucket_size: int, max_size: int) -> np.ndarray:
   Returns:
     A list of (exclusive) bucket boundaries.
   """
-  return np.arange(bucket_size, max_size + bucket_size, bucket_size) + 1
+    return np.arange(bucket_size, max_size + bucket_size, bucket_size) + 1
 
 
 def get_bucketed_batches(dataset: tf.data.Dataset,
@@ -220,7 +220,7 @@ def get_bucketed_batches(dataset: tf.data.Dataset,
                          seed: int = None,
                          shuffle: bool = False,
                          drop_remainder: bool = False) -> tf.data.Dataset:
-  """Returns padded batches of shuffled examples bucketed by length.
+    """Returns padded batches of shuffled examples bucketed by length.
   This shuffles the examples randomly each epoch. The random order is
   deterministic and controlled by the seed.
   Batches are padded because sentences have different lengths.
