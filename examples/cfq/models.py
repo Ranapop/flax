@@ -125,7 +125,8 @@ class Decoder(nn.Module):
       dec_prev_state = jnp.expand_dims(h, 1)
       attention = mlp_attention(dec_prev_state, projected_keys,
                                 encoder_hidden_states, attention_mask)
-      lstm_state, y = lstm_cell(lstm_state, x)
+      lstm_input = jnp.concatenate([x,attention], axis=-1)
+      lstm_state, y = lstm_cell(lstm_state, lstm_input)
       inner_proj_input = jnp.concatenate([x, attention, y], axis=-1)
       inner_proj_output = inner_projection(inner_proj_input)
       logits = output_projection(inner_proj_output)
