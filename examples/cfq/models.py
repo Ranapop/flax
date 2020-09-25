@@ -25,7 +25,7 @@ from flax import nn
 LSTM_HIDDEN_SIZE = 512
 EMBEDDING_DIM = 200
 ATTENTION_SIZE = 100
-
+DECODER_PROJECTION = 256
 
 class Encoder(nn.Module):
   """LSTM encoder, returning state after EOS is input."""
@@ -103,7 +103,10 @@ class Decoder(nn.Module):
             vocab_size: int,
             teacher_force: bool = False):
     lstm_cell = nn.LSTMCell.shared(name='lstm')
-    projection = nn.Dense.shared(features=vocab_size, name='projection')
+    pre_output_layer = nn.Dense.shared(features=DECODER_PROJECTION,
+                                       name='pre_output_layer')
+    projection = nn.Dense.shared(features=vocab_size,
+                                 name='projection')
     mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE).shared(
         name='attention')
     # The keys projection can be calculated once for the whole sequence.
@@ -113,16 +116,20 @@ class Decoder(nn.Module):
                               bias=False)
 
     def decode_step_fn(carry, x):
-      rng, (c, h), last_prediction = carry
+      rng, lstm_state, last_prediction = carry
       carry_rng, categorical_rng = jax.random.split(rng, 2)
       if not teacher_force:
         x = last_prediction
       x = shared_embedding(x)
+      _,h = lstm_state
       dec_prev_state = jnp.expand_dims(h, 1)
       attention = mlp_attention(dec_prev_state, projected_keys,
                                 encoder_hidden_states, attention_mask)
-      lstm_state, y = lstm_cell((c, attention), x)
-      logits = projection(y)
+      lstm_input = jnp.concatenate([x,attention], axis=-1)
+      lstm_state, h = lstm_cell(lstm_state, lstm_input)
+      inner_proj_input = jnp.concatenate([x, attention, h], axis=-1)
+      pre_output = pre_output_layer(inner_proj_input)
+      logits = projection(pre_output)
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
       predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
       return (carry_rng, lstm_state,
