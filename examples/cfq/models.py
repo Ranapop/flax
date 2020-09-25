@@ -239,6 +239,8 @@ class Decoder(nn.Module):
               predicted_tokens_uint8), (logits, predicted_tokens_uint8)
 
     init_states = [init_state] * num_layers
+    # initialisig the LSTM states and final output with the
+    # encoder hidden states
     multilayer_lstm_output = (init_states, init_state[1])
     init_carry = (nn.make_rng(), multilayer_lstm_output, inputs[:, 0])
 
@@ -261,17 +263,6 @@ def compute_attention_masks(mask_shape: Tuple, lengths: jnp.array):
 
 class Seq2seq(nn.Module):
   """Sequence-to-sequence class using encoder/decoder architecture."""
-
-  def _create_modules(self, hidden_size, num_layers, dropout):
-    encoder = Encoder.partial(hidden_size=hidden_size,
-                              num_layers=num_layers,
-                              horizontal_dropout_rate=dropout,
-                              vertical_dropout_rate=dropout).shared(name='encoder')
-    decoder = Decoder.partial(num_layers=num_layers,
-                              horizontal_dropout_rate=dropout,
-                              vertical_dropout_rate=dropout
-                              ).shared(name='decoder')
-    return encoder, decoder
 
   def apply(self,
             encoder_inputs: jnp.array,
@@ -310,8 +301,15 @@ class Seq2seq(nn.Module):
         num_embeddings=vocab_size,
         features=emb_dim,
         embedding_init=nn.initializers.normal(stddev=1.0))
-    encoder, decoder = self._create_modules(hidden_size, num_layers, dropout)
 
+    encoder = Encoder.partial(hidden_size=hidden_size,
+                              num_layers=num_layers,
+                              horizontal_dropout_rate=dropout,
+                              vertical_dropout_rate=dropout)
+    decoder = Decoder.partial(num_layers=num_layers,
+                              horizontal_dropout_rate=dropout,
+                              vertical_dropout_rate=dropout
+                              )
     # compute attention masks
     mask = compute_attention_masks(encoder_inputs.shape, encoder_inputs_lengths)
 
