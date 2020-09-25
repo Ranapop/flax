@@ -103,10 +103,10 @@ class Decoder(nn.Module):
             vocab_size: int,
             teacher_force: bool = False):
     lstm_cell = nn.LSTMCell.shared(name='lstm')
-    inner_projection = nn.Dense.shared(features=DECODER_PROJECTION,
-                                       name='inner_projection')
-    output_projection = nn.Dense.shared(features=vocab_size,
-                                        name='output_projection')
+    pre_output_layer = nn.Dense.shared(features=DECODER_PROJECTION,
+                                       name='pre_output_layer')
+    projection = nn.Dense.shared(features=vocab_size,
+                                 name='projection')
     mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE).shared(
         name='attention')
     # The keys projection can be calculated once for the whole sequence.
@@ -126,10 +126,10 @@ class Decoder(nn.Module):
       attention = mlp_attention(dec_prev_state, projected_keys,
                                 encoder_hidden_states, attention_mask)
       lstm_input = jnp.concatenate([x,attention], axis=-1)
-      lstm_state, y = lstm_cell(lstm_state, lstm_input)
-      inner_proj_input = jnp.concatenate([x, attention, y], axis=-1)
-      inner_proj_output = inner_projection(inner_proj_input)
-      logits = output_projection(inner_proj_output)
+      lstm_state, h = lstm_cell(lstm_state, lstm_input)
+      inner_proj_input = jnp.concatenate([x, attention, h], axis=-1)
+      pre_output = pre_output_layer(inner_proj_input)
+      logits = projection(pre_output)
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
       predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
       return (carry_rng, lstm_state,
