@@ -222,28 +222,20 @@ class Decoder(nn.Module):
       if not train:
         x = last_prediction
       x = shared_embedding(x)
-      _,h = lstm_state
       dec_prev_state = jnp.expand_dims(h, 1)
       attention = mlp_attention(dec_prev_state, projected_keys,
                                 encoder_hidden_states, attention_mask)
-      # start single
-      lstm_state, y = lstm_cell(lstm_state, x)
-      inner_proj_input = jnp.concatenate([x, attention, y], axis=-1)
-      inner_proj_output = inner_projection(inner_proj_input)
-      logits = output_projection(inner_proj_output)
-      # end single
-      # start multi
-      previous_states[0] = (previous_states[0][0],attention)
-      
-      states, y = multilayer_lstm_cell(horizontal_dropout_masks=h_dropout_masks,
+      lstm_input = jnp.concatenate([x, attention], axis=-1)
+      states, h = multilayer_lstm_cell(horizontal_dropout_masks=h_dropout_masks,
                                        vertical_dropout_masks=v_dropout_masks,
-                                       input=x,
+                                       input=lstm_input,
                                        previous_states=previous_states)
-      logits = projection(y)
-      # end multi
+      inner_proj_input = jnp.concatenate([x, attention, h], axis=-1)
+      pre_output = inner_projection(inner_proj_input)
+      logits = output_projection(pre_output)
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
       predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
-      return (carry_rng, (states, y),
+      return (carry_rng, (states, h),
               predicted_tokens_uint8), (logits, predicted_tokens_uint8)
 
     init_states = [init_state] * num_layers
