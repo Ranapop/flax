@@ -39,9 +39,17 @@ class CFQDataSource:
                seed: int,
                fixed_output_len: bool,
                tokenizer: text.Tokenizer = text.WhitespaceTokenizer(),
-               cfq_split: Text = 'mcd1'):
+               cfq_split: Text = 'mcd1',
+               replace_with_dummy: bool = True):
     # Load datasets.
-    data = tfds.load('cfq/' + cfq_split)
+    if replace_with_dummy:
+      # Load dummy data 
+      data = inp_utils.create_dummy_data()
+      vocab_file = 'dummy_vocab'
+    else:
+      data = tfds.load('cfq/' + cfq_split)
+      vocab_file = 'vocab_' + cfq_split
+
     train_raw = data['train']
     dev_raw = data['validation']
     test_raw = data['test']
@@ -53,11 +61,12 @@ class CFQDataSource:
     self.seed = seed
     self.fixed_output_len = fixed_output_len
     self.vocab = inp_utils.build_vocabulary(
-        file_name='vocab_' + cfq_split,
+        file_name=vocab_file,
         input_features={constants.QUESTION_KEY, constants.QUERY_KEY},
         tokenizer=tokenizer,
         datasets=(train_raw,),
-        preprocessing_fun=preprocessing.preprocess_example)
+        preprocessing_fun=preprocessing.preprocess_example,
+        force_generation=replace_with_dummy)
 
     self.unk_idx = self.vocab[constants.UNK]
     self.bos_idx = np.dtype('uint8').type(self.vocab[constants.BOS])
@@ -70,12 +79,14 @@ class CFQDataSource:
     # into a sequence of token IDs. Also pre-prepend a beginning-of-sequence
     # token <s> and append an end-of-sequence token </s>.
 
-    self.train_dataset = train_raw.map(
+    self.splits = {
+      'train': train_raw.map(
+        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache(),
+      'dev': dev_raw.map(
+        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache(),
+      'test': test_raw.map(
         self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache()
-    self.dev_dataset = dev_raw.map(
-        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache()
-    self.test_dataset = test_raw.map(
-        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache()
+    }
 
   def get_padded_shapes(self, output_len):
     """The padded shapes used by batching functions."""
@@ -96,8 +107,9 @@ class CFQDataSource:
   def prepare_sequence(self, sequence: Text):
     """Prepares a sequence(question or query) by tokenizing it, transforming
         it to a list of vocabulary indices, and adding the BOS and EOS tokens"""
-    tokenized_seq = self.tf_vocab.lookup(self.tokenizer.tokenize(sequence))
-    wrapped_seq = self.add_bos_eos(tokenized_seq)
+    tokenized_seq = self.tokenizer.tokenize(sequence)
+    indices = self.tf_vocab.lookup(tokenized_seq)
+    wrapped_seq = self.add_bos_eos(indices)
     return tf.cast(wrapped_seq, tf.uint8)
 
   def prepare_example(self, example: ExampleType) -> ExampleType:
@@ -140,11 +152,12 @@ class CFQDataSource:
     return str_seq
 
   def get_batches(self,
-                  dataset: tf.data.Dataset,
+                  split: Text,
                   batch_size: int,
                   drop_remainder: bool = False,
                   shuffle: bool = False):
     """Returns an iterator with padded batches for the provided dataset."""
+    dataset = self.splits[split]
     if shuffle:
       buffer_size = inp_utils.cardinality(dataset)  # number of examples.
       dataset = dataset.shuffle(buffer_size,
@@ -162,12 +175,13 @@ class CFQDataSource:
                                 drop_remainder=drop_remainder)
 
   def get_bucketed_batches(self,
-                           dataset: tf.data.Dataset,
+                           split: Text,
                            batch_size: int,
                            bucket_size: int,
                            drop_remainder: bool = False,
                            shuffle: bool = False):
     """Returns an iterator with bucketed batches for the provided dataset."""
+    dataset = self.splits[split]
     max_length = inp_utils.get_max_length(dataset, self.get_output_length)
     padded_shapes = self.get_padded_shapes(max_length)
     return inp_utils.get_bucketed_batches(
@@ -185,7 +199,7 @@ class CFQDataSource:
 if __name__ == '__main__':
   #TODO: remove this and add tests
   data_source = CFQDataSource(seed=13467, fixed_output_len=True)
-  train_batches = data_source.get_batches(data_source.train_dataset,
+  train_batches = data_source.get_batches('train',
                                           batch_size=5,
                                           drop_remainder=False,
                                           shuffle=True)

@@ -14,7 +14,9 @@
 """Utils module"""
 import os
 import pickle
-from typing import Iterable, List, Sequence, Dict, Text, Any
+import random
+import string
+from typing import Iterable, List, Sequence, Dict, Text, Any, Tuple
 import collections
 
 import numpy as np
@@ -25,6 +27,49 @@ from absl import logging
 
 import constants
 
+tf.config.experimental.set_visible_devices([], "GPU")
+
+def create_reversed_dataset(no_examples: int, min_len: int, max_len: int):
+  inputs = []
+  outputs = []
+  for i in range(no_examples):
+    seq_len = random.randint(min_len, max_len)
+    input = np.random.choice(list(string.ascii_lowercase),  size=(seq_len))
+    output = np.flip(input)
+    inputs.append(' '.join(input))
+    outputs.append(' '.join(output))
+  data = list(zip(inputs, outputs))
+  tf_data = tf.data.Dataset.from_tensor_slices(data)
+  tf_data = tf_data.map(
+    lambda ex: {constants.QUESTION_KEY: ex[0], constants.QUERY_KEY: ex[1]})
+  return tf_data
+
+def create_dummy_data(
+    no_examples: Tuple[int,int,int] = (800,100,100),
+    example_length: Tuple[int, int] = tuple((20,50))
+  ):
+  """Create a tf dummy dataset with reversed sequences ('a b c' -> 'c b a')
+  
+  The dataset is created with 3 splits: 'train', 'validation' and 'test'
+  Each example has
+    a string input sequence (key 'question')
+    a string output sequence (key 'query')
+
+  Args:
+    no_examples: Tuple of number of examples for (train,validation,test)
+    example_length: The interval for the example length [min_length, max_length]
+      The examples will be generated with a random length in that interval
+  """
+  min_len = example_length[0]
+  max_len = example_length[1]
+  train_data = create_reversed_dataset(no_examples[0], min_len, max_len)
+  validation_data = create_reversed_dataset(no_examples[1], min_len, max_len)
+  test_data = create_reversed_dataset(no_examples[2], min_len, max_len)
+  return {
+    'train': train_data,
+    'validation': validation_data,
+    'test': test_data
+  }
 
 def _get_tokens(input_features: Dict, tokenizer: text.Tokenizer,
                 datasets: Iterable[tf.data.Dataset],
@@ -58,7 +103,8 @@ def build_vocabulary(file_name: Text,
                                                         constants.UNK,
                                                         constants.BOS,
                                                         constants.EOS),
-                     preprocessing_fun: Any = lambda x: x) -> Dict[bytes, int]:
+                     preprocessing_fun: Any = lambda x: x,
+                     force_generation: bool = False) -> Dict[bytes, int]:
   """Returns a vocabulary of tokens with optional minimum frequency.
     The vocabulary is saved in the file `./temp/<file_name>`.
 
@@ -72,6 +118,7 @@ def build_vocabulary(file_name: Text,
         preprocessing_fun: function for applying preprocessing on a dataset
                            entry; by default the identity function
                            (no preprocessing)
+        force_generation: if True, do not used vcabulary cached in file
     Returns:
         An ordered dictionary that maps tokens to their IDs in the vocabulary.
     """
@@ -81,10 +128,11 @@ def build_vocabulary(file_name: Text,
   if not os.path.exists(vocab_dir):
     os.makedirs(vocab_dir)
   # Try to read the vocabulary.
-  if os.path.isfile(vocab_path):
-    with open(vocab_path, 'rb') as vocab_file:
-      vocab = pickle.load(vocab_file)
-    return vocab
+  if not force_generation:
+    if os.path.isfile(vocab_path):
+      with open(vocab_path, 'rb') as vocab_file:
+        vocab = pickle.load(vocab_file)
+      return vocab
 
   tokens_from_datasets = _get_tokens(input_features, tokenizer, datasets,
                                      preprocessing_fun)
@@ -221,7 +269,8 @@ def get_bucketed_batches(dataset: tf.data.Dataset,
     num_batches = num_examples // batch_size
     return dataset.shuffle(
         num_examples, seed=seed,
-        reshuffle_each_iteration=True).apply(bucket_fn).shuffle(
+        reshuffle_each_iteration=True
+        ).apply(bucket_fn).shuffle(
             num_batches, seed=seed,
             reshuffle_each_iteration=True).prefetch(constants.AUTOTUNE)
   return dataset.apply(bucket_fn).prefetch(constants.AUTOTUNE)
