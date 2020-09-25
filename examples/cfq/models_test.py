@@ -77,13 +77,14 @@ class ModelsTest(parameterized.TestCase):
     prev_state_1 = jnp.zeros((batch_size, hidden_size))
     prev_state_2 = jnp.zeros((batch_size, hidden_size))
     previous_states = [prev_state_0, prev_state_1, prev_state_2]
-    multilayer_lstm = MultilayerLSTM.partial(num_layers = num_layers)
+    multilayer_lstm = MultilayerLSTM.partial(num_layers=num_layers)
     with nn.stochastic(jax.random.PRNGKey(0)):
-      (states, y), _ = multilayer_lstm.init(nn.make_rng(),
-                                      horizontal_dropout_masks=h_dropout_masks,
-                                      vertical_dropout_masks=v_dropout_masks,
-                                      input=input,
-                                      previous_states=previous_states)
+      (states,
+       y), _ = multilayer_lstm.init(nn.make_rng(),
+                                    horizontal_dropout_masks=h_dropout_masks,
+                                    vertical_dropout_masks=v_dropout_masks,
+                                    input=input,
+                                    previous_states=previous_states)
 
   def test_compute_attention_masks(self):
     shape = (2, 7)

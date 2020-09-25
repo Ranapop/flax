@@ -29,25 +29,27 @@ import constants
 
 tf.config.experimental.set_visible_devices([], "GPU")
 
+
 def create_reversed_dataset(no_examples: int, min_len: int, max_len: int):
   inputs = []
   outputs = []
   for i in range(no_examples):
     seq_len = random.randint(min_len, max_len)
-    input = np.random.choice(list(string.ascii_lowercase),  size=(seq_len))
+    input = np.random.choice(list(string.ascii_lowercase), size=(seq_len))
     output = np.flip(input)
     inputs.append(' '.join(input))
     outputs.append(' '.join(output))
   data = list(zip(inputs, outputs))
   tf_data = tf.data.Dataset.from_tensor_slices(data)
-  tf_data = tf_data.map(
-    lambda ex: {constants.QUESTION_KEY: ex[0], constants.QUERY_KEY: ex[1]})
+  tf_data = tf_data.map(lambda ex: {
+      constants.QUESTION_KEY: ex[0],
+      constants.QUERY_KEY: ex[1]
+  })
   return tf_data
 
-def create_dummy_data(
-    no_examples: Tuple[int,int,int] = (8000,1000,1000),
-    example_length: Tuple[int, int] = tuple((20,50))
-  ):
+
+def create_dummy_data(no_examples: Tuple[int, int, int] = (8000, 1000, 1000),
+                      example_length: Tuple[int, int] = tuple((20, 50))):
   """Create a tf dummy dataset with reversed sequences ('a b c' -> 'c b a')
   
   The dataset is created with 3 splits: 'train', 'validation' and 'test'
@@ -65,35 +67,31 @@ def create_dummy_data(
   train_data = create_reversed_dataset(no_examples[0], min_len, max_len)
   validation_data = create_reversed_dataset(no_examples[1], min_len, max_len)
   test_data = create_reversed_dataset(no_examples[2], min_len, max_len)
-  return {
-    'train': train_data,
-    'validation': validation_data,
-    'test': test_data
-  }
+  return {'train': train_data, 'validation': validation_data, 'test': test_data}
 
-def _get_tokens(input_features: Dict,
-                tokenizer: text.Tokenizer,
+
+def _get_tokens(input_features: Dict, tokenizer: text.Tokenizer,
                 datasets: Iterable[tf.data.Dataset],
                 preprocessing_fun: Any) -> Iterable[List[bytes]]:
-    """Returns a list of tokens for all input fields in the given datasets."""
+  """Returns a list of tokens for all input fields in the given datasets."""
 
-    def _tokenize_input_features(
-            example: Dict[Text, tf.Tensor]) -> Dict[Text, tf.Tensor]:
-        """Tokenizes all input features in an example."""
-        example = preprocessing_fun(example)
-        for feature in example:
-            if feature in input_features:
-                example[feature] = tokenizer.tokenize(example[feature])
-        return example
+  def _tokenize_input_features(
+      example: Dict[Text, tf.Tensor]) -> Dict[Text, tf.Tensor]:
+    """Tokenizes all input features in an example."""
+    example = preprocessing_fun(example)
+    for feature in example:
+      if feature in input_features:
+        example[feature] = tokenizer.tokenize(example[feature])
+    return example
 
-    for dataset in datasets:
-        # Apply the tokenizer to all input features.
-        tokenized_dataset = dataset.map(_tokenize_input_features,
-                                        num_parallel_calls=constants.AUTOTUNE)
-        # Yield all tokenized input features (i.e., tokenized input sentences).
-        for example in tfds.as_numpy(tokenized_dataset):
-            for feature in input_features:
-                yield example[feature]
+  for dataset in datasets:
+    # Apply the tokenizer to all input features.
+    tokenized_dataset = dataset.map(_tokenize_input_features,
+                                    num_parallel_calls=constants.AUTOTUNE)
+    # Yield all tokenized input features (i.e., tokenized input sentences).
+    for example in tfds.as_numpy(tokenized_dataset):
+      for feature in input_features:
+        yield example[feature]
 
 
 def build_vocabulary(file_name: Text,
@@ -138,7 +136,6 @@ def build_vocabulary(file_name: Text,
   tokens_from_datasets = _get_tokens(input_features, tokenizer, datasets,
                                      preprocessing_fun)
 
-
   # Count all the tokens.
   counter = collections.Counter()
   for tokens in tokens_from_datasets:
@@ -171,13 +168,13 @@ def build_tf_hashtable(vocabulary: Dict[bytes, int],
                        unk_idx: int) -> tf.lookup.StaticHashTable:
   """Returns a TF lookup table from a vocabulary."""
   return tf.lookup.StaticHashTable(tf.lookup.KeyValueTensorInitializer(
-    list(vocabulary.keys()), list(vocabulary.values())),
-                                  default_value=unk_idx)
+      list(vocabulary.keys()), list(vocabulary.values())),
+                                   default_value=unk_idx)
 
 
 def cardinality(dataset: tf.data.Dataset) -> int:
-    """Returns the number of examples in the dataset by iterating over it once."""
-    return dataset.reduce(np.int64(0), lambda x, _: x + 1).numpy()
+  """Returns the number of examples in the dataset by iterating over it once."""
+  return dataset.reduce(np.int64(0), lambda x, _: x + 1).numpy()
 
 
 def get_max_length(dataset: tf.data.Dataset, len_fn: Any):
@@ -271,8 +268,7 @@ def get_bucketed_batches(dataset: tf.data.Dataset,
     num_batches = num_examples // batch_size
     return dataset.shuffle(
         num_examples, seed=seed,
-        reshuffle_each_iteration=True
-        ).apply(bucket_fn).shuffle(
+        reshuffle_each_iteration=True).apply(bucket_fn).shuffle(
             num_batches, seed=seed,
             reshuffle_each_iteration=True).prefetch(constants.AUTOTUNE)
   return dataset.apply(bucket_fn).prefetch(constants.AUTOTUNE)
