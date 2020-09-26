@@ -154,11 +154,10 @@ def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
-@functools.partial(jax.pmap, axis_name='batch', static_broadcasted_argnums=(2))
-def train_step(optimizer: Any, batch: BatchType, vocab_size: int):
+@functools.partial(jax.pmap, axis_name='batch', static_broadcasted_argnums=(3))
+def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   """Train one step."""
 
-  rng = nn.make_rng()
   inputs = batch[constants.QUESTION_KEY]
   input_lengths = batch[constants.QUESTION_LEN_KEY]
   labels = batch[constants.QUERY_KEY]
@@ -342,7 +341,10 @@ def train_model(learning_rate: float = None,
         if batch_size % jax.device_count() > 0:
           raise ValueError('Batch size must be divisible by the number of devices')
         batch = shard(batch)
-        optimizer, metrics = train_step(optimizer, batch,
+        # Shard the step PRNG key
+        step_key = nn.make_rng()
+        sharded_keys = common_utils.shard_prng_key(step_key)
+        optimizer, metrics = train_step(optimizer, batch, sharded_keys,
                                         data_source.vocab_size)
         if jax.device_count() > 0:
           metrics = {
