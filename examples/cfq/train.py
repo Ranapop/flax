@@ -328,7 +328,7 @@ def train_model(learning_rate: float = None,
                                           shuffle = True,
                                           drop_remainder = True)
 
-    train_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
+    train_metrics = []
     metrics_per_epoch = {
         TRAIN_ACCURACIES: [],
         TRAIN_LOSSES: [],
@@ -346,20 +346,12 @@ def train_model(learning_rate: float = None,
         sharded_keys = common_utils.shard_prng_key(step_key)
         optimizer, metrics = train_step(optimizer, batch, sharded_keys,
                                         data_source.vocab_size)
-        if jax.device_count() > 0:
-          metrics = {
-            key: sum(metrics[key]) / len(metrics[key]) for key in metrics
-          }
-        train_metrics = {
-            key: train_metrics[key] + metrics[key] for key in train_metrics
-        }
+        train_metrics.append(metrics)
         no_batches += 1
-        # only train for 1 batch (for now)
-        # if no_batches == 1:
-        #     break
-      train_metrics = {
-          key: train_metrics[key] / no_batches for key in train_metrics
-      }
+      train_metrics = common_utils.get_metrics(train_metrics)
+      # Get training epoch summary for logging
+      train_summary = jax.tree_map(lambda x: x.mean(), train_metrics)
+      train_metrics = []
       # evaluate
       model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
       dev_metrics = evaluate_model(model=model,
@@ -367,9 +359,9 @@ def train_model(learning_rate: float = None,
                                    data_source=data_source,
                                    predicted_output_length=max_out_len,
                                    no_logged_examples=3)
-      log(epoch, train_metrics, dev_metrics)
-      metrics_per_epoch[TRAIN_ACCURACIES].append(train_metrics[ACC_KEY])
-      metrics_per_epoch[TRAIN_LOSSES].append(train_metrics[LOSS_KEY])
+      log(epoch, train_summary, dev_metrics)
+      metrics_per_epoch[TRAIN_ACCURACIES].append(train_summary[ACC_KEY])
+      metrics_per_epoch[TRAIN_LOSSES].append(train_summary[LOSS_KEY])
       metrics_per_epoch[TEST_ACCURACIES].append(dev_metrics[ACC_KEY])
       metrics_per_epoch[TEST_LOSSES].append(dev_metrics[LOSS_KEY])
 
