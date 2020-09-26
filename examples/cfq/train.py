@@ -154,7 +154,6 @@ def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
-# @jax.partial(jax.jit, static_argnums=3) Will I not have a drop in performance
 @functools.partial(jax.pmap, axis_name='batch', static_broadcasted_argnums=(2))
 def train_step(optimizer: Any, batch: BatchType, vocab_size: int):
   """Train one step."""
@@ -300,8 +299,7 @@ def train_model(learning_rate: float = None,
                 data_source: inp.CFQDataSource = None,
                 batch_size: int = None,
                 bucketing: bool = False,
-                model_dir=None,
-                multiple_devices=True):
+                model_dir=None):
   """ Train model on num_epochs
 
     Do the training on data_source.train_dataset and evaluate on
@@ -311,8 +309,7 @@ def train_model(learning_rate: float = None,
   with nn.stochastic(jax.random.PRNGKey(seed)):
     model = create_model(data_source.vocab_size)
     optimizer = flax.optim.Adam(learning_rate=learning_rate).create(model)
-    if multiple_devices:
-      optimizer = jax_utils.replicate(optimizer)
+    optimizer = jax_utils.replicate(optimizer)
 
     if bucketing:
       train_batches = data_source.get_bucketed_batches(
@@ -368,8 +365,6 @@ def train_model(learning_rate: float = None,
                                    data_source=data_source,
                                    predicted_output_length=max_out_len,
                                    no_logged_examples=3)
-      print('train metrics')
-      print(train_metrics)
       log(epoch, train_metrics, dev_metrics)
       metrics_per_epoch[TRAIN_ACCURACIES].append(train_metrics[ACC_KEY])
       metrics_per_epoch[TRAIN_LOSSES].append(train_metrics[LOSS_KEY])
