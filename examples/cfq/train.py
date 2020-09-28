@@ -101,6 +101,22 @@ def pad_batch_to_max(batch: jnp.array, seq_len: int, max_len: int):
   padding = tf.constant([[0, 0], [0, padding_size], [0, 0]])
   return tf.pad(batch, padding, "CONSTANT").numpy()
 
+# this gives the error "The numpy.ndarray conversion method __array__() was 
+# called on the JAX Tracer object Traced<ShapedArray(int32[3,2])>with<DynamicJaxprTrace(level=0/2)>."
+# seems to be the issue here https://github.com/google/jax/issues/3620 but static_argnums does not help
+@jax.partial(jax.jit, static_argnums=1)
+def pad_along_axis(array: jnp.array,
+                   padding_size: int,
+                   axis: int) -> jnp.array:
+  """Returns array padded on axis to target_len"""
+  ndim = array.ndim
+  pad_shape = jnp.full((ndim, 2), 0)
+  # padding_size = target_seq_len - curr_seq_len
+  pad_shape = jax.ops.index_update(pad_shape,
+                                  jax.ops.index[axis,1],
+                                  padding_size)
+  padded = jnp.pad(array,pad_shape)
+  return padded
 
 def compute_metrics(logits: jnp.array,
                     predictions: jnp.array,
@@ -123,10 +139,12 @@ def compute_metrics(logits: jnp.array,
   logits_seq_len = logits.shape[1]
   max_seq_len = max(labels_seq_len, logits_seq_len)
   if labels_seq_len != max_seq_len:
-    labels = pad_batch_to_max(labels, labels_seq_len, max_seq_len)
+    padding_size = max_seq_len - labels_seq_len
+    labels = pad_along_axis(labels, padding_size, 1)
   elif logits_seq_len != max_seq_len:
-    logits = pad_batch_to_max(logits, logits_seq_len, max_seq_len)
-    predictions = pad_batch_to_max(predictions, logits_seq_len, max_seq_len)
+    padding_size = max_seq_len - logits_seq_len
+    logits = pad_along_axis(logits, padding_size, 1)
+    predictions = pad_along_axis(predictions, padding_size, 1)
 
   loss = cross_entropy_loss(logits, labels, lengths)
   token_accuracy = jnp.argmax(predictions, -1) == jnp.argmax(labels, -1)
@@ -218,11 +236,35 @@ def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
   return logits, predictions
 
 
+def shard(xs):
+  return jax.tree_map(
+      lambda x: x.reshape((jax.device_count(), -1) + x.shape[1:]), xs)
+
+
+@functools.partial(jax.pmap, axis_name='batch', static_broadcasted_argnums=(2,3))
+def eval_step(model: nn.Module,
+              batch: BatchType,
+              data_source: inp.CFQDataSource,
+              predicted_output_length: int):
+  inputs = batch[constants.QUESTION_KEY]
+  input_lengths = batch[constants.QUESTION_LEN_KEY]
+  gold_outputs = batch[constants.QUERY_KEY][:, 1:]
+  logits, inferred_outputs = infer(model, inputs, input_lengths, nn.make_rng(),
+                              data_source.vocab_size, data_source.bos_idx,
+                              predicted_output_length)
+  ohe_predictions = common_utils.onehot(inferred_outputs,
+                                        data_source.vocab_size)
+  metrics = compute_metrics(
+      logits,
+      ohe_predictions,
+      common_utils.onehot(gold_outputs, data_source.vocab_size),
+      batch[constants.QUERY_LEN_KEY])
+  return metrics
+
 def evaluate_model(model: nn.Module,
                    batches: tf.data.Dataset,
                    data_source: inp.CFQDataSource,
-                   predicted_output_length: int,
-                   no_logged_examples: int = None):
+                   predicted_output_length: int):
   """Evaluate the model on the validation/test batches
 
     Args:
@@ -230,38 +272,20 @@ def evaluate_model(model: nn.Module,
         batches: validation batches
         data_source: CFQ data source (needed for vocab size, w2i etc.)
         predicted_output_length: how long the predicted sequence should be
-        no_logged_examples: how many examples to log (they will be taken
-                            from the first batch, so no_logged_examples
-                            should be < batch_size)
-                            if None, no logging
     """
   no_batches = 0
-  avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
+  # avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
+  all_metrics = []
   for batch in tfds.as_numpy(batches):
-    inputs = batch[constants.QUESTION_KEY]
-    input_lengths = batch[constants.QUESTION_LEN_KEY]
-    gold_outputs = batch[constants.QUERY_KEY][:, 1:]
-    logits, inferred_outputs = infer(model, inputs, input_lengths, nn.make_rng(),
-                                data_source.vocab_size, data_source.bos_idx,
-                                predicted_output_length)
-    ohe_predictions = common_utils.onehot(inferred_outputs,
-                                          data_source.vocab_size)
-    metrics = compute_metrics(
-        logits,
-        ohe_predictions,
-        common_utils.onehot(gold_outputs, data_source.vocab_size),
-        batch[constants.QUERY_LEN_KEY])
-    avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
-    if no_logged_examples is not None and no_batches == 0:
-      #log the first examples in the batch
-      gold_seq = indices_to_str(gold_outputs, data_source)
-      inferred_seq = indices_to_str(inferred_outputs, data_source)
-      for i in range(0, no_logged_examples):
-        logging.info('\nGold seq:\n %s\nInferred seq:\n %s\n', gold_seq[i],
-                     inferred_seq[i])
+    batch = shard(batch)
+    metrics = eval_step(model, batch, data_source, predicted_output_length)
+    # avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
+    all_metrics.append(metrics)
     no_batches += 1
-  avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
-  return avg_metrics
+  # avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
+  all_metrics = common_utils.get_metrics(all_metrics)
+  summary = jax.tree_map(lambda x: x.mean(), all_metrics)
+  return summary
 
 
 def plot_metrics(metrics: Dict[Text, float], no_epochs):
@@ -287,9 +311,6 @@ def plot_metrics(metrics: Dict[Text, float], no_epochs):
   plt.savefig('temp/losses.png')
   plt.clf()
 
-def shard(xs):
-  return jax.tree_map(
-      lambda x: x.reshape((jax.device_count(), -1) + x.shape[1:]), xs)
 
 def train_model(learning_rate: float = None,
                 num_epochs: int = None,
@@ -353,12 +374,11 @@ def train_model(learning_rate: float = None,
       train_summary = jax.tree_map(lambda x: x.mean(), train_metrics)
       train_metrics = []
       # evaluate
-      model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
-      dev_metrics = evaluate_model(model=model,
-                                   batches=dev_batches,
-                                   data_source=data_source,
-                                   predicted_output_length=max_out_len,
-                                   no_logged_examples=3)
+      # model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
+      dev_metrics = evaluate_model(model=optimizer.target,
+                                  batches=dev_batches,
+                                  data_source=data_source,
+                                  predicted_output_length=max_out_len)
       log(epoch, train_summary, dev_metrics)
       metrics_per_epoch[TRAIN_ACCURACIES].append(train_summary[ACC_KEY])
       metrics_per_epoch[TRAIN_LOSSES].append(train_summary[LOSS_KEY])
@@ -389,7 +409,6 @@ def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
     dev_metrics = evaluate_model(model=optimizer.target,
                                  batches=dev_batches,
                                  data_source=data_source,
-                                 predicted_output_length=max_out_len,
-                                 no_logged_examples=3)
+                                 predicted_output_length=max_out_len)
     logging.info('Loss %.4f, acc %.2f', dev_metrics[LOSS_KEY],
                  dev_metrics[ACC_KEY])
