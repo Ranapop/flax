@@ -152,11 +152,10 @@ class Decoder(nn.Module):
       return [None] * num_masks
     masks = []
     for i in range(0, num_masks):
-      # should I use a different rng for each mask?
       dropout_mask = random.bernoulli(nn.make_rng(),
                                       p=1 - dropout_rate,
                                       shape=shape)
-      # Scale mask.
+      # Convert array of boolean values to probabilty distribution.
       dropout_mask = dropout_mask / (1.0 - dropout_rate)
       masks.append(dropout_mask)
     return masks
