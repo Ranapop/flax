@@ -122,7 +122,6 @@ class MultilayerLSTM(nn.Module):
       previous_states: list of (c,h) for each layer
         shape [num_layers, batch_size, 2*hidden_size]
     """
-    input
     states = []
     final_output = None
     for layer_idx in range(num_layers):
