@@ -82,14 +82,11 @@ def create_model(vocab_size: int) -> nn.Module:
 def cross_entropy_loss(logits: jnp.array, labels: jnp.array,
                        lengths: jnp.array, vocab_size: int):
   """Returns cross-entropy loss."""
-  weights = jnp.where(labels > 0, 1, 0).astype(jnp.float32)
-  labels_ohe = common_utils.onehot(labels, vocab_size)
+  labels = common_utils.onehot(labels, vocab_size)
   log_soft = nn.log_softmax(logits)
-  log_sum = jnp.sum(log_soft * labels_ohe, axis=-1)
+  log_sum = jnp.sum(log_soft * labels, axis=-1)
   masked_log_sum = jnp.mean(mask_sequences(log_sum, lengths))
-  weighted_loss = masked_log_sum * weights
-  weighted_loss = weighted_loss.sum() / weights.sum()
-  return -weighted_loss
+  return -masked_log_sum
 
 
 def pad_along_axis(array: jnp.array,
