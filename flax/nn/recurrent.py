@@ -15,6 +15,7 @@ from typing import Any, Optional, Sequence, Text, Tuple, Type
 import jax
 import jax.numpy as jnp
 from flax import jax_utils
+from flax import nn
 
 import numpy as np
 

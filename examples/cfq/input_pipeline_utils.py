@@ -29,25 +29,27 @@ import constants
 
 tf.config.experimental.set_visible_devices([], "GPU")
 
+
 def create_reversed_dataset(no_examples: int, min_len: int, max_len: int):
   inputs = []
   outputs = []
   for i in range(no_examples):
     seq_len = random.randint(min_len, max_len)
-    input = np.random.choice(list(string.ascii_lowercase),  size=(seq_len))
+    input = np.random.choice(list(string.ascii_lowercase), size=(seq_len))
     output = np.flip(input)
     inputs.append(' '.join(input))
     outputs.append(' '.join(output))
   data = list(zip(inputs, outputs))
   tf_data = tf.data.Dataset.from_tensor_slices(data)
-  tf_data = tf_data.map(
-    lambda ex: {constants.QUESTION_KEY: ex[0], constants.QUERY_KEY: ex[1]})
+  tf_data = tf_data.map(lambda ex: {
+      constants.QUESTION_KEY: ex[0],
+      constants.QUERY_KEY: ex[1]
+  })
   return tf_data
 
-def create_dummy_data(
-    no_examples: Tuple[int,int,int] = (8000,1000,1000),
-    example_length: Tuple[int, int] = tuple((20,50))
-  ):
+
+def create_dummy_data(no_examples: Tuple[int, int, int] = (8000, 1000, 1000),
+                      example_length: Tuple[int, int] = tuple((20, 50))):
   """Create a tf dummy dataset with reversed sequences ('a b c' -> 'c b a')
   
   The dataset is created with 3 splits: 'train', 'validation' and 'test'
@@ -65,11 +67,8 @@ def create_dummy_data(
   train_data = create_reversed_dataset(no_examples[0], min_len, max_len)
   validation_data = create_reversed_dataset(no_examples[1], min_len, max_len)
   test_data = create_reversed_dataset(no_examples[2], min_len, max_len)
-  return {
-    'train': train_data,
-    'validation': validation_data,
-    'test': test_data
-  }
+  return {'train': train_data, 'validation': validation_data, 'test': test_data}
+
 
 def _get_tokens(input_features: Dict, tokenizer: text.Tokenizer,
                 datasets: Iterable[tf.data.Dataset],
@@ -269,8 +268,7 @@ def get_bucketed_batches(dataset: tf.data.Dataset,
     num_batches = num_examples // batch_size
     return dataset.shuffle(
         num_examples, seed=seed,
-        reshuffle_each_iteration=True
-        ).apply(bucket_fn).shuffle(
+        reshuffle_each_iteration=True).apply(bucket_fn).shuffle(
             num_batches, seed=seed,
             reshuffle_each_iteration=True).prefetch(constants.AUTOTUNE)
   return dataset.apply(bucket_fn).prefetch(constants.AUTOTUNE)
