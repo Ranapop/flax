@@ -23,6 +23,7 @@ import tensorflow.compat.v2 as tf
 import numpy as np
 import matplotlib.pyplot as plt
 
+import functools
 import jax
 import jax.numpy as jnp
 
@@ -153,7 +154,7 @@ def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
-@jax.partial(jax.jit, static_argnums=3)
+@functools.partial(jax.pmap, axis_name='batch', static_broadcasted_argnums=(3))
 def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   """Train one step."""
 
@@ -178,12 +179,14 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
   (_, output), grad = grad_fn(optimizer.target)
   logits, predictions = output
+  grad = jax.lax.pmean(grad, axis_name='batch')
   optimizer = optimizer.apply_gradient(grad)
   metrics = {}
   metrics = compute_metrics(logits,
                             common_utils.onehot(predictions, vocab_size),
                             common_utils.onehot(labels_no_bos, vocab_size),
                             queries_lengths)
+  metrics = jax.lax.pmean(metrics, axis_name='batch')
   return optimizer, metrics
 
 
@@ -284,6 +287,9 @@ def plot_metrics(metrics: Dict[Text, float], no_epochs):
   plt.savefig('temp/losses.png')
   plt.clf()
 
+def shard(xs):
+  return jax.tree_map(
+      lambda x: x.reshape((jax.device_count(), -1) + x.shape[1:]), xs)
 
 def train_model(learning_rate: float = None,
                 num_epochs: int = None,
@@ -302,6 +308,7 @@ def train_model(learning_rate: float = None,
   with nn.stochastic(jax.random.PRNGKey(seed)):
     model = create_model(data_source.vocab_size)
     optimizer = flax.optim.Adam(learning_rate=learning_rate).create(model)
+    optimizer = jax_utils.replicate(optimizer)
 
     if bucketing:
       train_batches = data_source.get_bucketed_batches(
@@ -321,7 +328,7 @@ def train_model(learning_rate: float = None,
                                           shuffle = True,
                                           drop_remainder = True)
 
-    train_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
+    train_metrics = []
     metrics_per_epoch = {
         TRAIN_ACCURACIES: [],
         TRAIN_LOSSES: [],
@@ -331,28 +338,30 @@ def train_model(learning_rate: float = None,
     for epoch in range(num_epochs):
       no_batches = 0
       for batch in tfds.as_numpy(train_batches):
-        batch = jax.tree_map(lambda x: x, batch)
-        optimizer, metrics = train_step(optimizer, batch, nn.make_rng(),
+        if batch_size % jax.device_count() > 0:
+          raise ValueError('Batch size must be divisible by the number of devices')
+        batch = shard(batch)
+        step_key = nn.make_rng()
+        # Shard the step PRNG key
+        sharded_keys = common_utils.shard_prng_key(step_key)
+        optimizer, metrics = train_step(optimizer, batch, sharded_keys,
                                         data_source.vocab_size)
-        train_metrics = {
-            key: train_metrics[key] + metrics[key] for key in train_metrics
-        }
+        train_metrics.append(metrics)
         no_batches += 1
-        # only train for 1 batch (for now)
-        # if no_batches == 1:
-        #     break
-      train_metrics = {
-          key: train_metrics[key] / no_batches for key in train_metrics
-      }
+      train_metrics = common_utils.get_metrics(train_metrics)
+      # Get training epoch summary for logging
+      train_summary = jax.tree_map(lambda x: x.mean(), train_metrics)
+      train_metrics = []
       # evaluate
-      dev_metrics = evaluate_model(model=optimizer.target,
+      model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
+      dev_metrics = evaluate_model(model=model,
                                    batches=dev_batches,
                                    data_source=data_source,
                                    predicted_output_length=max_out_len,
                                    no_logged_examples=3)
-      log(epoch, train_metrics, dev_metrics)
-      metrics_per_epoch[TRAIN_ACCURACIES].append(train_metrics[ACC_KEY])
-      metrics_per_epoch[TRAIN_LOSSES].append(train_metrics[LOSS_KEY])
+      log(epoch, train_summary, dev_metrics)
+      metrics_per_epoch[TRAIN_ACCURACIES].append(train_summary[ACC_KEY])
+      metrics_per_epoch[TRAIN_LOSSES].append(train_summary[LOSS_KEY])
       metrics_per_epoch[TEST_ACCURACIES].append(dev_metrics[ACC_KEY])
       metrics_per_epoch[TEST_LOSSES].append(dev_metrics[LOSS_KEY])
 
