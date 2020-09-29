@@ -341,8 +341,8 @@ def train_model(learning_rate: float = None,
         if batch_size % jax.device_count() > 0:
           raise ValueError('Batch size must be divisible by the number of devices')
         batch = shard(batch)
-        # Shard the step PRNG key
         step_key = nn.make_rng()
+        # Shard the step PRNG key
         sharded_keys = common_utils.shard_prng_key(step_key)
         optimizer, metrics = train_step(optimizer, batch, sharded_keys,
                                         data_source.vocab_size)
