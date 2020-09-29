@@ -79,32 +79,33 @@ def create_model(vocab_size: int) -> nn.Module:
 
 
 def cross_entropy_loss(logits: jnp.array, labels: jnp.array,
-                       lengths: jnp.array):
+                       lengths: jnp.array, vocab_size: int):
   """Returns cross-entropy loss."""
+  labels = common_utils.onehot(labels, vocab_size)
   log_soft = nn.log_softmax(logits)
   log_sum = jnp.sum(log_soft * labels, axis=-1)
   masked_log_sum = jnp.mean(mask_sequences(log_sum, lengths))
   return -masked_log_sum
 
 
-def pad_batch_to_max(batch: jnp.array, seq_len: int, max_len: int):
-  """Pads the input array on the 2nd dimension to the given length
-    (padding is done with 0)
-
-    Args:
-      batch: batch array
-      seq_len: 2nd dimension current value
-      max_len: 2nd dimension desired value
-    """
-  padding_size = max_len - seq_len
-  padding = tf.constant([[0, 0], [0, padding_size], [0, 0]])
-  return tf.pad(batch, padding, "CONSTANT").numpy()
+def pad_along_axis(array: jnp.array,
+                   padding_size: int,
+                   axis: int) -> jnp.array:
+  """Returns array padded on axis to target_len"""
+  ndim = array.ndim
+  pad_shape = jnp.full((ndim, 2), 0)
+  pad_shape = jax.ops.index_update(pad_shape,
+                                    jax.ops.index[axis,1],
+                                    padding_size)
+  padded = jnp.pad(array,pad_shape)
+  return padded
 
 
 def compute_metrics(logits: jnp.array,
                     predictions: jnp.array,
                     labels: jnp.array,
-                    queries_lengths: jnp.array) -> Dict:
+                    queries_lengths: jnp.array,
+                    vocab_size: int) -> Dict:
   """Computes metrics for a batch of logist & labels and returns those metrics
 
     The metrics computed are cross entropy loss and mean batch accuracy. The
@@ -112,9 +113,10 @@ def compute_metrics(logits: jnp.array,
     Args:
       logits: logits (train time) or ohe predictions (test time)
               [batch_size, logits seq_len, vocab_size]
-      predictions: ohe predictions
-      labels: ohe gold labels, shape [batch_size, labels seq_len, vocab_size]
+      predictions: predictions [batch_size, predicted seq len]
+      labels: ohe gold labels, shape [batch_size, labels seq_len]
       queries_lengths: lengths of gold queries (until eos)
+      vocab_size: vocabulary size
 
     """
   lengths = queries_lengths
@@ -122,13 +124,14 @@ def compute_metrics(logits: jnp.array,
   logits_seq_len = logits.shape[1]
   max_seq_len = max(labels_seq_len, logits_seq_len)
   if labels_seq_len != max_seq_len:
-    labels = pad_batch_to_max(labels, labels_seq_len, max_seq_len)
+    labels = pad_along_axis(labels, max_seq_len - labels_seq_len, 1)
   elif logits_seq_len != max_seq_len:
-    logits = pad_batch_to_max(logits, logits_seq_len, max_seq_len)
-    predictions = pad_batch_to_max(predictions, logits_seq_len, max_seq_len)
+    padding_size = max_seq_len - logits_seq_len
+    logits = pad_along_axis(logits, padding_size, 1)
+    predictions = pad_along_axis(predictions, padding_size, 1)
 
-  loss = cross_entropy_loss(logits, labels, lengths)
-  token_accuracy = jnp.argmax(predictions, -1) == jnp.argmax(labels, -1)
+  loss = cross_entropy_loss(logits, labels, lengths, vocab_size)
+  token_accuracy = jnp.equal(predictions, labels)
   sequence_accuracy = (jnp.sum(mask_sequences(token_accuracy, lengths),
                                axis=-1) == lengths)
   accuracy = jnp.mean(sequence_accuracy)
@@ -171,8 +174,9 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
                                   encoder_inputs_lengths=input_lengths,
                                   vocab_size=vocab_size)
     loss = cross_entropy_loss(logits,
-                              common_utils.onehot(labels_no_bos, vocab_size),
-                              queries_lengths)
+                              labels_no_bos,
+                              queries_lengths,
+                              vocab_size)
     return loss, (logits, predictions)
 
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
@@ -181,9 +185,10 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   optimizer = optimizer.apply_gradient(grad)
   metrics = {}
   metrics = compute_metrics(logits,
-                            common_utils.onehot(predictions, vocab_size),
-                            common_utils.onehot(labels_no_bos, vocab_size),
-                            queries_lengths)
+                            predictions,
+                            labels_no_bos,
+                            queries_lengths,
+                            vocab_size)
   return optimizer, metrics
 
 
@@ -241,13 +246,12 @@ def evaluate_model(model: nn.Module,
     logits, inferred_outputs = infer(model, inputs, input_lengths, nn.make_rng(),
                                 data_source.vocab_size, data_source.bos_idx,
                                 predicted_output_length)
-    ohe_predictions = common_utils.onehot(inferred_outputs,
-                                          data_source.vocab_size)
     metrics = compute_metrics(
         logits,
-        ohe_predictions,
-        common_utils.onehot(gold_outputs, data_source.vocab_size),
-        batch[constants.QUERY_LEN_KEY])
+        inferred_outputs,
+        gold_outputs,
+        batch[constants.QUERY_LEN_KEY],
+        data_source.vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
     if no_logged_examples is not None and no_batches == 0:
       #log the first examples in the batch

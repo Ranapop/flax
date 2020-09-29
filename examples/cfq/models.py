@@ -152,7 +152,6 @@ class Decoder(nn.Module):
       return [None] * num_masks
     masks = []
     for i in range(0, num_masks):
-      # should I use a different rng for each mask?
       dropout_mask = random.bernoulli(nn.make_rng(),
                                       p=1 - dropout_rate,
                                       shape=shape)
