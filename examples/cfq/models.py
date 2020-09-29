@@ -126,7 +126,7 @@ class MultilayerLSTM(nn.Module):
     final_output = None
     for layer_idx in range(num_layers):
       lstm_name = 'lstm_layer' + str(layer_idx)
-      cell = nn.LSTMCell.shared(name=lstm_name)
+      cell = nn.LSTMCell.partial(name=lstm_name)
       c, h = previous_states[layer_idx]
       # Apply dropout to h.
       if horizontal_dropout_masks[layer_idx] is not None:
