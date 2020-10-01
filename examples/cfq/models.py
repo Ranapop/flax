@@ -99,7 +99,7 @@ class MlpAttention(nn.Module):
 
 
 class MultiheadMlpAttention(nn.Module):
-  """MLP attention module with configurable number of heads"""
+  """MLP attention module with configurable number of heads."""
 
   def apply(self,
             num_heads: int,
