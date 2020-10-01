@@ -41,7 +41,8 @@ flags.DEFINE_float('learning_rate',
                    help=('The learning rate for the Adam optimizer.'))
 
 flags.DEFINE_integer('batch_size',
-                     default=526,
+                     short_name='b',
+                     default=1024,
                      help=('Batch size for training.'))
 
 flags.DEFINE_integer('epochs',
@@ -63,6 +64,15 @@ flags.DEFINE_boolean('only_run_test',
                      default=False,
                      help=('Boolean flag indicating wheter to test model.'))
 
+flags.DEFINE_boolean('use_bucketing',
+                     default=True,
+                     help=('Use bucketing when batching'))
+
+flags.DEFINE_boolean('dummy_data',
+                     short_name='d',
+                     default=False,
+                     help=('Use dummy dataset (reversed sequences)'))
+
 flags.DEFINE_string('model_dir',
                     default=None,
                     help=('Model dir to save model to/load model from.'))
@@ -75,7 +85,8 @@ def main(_):
       seed=FLAGS.seed,
       fixed_output_len=False,
       #TODO: flag for split
-      cfq_split='random_split')
+      cfq_split='random_split',
+      replace_with_dummy=FLAGS.dummy_data)
 
   if FLAGS.only_run_test:
     train.test_model(model_dir=FLAGS.model_dir,
@@ -91,7 +102,7 @@ def main(_):
                                       seed=FLAGS.seed,
                                       data_source=data_source,
                                       batch_size=FLAGS.batch_size,
-                                      bucketing=True,
+                                      bucketing=FLAGS.use_bucketing,
                                       model_dir=FLAGS.model_dir)
 
 

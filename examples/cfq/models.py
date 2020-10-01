@@ -26,30 +26,27 @@ from flax import nn
 LSTM_HIDDEN_SIZE = 512
 EMBEDDING_DIM = 200
 ATTENTION_SIZE = 100
+DECODER_PROJECTION = 256
 NUM_LAYERS = 2
 DROPOUT = 0.4
 NUM_ATTENTION_HEADS = 4
 
+
 class Encoder(nn.Module):
   """LSTM encoder, returning state after EOS is input."""
 
-  def apply(self,
-            inputs: jnp.array,
-            lengths: jnp.array,
-            shared_embedding: nn.Module,
-            train: bool,
-            hidden_size: int,
-            num_layers: int,
-            horizontal_dropout_rate: float,
+  def apply(self, inputs: jnp.array, lengths: jnp.array,
+            shared_embedding: nn.Module, train: bool, hidden_size: int,
+            num_layers: int, horizontal_dropout_rate: float,
             vertical_dropout_rate: float):
 
     inputs = shared_embedding(inputs)
-    lstm = nn.LSTM.partial(hidden_size=hidden_size,
-                           num_layers=num_layers,
-                           dropout_rate=vertical_dropout_rate,
-                           recurrent_dropout_rate=horizontal_dropout_rate
-                           ).shared(name='lstm')
-    outputs, final_states = lstm(inputs, lengths, train = train)
+    lstm = nn.LSTM.partial(
+        hidden_size=hidden_size,
+        num_layers=num_layers,
+        dropout_rate=vertical_dropout_rate,
+        recurrent_dropout_rate=horizontal_dropout_rate).shared(name='lstm')
+    outputs, final_states = lstm(inputs, lengths, train=train)
     return outputs, final_states[-1]
 
 
@@ -131,11 +128,10 @@ class MultilayerLSTM(nn.Module):
   "LSTM cell with multiple layers"
 
   def apply(self,
-        num_layers,
-        horizontal_dropout_masks,
-        vertical_dropout_masks,
-        input: jnp.array,
-        previous_states: List):
+            num_layers: int,
+            horizontal_dropout_masks: jnp.array,
+            vertical_dropout_masks: jnp.array,
+            input: jnp.array, previous_states: List):
     """
     Args
       num_layers: number of layers
@@ -153,22 +149,21 @@ class MultilayerLSTM(nn.Module):
       previous_states: list of (c,h) for each layer
         shape [num_layers, batch_size, 2*hidden_size]
     """
-    cell_input = input
     states = []
     final_output = None
     for layer_idx in range(num_layers):
-      lstm_name = 'lstm_layer'+str(layer_idx)
-      cell = nn.LSTMCell.shared(name=lstm_name)
-      c,h = previous_states[layer_idx]
-      # apply dropout to h
+      lstm_name = 'lstm_layer' + str(layer_idx)
+      cell = nn.LSTMCell.partial(name=lstm_name)
+      c, h = previous_states[layer_idx]
+      # Apply dropout to h.
       if horizontal_dropout_masks[layer_idx] is not None:
         h = h * horizontal_dropout_masks[layer_idx]
-      # apply dropout to hidden state from lower layer
-      if layer_idx!=0 and vertical_dropout_masks[layer_idx-1] is not None:
-        cell_input = cell_input * vertical_dropout_masks[layer_idx-1]
-      state, output = cell((c,h),cell_input)
+      # Apply dropout to the hidden state from lower layer.
+      if layer_idx != 0 and vertical_dropout_masks[layer_idx - 1] is not None:
+        input = input * vertical_dropout_masks[layer_idx - 1]
+      state, output = cell((c, h), input)
       states.append(state)
-      cell_input = output
+      input = output
       final_output = output
     return states, final_output
 
@@ -176,18 +171,17 @@ class MultilayerLSTM(nn.Module):
 class Decoder(nn.Module):
   """LSTM decoder."""
 
-  def create_dropout_masks(self,
-                           num_masks: int,
-                           shape: Tuple,
+  @staticmethod
+  def create_dropout_masks(num_masks: int, shape: Tuple,
                            dropout_rate: float):
-    if dropout_rate==0:
+    if dropout_rate == 0:
       return [None] * num_masks
     masks = []
     for i in range(0, num_masks):
-      # should I use a different rng for each mask?
       dropout_mask = random.bernoulli(nn.make_rng(),
-                                      p=1 - dropout_rate, shape=shape)
-      # Scale mask.
+                                      p=1 - dropout_rate,
+                                      shape=shape)
+      # Convert array of boolean values to probabilty distribution.
       dropout_mask = dropout_mask / (1.0 - dropout_rate)
       masks.append(dropout_mask)
     return masks
@@ -220,7 +214,10 @@ class Decoder(nn.Module):
       num_layers: number of layers in the LSTM
       train: boolean choosing from train and inference flow
     """
-    multilayer_lstm_cell = MultilayerLSTM.partial(num_layers = num_layers).shared(name='multilayer_lstm')
+    multilayer_lstm_cell = MultilayerLSTM.partial(num_layers=num_layers).shared(
+        name='multilayer_lstm')
+    pre_output_layer = nn.Dense.shared(features=DECODER_PROJECTION,
+                                       name='pre_output_layer')
     projection = nn.Dense.shared(features=vocab_size, name='projection')
     mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE).shared(
         name='attention')
@@ -234,15 +231,17 @@ class Decoder(nn.Module):
                                ATTENTION_SIZE,
                                bias=False)
       projected_keys_list.append(projected_keys)
-    
+
     batch_size = encoder_hidden_states.shape[0]
     hidden_size = encoder_hidden_states.shape[-1]
-    h_dropout_masks = self.create_dropout_masks(num_masks=num_layers,
-                                                shape=(batch_size, hidden_size),
-                                                dropout_rate=horizontal_dropout_rate)
-    v_dropout_masks = self.create_dropout_masks(num_masks=num_layers-1,
-                                                shape=(batch_size, hidden_size),
-                                                dropout_rate=vertical_dropout_rate)
+    h_dropout_masks = Decoder.create_dropout_masks(
+        num_masks=num_layers,
+        shape=(batch_size, hidden_size),
+        dropout_rate=horizontal_dropout_rate)
+    v_dropout_masks = Decoder.create_dropout_masks(
+        num_masks=num_layers - 1,
+        shape=(batch_size, hidden_size),
+        dropout_rate=vertical_dropout_rate)
 
     def decode_step_fn(carry, x):
       rng, multilayer_lstm_output, last_prediction = carry
@@ -257,25 +256,22 @@ class Decoder(nn.Module):
         projected_keys_list = projected_keys_list,
         values = encoder_hidden_states,
         mask = attention_mask)
-      # print('Multi attention shape')
-      # print(attention)
-      # attention = mlp_attention(dec_prev_state, projected_keys,
-      #                           encoder_hidden_states, attention_mask)
-      # print('Attention shape')
-      # print(attention.shape)
-      previous_states[0] = (previous_states[0][0],attention)
-    
-      states, y = multilayer_lstm_cell(horizontal_dropout_masks=h_dropout_masks,
+      lstm_input = jnp.concatenate([x, attention], axis=-1)
+      states, h = multilayer_lstm_cell(horizontal_dropout_masks=h_dropout_masks,
                                        vertical_dropout_masks=v_dropout_masks,
-                                       input=x,
+                                       input=lstm_input,
                                        previous_states=previous_states)
-      logits = projection(y)
+      inner_proj_input = jnp.concatenate([x, attention, h], axis=-1)
+      pre_output = pre_output_layer(inner_proj_input)
+      logits = projection(pre_output)
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
       predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
-      return (carry_rng, (states, y),
+      return (carry_rng, (states, h),
               predicted_tokens_uint8), (logits, predicted_tokens_uint8)
 
     init_states = [init_state] * num_layers
+    # initialisig the LSTM states and final output with the
+    # encoder hidden states
     multilayer_lstm_output = (init_states, init_state[1])
     init_carry = (nn.make_rng(), multilayer_lstm_output, inputs[:, 0])
 
@@ -296,19 +292,9 @@ def compute_attention_masks(mask_shape: Tuple, lengths: jnp.array):
   mask = mask * (lengths[:, jnp.newaxis] > jnp.arange(mask.shape[1]))
   return mask
 
+
 class Seq2seq(nn.Module):
   """Sequence-to-sequence class using encoder/decoder architecture."""
-
-  def _create_modules(self, hidden_size, num_layers, dropout):
-    encoder = Encoder.partial(hidden_size=hidden_size,
-                              num_layers=num_layers,
-                              horizontal_dropout_rate=dropout,
-                              vertical_dropout_rate=dropout).shared(name='encoder')
-    decoder = Decoder.partial(num_layers=num_layers,
-                              horizontal_dropout_rate=dropout,
-                              vertical_dropout_rate=dropout
-                              ).shared(name='decoder')
-    return encoder, decoder
 
   def apply(self,
             encoder_inputs: jnp.array,
@@ -318,8 +304,8 @@ class Seq2seq(nn.Module):
             emb_dim: int = EMBEDDING_DIM,
             train: bool = True,
             hidden_size: int = LSTM_HIDDEN_SIZE,
-            num_layers = NUM_LAYERS,
-            dropout = DROPOUT):
+            num_layers=NUM_LAYERS,
+            dropout=DROPOUT):
     """Run the seq2seq model.
 
     Args:
@@ -347,16 +333,21 @@ class Seq2seq(nn.Module):
         num_embeddings=vocab_size,
         features=emb_dim,
         embedding_init=nn.initializers.normal(stddev=1.0))
-    encoder, decoder = self._create_modules(hidden_size, num_layers, dropout)
 
+    encoder = Encoder.partial(hidden_size=hidden_size,
+                              num_layers=num_layers,
+                              horizontal_dropout_rate=dropout,
+                              vertical_dropout_rate=dropout)
+    decoder = Decoder.partial(num_layers=num_layers,
+                              horizontal_dropout_rate=dropout,
+                              vertical_dropout_rate=dropout)
     # compute attention masks
     mask = compute_attention_masks(encoder_inputs.shape, encoder_inputs_lengths)
 
     # Encode inputs
     hidden_states, init_decoder_state = encoder(encoder_inputs,
                                                 encoder_inputs_lengths,
-                                                shared_embedding,
-                                                train)
+                                                shared_embedding, train)
     # Decode outputs.
     logits, predictions = decoder(init_decoder_state,
                                   hidden_states,

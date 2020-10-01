@@ -23,6 +23,7 @@ import tensorflow.compat.v2 as tf
 import numpy as np
 import matplotlib.pyplot as plt
 
+import functools
 import jax
 import jax.numpy as jnp
 
@@ -101,7 +102,9 @@ def pad_batch_to_max(batch: jnp.array, seq_len: int, max_len: int):
   return tf.pad(batch, padding, "CONSTANT").numpy()
 
 
-def compute_metrics(logits: jnp.array, labels: jnp.array,
+def compute_metrics(logits: jnp.array,
+                    predictions: jnp.array,
+                    labels: jnp.array,
                     queries_lengths: jnp.array) -> Dict:
   """Computes metrics for a batch of logist & labels and returns those metrics
 
@@ -110,6 +113,7 @@ def compute_metrics(logits: jnp.array, labels: jnp.array,
     Args:
       logits: logits (train time) or ohe predictions (test time)
               [batch_size, logits seq_len, vocab_size]
+      predictions: ohe predictions
       labels: ohe gold labels, shape [batch_size, labels seq_len, vocab_size]
       queries_lengths: lengths of gold queries (until eos)
 
@@ -122,9 +126,10 @@ def compute_metrics(logits: jnp.array, labels: jnp.array,
     labels = pad_batch_to_max(labels, labels_seq_len, max_seq_len)
   elif logits_seq_len != max_seq_len:
     logits = pad_batch_to_max(logits, logits_seq_len, max_seq_len)
+    predictions = pad_batch_to_max(predictions, logits_seq_len, max_seq_len)
 
   loss = cross_entropy_loss(logits, labels, lengths)
-  token_accuracy = jnp.argmax(logits, -1) == jnp.argmax(labels, -1)
+  token_accuracy = jnp.argmax(predictions, -1) == jnp.argmax(labels, -1)
   sequence_accuracy = (jnp.sum(mask_sequences(token_accuracy, lengths),
                                axis=-1) == lengths)
   accuracy = jnp.mean(sequence_accuracy)
@@ -149,7 +154,7 @@ def log(epoch: int, total_batches: int, train_metrics: Dict, dev_metrics: Dict):
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
-@jax.partial(jax.jit, static_argnums=3)
+@functools.partial(jax.pmap, axis_name='batch', static_broadcasted_argnums=(3))
 def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   """Train one step."""
 
@@ -169,15 +174,19 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
     loss = cross_entropy_loss(logits,
                               common_utils.onehot(labels_no_bos, vocab_size),
                               queries_lengths)
-    return loss, logits
+    return loss, (logits, predictions)
 
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-  (_, logits), grad = grad_fn(optimizer.target)
+  (_, output), grad = grad_fn(optimizer.target)
+  logits, predictions = output
+  grad = jax.lax.pmean(grad, axis_name='batch')
   optimizer = optimizer.apply_gradient(grad)
   metrics = {}
   metrics = compute_metrics(logits,
+                            common_utils.onehot(predictions, vocab_size),
                             common_utils.onehot(labels_no_bos, vocab_size),
                             queries_lengths)
+  metrics = jax.lax.pmean(metrics, axis_name='batch')
   return optimizer, metrics
 
 
@@ -232,12 +241,13 @@ def evaluate_model(model: nn.Module,
     inputs = batch[constants.QUESTION_KEY]
     input_lengths = batch[constants.QUESTION_LEN_KEY]
     gold_outputs = batch[constants.QUERY_KEY][:, 1:]
-    _, inferred_outputs = infer(model, inputs, input_lengths, nn.make_rng(),
+    logits, inferred_outputs = infer(model, inputs, input_lengths, nn.make_rng(),
                                 data_source.vocab_size, data_source.bos_idx,
                                 predicted_output_length)
     ohe_predictions = common_utils.onehot(inferred_outputs,
                                           data_source.vocab_size)
     metrics = compute_metrics(
+        logits,
         ohe_predictions,
         common_utils.onehot(gold_outputs, data_source.vocab_size),
         batch[constants.QUERY_LEN_KEY])
@@ -277,6 +287,9 @@ def plot_metrics(metrics: Dict[Text, float], no_epochs):
   plt.savefig('temp/losses.png')
   plt.clf()
 
+def shard(xs):
+  return jax.tree_map(
+      lambda x: x.reshape((jax.device_count(), -1) + x.shape[1:]), xs)
 
 def train_model(learning_rate: float = None,
                 num_epochs: int = None,
@@ -295,25 +308,27 @@ def train_model(learning_rate: float = None,
   with nn.stochastic(jax.random.PRNGKey(seed)):
     model = create_model(data_source.vocab_size)
     optimizer = flax.optim.Adam(learning_rate=learning_rate).create(model)
-    # optimizer = flax.optim.GradientDescent(learning_rate=learning_rate).create(model)
+    optimizer = jax_utils.replicate(optimizer)
 
     if bucketing:
       train_batches = data_source.get_bucketed_batches(
-          data_source.train_dataset,
-          batch_size=batch_size,
-          bucket_size=16,
-          drop_remainder=True,
-          shuffle=True)
+          split = 'train',
+          batch_size = batch_size,
+          bucket_size = 8,
+          drop_remainder = True,
+          shuffle = True)
     else:
-      train_batches = data_source.get_batches(data_source.train_dataset,
-                                              batch_size=batch_size,
-                                              shuffle=True)
+      train_batches = data_source.get_batches(split = 'train',
+                                              batch_size = batch_size,
+                                              shuffle = True,
+                                              drop_remainder=True)
 
-    dev_batches = data_source.get_batches(data_source.dev_dataset,
-                                          batch_size=batch_size,
-                                          shuffle=True)
+    dev_batches = data_source.get_batches(split = 'dev',
+                                          batch_size = batch_size,
+                                          shuffle = True,
+                                          drop_remainder = True)
 
-    train_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
+    train_metrics = []
     metrics_per_epoch = {
         TRAIN_ACCURACIES: [],
         TRAIN_LOSSES: [],
@@ -324,29 +339,30 @@ def train_model(learning_rate: float = None,
     for epoch in range(num_epochs):
       no_batches = 0
       for batch in tfds.as_numpy(train_batches):
-        batch = jax.tree_map(lambda x: x, batch)
-        optimizer, metrics = train_step(optimizer, batch, nn.make_rng(),
+        if batch_size % jax.device_count() > 0:
+          raise ValueError('Batch size must be divisible by the number of devices')
+        batch = shard(batch)
+        step_key = nn.make_rng()
+        # Shard the step PRNG key
+        sharded_keys = common_utils.shard_prng_key(step_key)
+        optimizer, metrics = train_step(optimizer, batch, sharded_keys,
                                         data_source.vocab_size)
-        train_metrics = {
-            key: train_metrics[key] + metrics[key] for key in train_metrics
-        }
+        train_metrics.append(metrics)
         no_batches += 1
-        # only train for 1 batch (for now)
-        # if no_batches == 1:
-        #     break
-      train_metrics = {
-          key: train_metrics[key] / no_batches for key in train_metrics
-      }
+      train_metrics = common_utils.get_metrics(train_metrics)
+      # Get training epoch summary for logging
+      train_summary = jax.tree_map(lambda x: x.mean(), train_metrics)
+      train_metrics = []
       # evaluate
-      dev_metrics = evaluate_model(model=optimizer.target,
+      model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
+      dev_metrics = evaluate_model(model=model,
                                    batches=dev_batches,
                                    data_source=data_source,
                                    predicted_output_length=max_out_len,
                                    no_logged_examples=3)
-      total_batches += no_batches
-      log(epoch, total_batches, train_metrics, dev_metrics)
-      metrics_per_epoch[TRAIN_ACCURACIES].append(train_metrics[ACC_KEY])
-      metrics_per_epoch[TRAIN_LOSSES].append(train_metrics[LOSS_KEY])
+      log(epoch, train_summary, dev_metrics)
+      metrics_per_epoch[TRAIN_ACCURACIES].append(train_summary[ACC_KEY])
+      metrics_per_epoch[TRAIN_LOSSES].append(train_summary[LOSS_KEY])
       metrics_per_epoch[TEST_ACCURACIES].append(dev_metrics[ACC_KEY])
       metrics_per_epoch[TEST_LOSSES].append(dev_metrics[LOSS_KEY])
 
@@ -367,7 +383,7 @@ def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
   with nn.stochastic(jax.random.PRNGKey(seed)):
     model = create_model(data_source.vocab_size)
     optimizer = flax.optim.Adam().create(model)
-    dev_batches = data_source.get_batches(data_source.dev_dataset,
+    dev_batches = data_source.get_batches(split = 'dev',
                                           batch_size=batch_size,
                                           shuffle=True)
     # evaluate
