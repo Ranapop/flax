@@ -114,24 +114,19 @@ class MultiheadMlpAttention(nn.Module):
     attentions = []
     for i in range(num_heads):
       mlp_attention = MlpAttention.partial(hidden_size=hidden_size)
-      attention = mlp_attention(
-        query,
-        projected_keys_list[i],
-        values,
-        mask)
+      attention = mlp_attention(query, projected_keys_list[i], values, mask)
       attentions.append(attention)
     attentions = jnp.concatenate(attentions, axis=0)
     attention = dense(attentions)
     return attention
 
+
 class MultilayerLSTM(nn.Module):
   "LSTM cell with multiple layers"
 
-  def apply(self,
-            num_layers: int,
-            horizontal_dropout_masks: jnp.array,
-            vertical_dropout_masks: jnp.array,
-            input: jnp.array, previous_states: List):
+  def apply(self, num_layers: int, horizontal_dropout_masks: jnp.array,
+            vertical_dropout_masks: jnp.array, input: jnp.array,
+            previous_states: List):
     """
     Args
       num_layers: number of layers
@@ -172,8 +167,7 @@ class Decoder(nn.Module):
   """LSTM decoder."""
 
   @staticmethod
-  def create_dropout_masks(num_masks: int, shape: Tuple,
-                           dropout_rate: float):
+  def create_dropout_masks(num_masks: int, shape: Tuple, dropout_rate: float):
     if dropout_rate == 0:
       return [None] * num_masks
     masks = []
@@ -221,15 +215,15 @@ class Decoder(nn.Module):
     projection = nn.Dense.shared(features=vocab_size, name='projection')
     mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE).shared(
         name='attention')
-    multi_attention = MultiheadMlpAttention.partial(num_heads=1,hidden_size=ATTENTION_SIZE).shared(
-        name='multi_attention')
-    
+    multi_attention = MultiheadMlpAttention.partial(
+        num_heads=1, hidden_size=ATTENTION_SIZE).shared(name='multi_attention')
+
     # The keys projection can be calculated once for the whole sequence.
     projected_keys_list = []
     for i in range(0, num_heads):
       projected_keys = nn.Dense(encoder_hidden_states,
-                               ATTENTION_SIZE,
-                               bias=False)
+                                ATTENTION_SIZE,
+                                bias=False)
       projected_keys_list.append(projected_keys)
 
     batch_size = encoder_hidden_states.shape[0]
@@ -251,11 +245,10 @@ class Decoder(nn.Module):
         x = last_prediction
       x = shared_embedding(x)
       dec_prev_state = jnp.expand_dims(h, 1)
-      attention = multi_attention(
-        query=dec_prev_state,
-        projected_keys_list = projected_keys_list,
-        values = encoder_hidden_states,
-        mask = attention_mask)
+      attention = multi_attention(query=dec_prev_state,
+                                  projected_keys_list=projected_keys_list,
+                                  values=encoder_hidden_states,
+                                  mask=attention_mask)
       lstm_input = jnp.concatenate([x, attention], axis=-1)
       states, h = multilayer_lstm_cell(horizontal_dropout_masks=h_dropout_masks,
                                        vertical_dropout_masks=v_dropout_masks,
