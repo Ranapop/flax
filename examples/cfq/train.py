@@ -93,11 +93,11 @@ def pad_along_axis(array: jnp.array,
                    padding_size: int,
                    axis: int) -> jnp.array:
   """Returns array padded with zeroes on given axis with padding_size positions.
-  The padding is done at the end of the array at that axis"""
-  # The pad function expects a shape of size (n,2) where n is the number of axes
-  # For each axis, the number of padding positions at the begining and end of
-  # the array is specified
-  pad_shape = jnp.full((array.ndim, 2), 0)
+  The padding is done at the end of the array at that axis."""
+  # The pad function expects a shape of size (n, 2) where n is the number of
+  # axes. For each axis, the number of padding positions at the beginning and
+  # end of the array is specified.
+  pad_shape = jnp.zeros((array.ndim, 2))
   pad_shape = jax.ops.index_update(pad_shape,
                                    jax.ops.index[axis, 1],
                                    padding_size)
