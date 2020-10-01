@@ -140,7 +140,7 @@ def compute_metrics(logits: jnp.array,
   return metrics
 
 
-def log(epoch: int, total_batches: int, train_metrics: Dict, dev_metrics: Dict):
+def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
   """Logs performance for an epoch.
 
     Args:
@@ -149,8 +149,8 @@ def log(epoch: int, total_batches: int, train_metrics: Dict, dev_metrics: Dict):
       dev_metrics: A dict with the validation metrics for this epoch.
     """
   logging.info(
-      'Epoch %02d (train example %02d) train loss %.4f dev loss %.4f train acc %.2f dev acc %.2f',
-      epoch + 1, total_batches, train_metrics[LOSS_KEY], dev_metrics[LOSS_KEY],
+      'Epoch %02d train loss %.4f dev loss %.4f train acc %.2f dev acc %.2f',
+      epoch + 1, train_metrics[LOSS_KEY], dev_metrics[LOSS_KEY],
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
@@ -335,7 +335,6 @@ def train_model(learning_rate: float = None,
         TEST_ACCURACIES: [],
         TEST_LOSSES: []
     }
-    total_batches = 0
     for epoch in range(num_epochs):
       no_batches = 0
       for batch in tfds.as_numpy(train_batches):
