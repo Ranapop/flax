@@ -108,6 +108,20 @@ class MultiheadMlpAttention(nn.Module):
             values: jnp.ndarray,
             mask: jnp.ndarray,
             hidden_size: int = None) -> jnp.ndarray:
+    """
+    Applies multiple attention heads on the same query and values and then
+    passes the concatenated results through a dense layer to get back to the
+    hidden_size.
+
+    Args
+      num_heads: The number of attention heads.
+      query: The query used to compute the attention vectors
+        [batch_size, 1, query_size].
+      values: The values to be weighted [batch_size, seq_length, values_size].
+      mask: A mask for projected_keys_list (the same mask is reused accross
+        different heads) [batch_size, seq_length].
+      hidden_size: output size
+    """
     values_size = values.shape[-1]
     dense = nn.Dense.shared(features=values_size, name='attention_projection')
     mlp_attention = MlpAttention.partial(hidden_size=hidden_size)
