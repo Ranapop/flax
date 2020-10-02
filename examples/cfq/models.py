@@ -112,6 +112,8 @@ class MultiheadMlpAttention(nn.Module):
     dense = nn.Dense.shared(features=values_size, name='attention_projection')
     mlp_attention = MlpAttention.partial(hidden_size=hidden_size)
 
+    # For one attention head use simple attention (do not pass through another
+    # dense layer).
     if num_heads==1:
       return mlp_attention(query, projected_keys_list[0], values, mask)
     attentions = []
