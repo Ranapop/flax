@@ -116,7 +116,6 @@ class MultiheadMlpAttention(nn.Module):
       return mlp_attention(query, projected_keys_list[0], values, mask)
     attentions = []
     for i in range(num_heads):
-      mlp_attention = MlpAttention.partial(hidden_size=hidden_size)
       attention = mlp_attention(query, projected_keys_list[i], values, mask)
       attentions.append(attention)
     attentions = jnp.concatenate(attentions, axis=0)
