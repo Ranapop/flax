@@ -217,8 +217,6 @@ class Decoder(nn.Module):
     pre_output_layer = nn.Dense.shared(features=DECODER_PROJECTION,
                                        name='pre_output_layer')
     projection = nn.Dense.shared(features=vocab_size, name='projection')
-    mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE).shared(
-        name='attention')
     multi_attention = MultiheadMlpAttention.partial(
         num_heads=1, hidden_size=ATTENTION_SIZE).shared(name='multi_attention')
 
