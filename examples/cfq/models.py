@@ -29,7 +29,7 @@ ATTENTION_SIZE = 100
 DECODER_PROJECTION = 256
 NUM_LAYERS = 2
 DROPOUT = 0.4
-NUM_ATTENTION_HEADS = 4
+NUM_ATTENTION_HEADS = 1
 
 
 class Encoder(nn.Module):
@@ -110,7 +110,10 @@ class MultiheadMlpAttention(nn.Module):
             hidden_size: int = None) -> jnp.ndarray:
     values_size = values.shape[-1]
     dense = nn.Dense.shared(features=values_size, name='attention_projection')
+    mlp_attention = MlpAttention.partial(hidden_size=hidden_size)
 
+    if num_heads==1:
+      return mlp_attention(query, projected_keys_list[0], values, mask)
     attentions = []
     for i in range(num_heads):
       mlp_attention = MlpAttention.partial(hidden_size=hidden_size)
