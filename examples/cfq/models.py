@@ -235,8 +235,9 @@ class Decoder(nn.Module):
       logits = projection(attention)
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
       predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
-      return (carry_rng, (states, h),
-              predicted_tokens_uint8, attention), (logits, predicted_tokens_uint8)
+      new_carry = (carry_rng, (states, h), predicted_tokens_uint8, attention)
+      new_x = (logits, predicted_tokens_uint8)
+      return new_carry, new_x
 
     # initialisig the LSTM states and final output with the
     # encoder hidden states
