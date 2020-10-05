@@ -88,7 +88,8 @@ class ModelsTest(parameterized.TestCase):
                                     horizontal_dropout_masks=h_dropout_masks,
                                     dropout_rate=dropout_rate,
                                     input=input,
-                                    previous_states=previous_states)
+                                    previous_states=previous_states,
+                                    train=False)
 
   def test_compute_attention_masks(self):
     shape = (2, 7)
