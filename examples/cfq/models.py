@@ -29,6 +29,7 @@ ATTENTION_SIZE = 100
 ATTENTION_LAYER_SIZE = 256
 NUM_LAYERS = 2
 DROPOUT = 0.4
+NUM_HEADS = 4
 
 class Encoder(nn.Module):
   """LSTM encoder, returning state after EOS is input."""
@@ -105,12 +106,17 @@ class LuongAttention(nn.Module):
             values: jnp.ndarray,
             mask: jnp.ndarray,
             decoder_state: jnp.ndarray,
-            attention_layer_size: int = ATTENTION_LAYER_SIZE) -> jnp.ndarray:
+            attention_layer_size: int = ATTENTION_LAYER_SIZE,
+            num_heads: int = NUM_HEADS) -> jnp.ndarray:
     attention_layer = nn.Dense.partial(features=attention_layer_size)
     mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE)
-    context = mlp_attention(query, projected_keys, values, mask)
-    context_and_state = jnp.concatenate([context, decoder_state], axis=-1)
-    attention = jnp.tanh(attention_layer(context_and_state))
+    attentions = []
+    for i in range(num_heads):
+      context = mlp_attention(query, projected_keys, values, mask)
+      context_and_state = jnp.concatenate([context, decoder_state], axis=-1)
+      head_attention = jnp.tanh(attention_layer(context_and_state))
+      attentions.append(head_attention)
+    attention = jnp.concatenate(attentions, axis=1)
     return attention
 
 class MultilayerLSTM(nn.Module):
@@ -248,7 +254,7 @@ class Decoder(nn.Module):
     # initialisig the LSTM states and final output with the
     # encoder hidden states
     multilayer_lstm_output = (init_states, init_states[-1][1])
-    attention = jnp.zeros((batch_size, ATTENTION_LAYER_SIZE))
+    attention = jnp.zeros((batch_size, ATTENTION_LAYER_SIZE * NUM_HEADS))
     init_carry = (nn.make_rng(), multilayer_lstm_output, inputs[:, 0], attention)
 
     if self.is_initializing():
