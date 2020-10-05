@@ -30,6 +30,7 @@ ATTENTION_LAYER_SIZE = 256
 NUM_LAYERS = 2
 DROPOUT = 0.4
 
+
 class Encoder(nn.Module):
   """LSTM encoder, returning state after EOS is input."""
 
@@ -95,23 +96,6 @@ class MlpAttention(nn.Module):
     attention = jnp.sum(jnp.expand_dims(scores, 2) * values, axis=1)
     return attention  # Shape: <float32>[batch_size, seq_len]
 
-
-class LuongAttention(nn.Module):
-  """Luong attention module that returns attention vector."""
-
-  def apply(self,
-            query: jnp.ndarray,
-            projected_keys: jnp.ndarray,
-            values: jnp.ndarray,
-            mask: jnp.ndarray,
-            decoder_state: jnp.ndarray,
-            attention_layer_size: int = ATTENTION_LAYER_SIZE) -> jnp.ndarray:
-    attention_layer = nn.Dense.partial(features=attention_layer_size)
-    mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE)
-    context = mlp_attention(query, projected_keys, values, mask)
-    context_and_state = jnp.concatenate([context, decoder_state], axis=-1)
-    attention = jnp.tanh(attention_layer(context_and_state))
-    return attention
 
 class MultilayerLSTM(nn.Module):
   "LSTM cell with multiple layers"
@@ -205,8 +189,11 @@ class Decoder(nn.Module):
     """
     multilayer_lstm_cell = MultilayerLSTM.partial(num_layers=num_layers).shared(
         name='multilayer_lstm')
+    attention_layer = nn.Dense.shared(features=ATTENTION_LAYER_SIZE,
+                                       name='attention_layer')
     projection = nn.Dense.shared(features=vocab_size, name='projection')
-    luong_attention = LuongAttention.shared(name='luong_attention')
+    mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE).shared(
+        name='attention')
     # The keys projection can be calculated once for the whole sequence.
     projected_keys = nn.Dense(encoder_hidden_states,
                               ATTENTION_SIZE,
@@ -236,14 +223,15 @@ class Decoder(nn.Module):
                                        vertical_dropout_masks=v_dropout_masks,
                                        input=lstm_input,
                                        previous_states=previous_states)
-      attention = luong_attention(jnp.expand_dims(h, 1), projected_keys,
-                                  encoder_hidden_states, attention_mask, h)
+      context = mlp_attention(jnp.expand_dims(h, 1), projected_keys,
+                              encoder_hidden_states, attention_mask)
+      context_and_state = jnp.concatenate([context, h], axis=-1)
+      attention = jnp.tanh(attention_layer(context_and_state))
       logits = projection(attention)
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
       predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
-      new_carry = (carry_rng, (states, h), predicted_tokens_uint8, attention)
-      new_x = (logits, predicted_tokens_uint8)
-      return new_carry, new_x
+      return (carry_rng, (states, h),
+              predicted_tokens_uint8, attention), (logits, predicted_tokens_uint8)
 
     # initialisig the LSTM states and final output with the
     # encoder hidden states
