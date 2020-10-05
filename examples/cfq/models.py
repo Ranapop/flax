@@ -46,7 +46,7 @@ class Encoder(nn.Module):
         dropout_rate=vertical_dropout_rate,
         recurrent_dropout_rate=horizontal_dropout_rate).shared(name='lstm')
     outputs, final_states = lstm(inputs, lengths, train=train)
-    return outputs, final_states[-1]
+    return outputs, final_states
 
 
 class MlpAttention(nn.Module):
@@ -160,7 +160,7 @@ class Decoder(nn.Module):
     return masks
 
   def apply(self,
-            init_state,
+            init_states,
             encoder_hidden_states,
             attention_mask,
             inputs: jnp.array,
@@ -172,8 +172,9 @@ class Decoder(nn.Module):
             train: bool = False):
     """
     Args
-      init_state: state to initialize the decoder hidden state (coming from the
-        encoder) [batch_size, hidden_size]
+      init_states: states to initialize the decoder hidden states (coming from
+        the encoder). This assumes the encoder and decoder have the same number
+        of layers [num_layers, batch_size, hidden_size]
       encoder_hidden_states: encoder hidden states
         [batch_size, input_seq_len, hidden_size]
       attention_mask: attention mask [batch_size, input_seq_len]
@@ -233,10 +234,9 @@ class Decoder(nn.Module):
       return (carry_rng, (states, h),
               predicted_tokens_uint8), (logits, predicted_tokens_uint8)
 
-    init_states = [init_state] * num_layers
     # initialisig the LSTM states and final output with the
     # encoder hidden states
-    multilayer_lstm_output = (init_states, init_state[1])
+    multilayer_lstm_output = (init_states, init_states[-1][1])
     init_carry = (nn.make_rng(), multilayer_lstm_output, inputs[:, 0])
 
     if self.is_initializing():
@@ -309,11 +309,11 @@ class Seq2seq(nn.Module):
     mask = compute_attention_masks(encoder_inputs.shape, encoder_inputs_lengths)
 
     # Encode inputs
-    hidden_states, init_decoder_state = encoder(encoder_inputs,
-                                                encoder_inputs_lengths,
-                                                shared_embedding, train)
+    hidden_states, init_decoder_states = encoder(encoder_inputs,
+                                                 encoder_inputs_lengths,
+                                                 shared_embedding, train)
     # Decode outputs.
-    logits, predictions = decoder(init_decoder_state,
+    logits, predictions = decoder(init_decoder_states,
                                   hidden_states,
                                   mask,
                                   decoder_inputs[:, :-1],

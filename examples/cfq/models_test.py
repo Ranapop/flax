@@ -17,6 +17,7 @@ class ModelsTest(parameterized.TestCase):
     batch_size = 2
     hidden_size = 50
     seq_len = 3
+    num_layers = 5
     inputs = jnp.array([seq1, seq2])
     lengths = jnp.array([len(seq1), len(seq2)])
     with nn.stochastic(jax.random.PRNGKey(0)):
@@ -25,7 +26,7 @@ class ModelsTest(parameterized.TestCase):
           features=20,
           embedding_init=nn.initializers.normal(stddev=1.0))
       encoder = Encoder.partial(hidden_size=hidden_size,
-                                num_layers=2,
+                                num_layers=num_layers,
                                 horizontal_dropout_rate=0.4,
                                 vertical_dropout_rate=0.4)
       out, initial_params = encoder.init(nn.make_rng(),
@@ -33,10 +34,13 @@ class ModelsTest(parameterized.TestCase):
                                          lengths=lengths,
                                          shared_embedding=shared_embedding,
                                          train=True)
-      h_states, (c, h) = out
-      self.assertEqual(c.shape, (batch_size, hidden_size))
-      self.assertEqual(h.shape, (batch_size, hidden_size))
-      self.assertEqual(h_states.shape, (batch_size, seq_len, hidden_size))
+      outputs, hidden_states = out
+      self.assertEqual(outputs.shape, (batch_size, seq_len, hidden_size))
+      self.assertEqual(len(hidden_states), num_layers)
+      for i in range(num_layers):
+        c, h = hidden_states[i]
+        self.assertEqual(c.shape, (batch_size, hidden_size))
+        self.assertEqual(h.shape, (batch_size, hidden_size))
 
   def test_mlp_attenntion(self):
     batch_size = 2
@@ -103,8 +107,10 @@ class ModelsTest(parameterized.TestCase):
     vocab_size = 10
     seq_len = len(seq1)
     input_seq_len = 7
+    num_layers = 5
     initial_state = (jnp.zeros(
         (batch_size, hidden_size)), jnp.zeros((batch_size, hidden_size)))
+    initial_states = [initial_state] * num_layers
     enc_hidden_states = jnp.zeros((batch_size, input_seq_len, hidden_size))
     mask = jnp.zeros((batch_size, input_seq_len), dtype=bool)
     with nn.stochastic(jax.random.PRNGKey(0)):
@@ -113,12 +119,12 @@ class ModelsTest(parameterized.TestCase):
           features=20,
           embedding_init=nn.initializers.normal(stddev=1.0))
       decoder = Decoder.partial(vocab_size=vocab_size,
-                                num_layers=2,
+                                num_layers=num_layers,
                                 horizontal_dropout_rate=0.4,
                                 vertical_dropout_rate=0.4)
       out, initial_params = decoder.init(
           nn.make_rng(),
-          init_state=initial_state,
+          init_states=initial_states,
           encoder_hidden_states=enc_hidden_states,
           attention_mask=mask,
           inputs=inputs,
@@ -138,8 +144,10 @@ class ModelsTest(parameterized.TestCase):
     batch_size = 2
     hidden_size = 50
     vocab_size = 10
+    num_layers = 5
     initial_state = (jnp.zeros(
         (batch_size, hidden_size)), jnp.zeros((batch_size, hidden_size)))
+    initial_states = [initial_state] * num_layers
     enc_hidden_states = jnp.zeros((batch_size, input_seq_len, hidden_size))
     mask = jnp.zeros((batch_size, input_seq_len), dtype=bool)
     with nn.stochastic(jax.random.PRNGKey(0)):
@@ -148,12 +156,12 @@ class ModelsTest(parameterized.TestCase):
           features=20,
           embedding_init=nn.initializers.normal(stddev=1.0))
       decoder = Decoder.partial(vocab_size=vocab_size,
-                                num_layers=2,
+                                num_layers=num_layers,
                                 horizontal_dropout_rate=0.4,
                                 vertical_dropout_rate=0.4)
       (logits,
        predictions), _ = decoder.init(nn.make_rng(),
-                                      init_state=initial_state,
+                                      init_states=initial_states,
                                       encoder_hidden_states=enc_hidden_states,
                                       attention_mask=mask,
                                       inputs=inputs,
