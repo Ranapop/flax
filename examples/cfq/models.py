@@ -26,7 +26,7 @@ from flax import nn
 LSTM_HIDDEN_SIZE = 512
 EMBEDDING_DIM = 200
 ATTENTION_SIZE = 100
-DECODER_PROJECTION = 256
+ATTENTION_LAYER_SIZE = 256
 NUM_LAYERS = 2
 DROPOUT = 0.4
 
@@ -189,8 +189,8 @@ class Decoder(nn.Module):
     """
     multilayer_lstm_cell = MultilayerLSTM.partial(num_layers=num_layers).shared(
         name='multilayer_lstm')
-    pre_output_layer = nn.Dense.shared(features=DECODER_PROJECTION,
-                                       name='pre_output_layer')
+    attention_layer = nn.Dense.shared(features=ATTENTION_LAYER_SIZE,
+                                       name='attention_layer')
     projection = nn.Dense.shared(features=vocab_size, name='projection')
     mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE).shared(
         name='attention')
@@ -212,32 +212,32 @@ class Decoder(nn.Module):
         dropout_rate=vertical_dropout_rate)
 
     def decode_step_fn(carry, x):
-      rng, multilayer_lstm_output, last_prediction = carry
-      previous_states, h = multilayer_lstm_output
+      rng, multilayer_lstm_output, last_prediction, prev_attention = carry
+      previous_states, _ = multilayer_lstm_output
       carry_rng, categorical_rng = jax.random.split(rng, 2)
       if not train:
         x = last_prediction
       x = shared_embedding(x)
-      dec_prev_state = jnp.expand_dims(h, 1)
-      attention = mlp_attention(dec_prev_state, projected_keys,
-                                encoder_hidden_states, attention_mask)
-      lstm_input = jnp.concatenate([x, attention], axis=-1)
+      lstm_input = jnp.concatenate([x, prev_attention], axis=-1)
       states, h = multilayer_lstm_cell(horizontal_dropout_masks=h_dropout_masks,
                                        vertical_dropout_masks=v_dropout_masks,
                                        input=lstm_input,
                                        previous_states=previous_states)
-      inner_proj_input = jnp.concatenate([x, attention, h], axis=-1)
-      pre_output = pre_output_layer(inner_proj_input)
-      logits = projection(pre_output)
+      context = mlp_attention(jnp.expand_dims(h, 1), projected_keys,
+                              encoder_hidden_states, attention_mask)
+      context_and_state = jnp.concatenate([context, h], axis=-1)
+      attention = jnp.tanh(attention_layer(context_and_state))
+      logits = projection(attention)
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
       predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
       return (carry_rng, (states, h),
-              predicted_tokens_uint8), (logits, predicted_tokens_uint8)
+              predicted_tokens_uint8, attention), (logits, predicted_tokens_uint8)
 
     # initialisig the LSTM states and final output with the
     # encoder hidden states
     multilayer_lstm_output = (init_states, init_states[-1][1])
-    init_carry = (nn.make_rng(), multilayer_lstm_output, inputs[:, 0])
+    attention = jnp.zeros((batch_size, ATTENTION_LAYER_SIZE))
+    init_carry = (nn.make_rng(), multilayer_lstm_output, inputs[:, 0], attention)
 
     if self.is_initializing():
       # initialize parameters before scan
