@@ -122,6 +122,7 @@ class MultilayerLSTM(nn.Module):
       input: input given to the first LSTM layer [batch_size, input_size]
       previous_states: list of (c,h) for each layer
         shape [num_layers, batch_size, 2*hidden_size]
+      train: boolean indicating training or inference flow.
     """
     states = []
     final_output = None
@@ -193,6 +194,12 @@ class Decoder(nn.Module):
         the encoder)
       vocab_size: vocabulary size
       num_layers: number of layers in the LSTM
+      horizontal_dropout_rate: dropout applied at the same layer (same mask
+        across time steps).
+      vertical_dropout_rate: dropout applied between layers.
+      embed_dropout_rate: dropout applied on the embeddings.
+      attention_layer_dropout: dropout applied on the attention layer input (on
+        the concatenation of current state and context vector)
       train: boolean choosing from train and inference flow
     """
     multilayer_lstm_cell = MultilayerLSTM.partial(num_layers=num_layers).shared(
