@@ -171,6 +171,11 @@ class Decoder(nn.Module):
             vertical_dropout_rate: int,
             train: bool = False):
     """
+    The decoder follows Luong's decoder in how attention is used (the current
+    decoder state is used for attention computation, and the attention vector is
+    used to get the final probability distribution instead of the RNN output).
+    The attention mechanism employed is Bahdanau (also called concat/mlp).
+    
     Args
       init_states: states to initialize the decoder hidden states (coming from
         the encoder). This assumes the encoder and decoder have the same number
