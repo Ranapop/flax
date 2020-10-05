@@ -30,7 +30,7 @@ ATTENTION_LAYER_SIZE = 256
 NUM_LAYERS = 2
 HORIZONTAL_DROPOUT = 0
 VERTICAL_DROPOUT = 0.4
-
+EMBED_DROPOUT = 0.1
 
 class Encoder(nn.Module):
   """LSTM encoder, returning state after EOS is input."""
@@ -38,9 +38,11 @@ class Encoder(nn.Module):
   def apply(self, inputs: jnp.array, lengths: jnp.array,
             shared_embedding: nn.Module, train: bool, hidden_size: int,
             num_layers: int, horizontal_dropout_rate: float,
-            vertical_dropout_rate: float):
+            vertical_dropout_rate: float,
+            embed_dropout_rate: float = EMBED_DROPOUT):
 
     inputs = shared_embedding(inputs)
+    inputs = nn.dropout(inputs, rate=embed_dropout_rate, deterministic=train)
     lstm = nn.LSTM.partial(
         hidden_size=hidden_size,
         num_layers=num_layers,
@@ -164,8 +166,9 @@ class Decoder(nn.Module):
             shared_embedding: nn.Module,
             vocab_size: int,
             num_layers: int,
-            horizontal_dropout_rate: int,
-            vertical_dropout_rate: int,
+            horizontal_dropout_rate: float,
+            vertical_dropout_rate: float,
+            embed_dropout_rate: float = EMBED_DROPOUT,
             train: bool = False):
     """
     The decoder follows Luong's decoder in how attention is used (the current
@@ -216,6 +219,7 @@ class Decoder(nn.Module):
       if not train:
         x = last_prediction
       x = shared_embedding(x)
+      x = nn.dropout(x, rate=embed_dropout_rate, deterministic=train)
       lstm_input = jnp.concatenate([x, prev_attention], axis=-1)
       states, h = multilayer_lstm_cell(horizontal_dropout_masks=h_dropout_masks,
                                        dropout_rate=vertical_dropout_rate,
