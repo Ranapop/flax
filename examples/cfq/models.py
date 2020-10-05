@@ -31,6 +31,7 @@ NUM_LAYERS = 2
 HORIZONTAL_DROPOUT = 0
 VERTICAL_DROPOUT = 0.4
 EMBED_DROPOUT = 0.1
+ATTENTION_DROPOUT = 0.2
 
 class Encoder(nn.Module):
   """LSTM encoder, returning state after EOS is input."""
@@ -170,6 +171,7 @@ class Decoder(nn.Module):
             horizontal_dropout_rate: float,
             vertical_dropout_rate: float,
             embed_dropout_rate: float = EMBED_DROPOUT,
+            attention_layer_dropout: float = ATTENTION_DROPOUT,
             train: bool = False):
     """
     The decoder follows Luong's decoder in how attention is used (the current
@@ -231,6 +233,9 @@ class Decoder(nn.Module):
       context = mlp_attention(jnp.expand_dims(h, 1), projected_keys,
                               encoder_hidden_states, attention_mask)
       context_and_state = jnp.concatenate([context, h], axis=-1)
+      context_and_state = nn.dropout(context_and_state,
+                                     rate=attention_layer_dropout,
+                                     deterministic=train)
       attention = jnp.tanh(attention_layer(context_and_state))
       logits = projection(attention)
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
