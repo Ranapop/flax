@@ -107,7 +107,8 @@ class MultilayerLSTM(nn.Module):
             num_layers: int,
             horizontal_dropout_masks: jnp.array,
             dropout_rate: float,
-            input: jnp.array, previous_states: List):
+            input: jnp.array, previous_states: List,
+            train: bool):
     """
     Args
       num_layers: number of layers
@@ -132,7 +133,7 @@ class MultilayerLSTM(nn.Module):
         h = h * horizontal_dropout_masks[layer_idx]
       # Apply dropout to the hidden state from lower layer.
       if layer_idx != 0 and dropout_rate > 0:
-        input = nn.dropout(input, rate=dropout_rate)
+        input = nn.dropout(input, rate=dropout_rate, deterministic=train)
       state, output = cell((c, h), input)
       states.append(state)
       input = output
@@ -145,8 +146,8 @@ class Decoder(nn.Module):
 
   @staticmethod
   def create_dropout_masks(num_masks: int, shape: Tuple,
-                           dropout_rate: float):
-    if dropout_rate == 0:
+                           dropout_rate: float, train: bool):
+    if not train or dropout_rate == 0:
       return [None] * num_masks
     masks = []
     for i in range(0, num_masks):
@@ -210,7 +211,8 @@ class Decoder(nn.Module):
     h_dropout_masks = Decoder.create_dropout_masks(
         num_masks=num_layers,
         shape=(batch_size, hidden_size),
-        dropout_rate=horizontal_dropout_rate)
+        dropout_rate=horizontal_dropout_rate,
+        train=train)
 
     def decode_step_fn(carry, x):
       rng, multilayer_lstm_output, last_prediction, prev_attention = carry
@@ -224,7 +226,8 @@ class Decoder(nn.Module):
       states, h = multilayer_lstm_cell(horizontal_dropout_masks=h_dropout_masks,
                                        dropout_rate=vertical_dropout_rate,
                                        input=lstm_input,
-                                       previous_states=previous_states)
+                                       previous_states=previous_states,
+                                       train=train)
       context = mlp_attention(jnp.expand_dims(h, 1), projected_keys,
                               encoder_hidden_states, attention_mask)
       context_and_state = jnp.concatenate([context, h], axis=-1)
