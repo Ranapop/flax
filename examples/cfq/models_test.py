@@ -75,7 +75,7 @@ class ModelsTest(parameterized.TestCase):
     dropout_mask_3 = jnp.zeros((batch_size, hidden_size))
     dropout_mask_4 = jnp.zeros((batch_size, hidden_size))
     h_dropout_masks = [dropout_mask_0, dropout_mask_1, dropout_mask_2]
-    v_dropout_masks = [dropout_mask_3, dropout_mask_4]
+    dropout_rate = 0.2
     input = jnp.zeros((batch_size, input_size))
     prev_state_0 = jnp.zeros((batch_size, hidden_size))
     prev_state_1 = jnp.zeros((batch_size, hidden_size))
@@ -86,9 +86,10 @@ class ModelsTest(parameterized.TestCase):
       (states,
        y), _ = multilayer_lstm.init(nn.make_rng(),
                                     horizontal_dropout_masks=h_dropout_masks,
-                                    vertical_dropout_masks=v_dropout_masks,
+                                    dropout_rate=dropout_rate,
                                     input=input,
-                                    previous_states=previous_states)
+                                    previous_states=previous_states,
+                                    train=False)
 
   def test_compute_attention_masks(self):
     shape = (2, 7)

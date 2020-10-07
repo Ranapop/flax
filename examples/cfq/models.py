@@ -28,8 +28,10 @@ EMBEDDING_DIM = 512
 ATTENTION_SIZE = 512
 ATTENTION_LAYER_SIZE = 512
 NUM_LAYERS = 2
-DROPOUT = 0.4
-
+HORIZONTAL_DROPOUT = 0
+VERTICAL_DROPOUT = 0.4
+EMBED_DROPOUT = 0
+ATTENTION_DROPOUT = 0
 
 class Encoder(nn.Module):
   """LSTM encoder, returning state after EOS is input."""
@@ -37,9 +39,11 @@ class Encoder(nn.Module):
   def apply(self, inputs: jnp.array, lengths: jnp.array,
             shared_embedding: nn.Module, train: bool, hidden_size: int,
             num_layers: int, horizontal_dropout_rate: float,
-            vertical_dropout_rate: float):
+            vertical_dropout_rate: float,
+            embed_dropout_rate: float = EMBED_DROPOUT):
 
     inputs = shared_embedding(inputs)
+    inputs = nn.dropout(inputs, rate=embed_dropout_rate, deterministic=train)
     lstm = nn.LSTM.partial(
         hidden_size=hidden_size,
         num_layers=num_layers,
@@ -103,24 +107,23 @@ class MultilayerLSTM(nn.Module):
   def apply(self,
             num_layers: int,
             horizontal_dropout_masks: jnp.array,
-            vertical_dropout_masks: jnp.array,
-            input: jnp.array, previous_states: List):
+            vertical_dropout_rate: float,
+            input: jnp.array, previous_states: List,
+            train: bool):
     """
     Args
       num_layers: number of layers
       horizontal_dropout_masks: dropout masks for each layer (the same dropout
         mask is used at each time step and applied on the hidden state that is
-        fed into the cell to the right) [num_layers, batch_size, hidden_size]
-      vertical_dropout_masks: dropout masks between layers, same masks reused
-        accross time steps, applied on the hidden state that is fed to the upper
-        layer (used only between layers, not on final output). The dropout is
-        the one used here https://arxiv.org/abs/1512.05287 except it's not
-        applied on the first layer inputs and final outputs to be consistent
-        with the implementation in `recurrent.py`
-        shape [num_layers-1, batch_size, hidden_size]
+        fed into the cell to the right). This is the recurrent dropout used in
+        https://arxiv.org/abs/1512.05287. [num_layers, batch_size, hidden_size]
+      vertical_dropout_rate: dropout rate between layers, yet the dropout mask
+        is not reused across timestamps. It's only applied if the number of
+        layers > 1.
       input: input given to the first LSTM layer [batch_size, input_size]
       previous_states: list of (c,h) for each layer
         shape [num_layers, batch_size, 2*hidden_size]
+      train: boolean indicating training or inference flow.
     """
     states = []
     final_output = None
@@ -132,8 +135,10 @@ class MultilayerLSTM(nn.Module):
       if horizontal_dropout_masks[layer_idx] is not None:
         h = h * horizontal_dropout_masks[layer_idx]
       # Apply dropout to the hidden state from lower layer.
-      if layer_idx != 0 and vertical_dropout_masks[layer_idx - 1] is not None:
-        input = input * vertical_dropout_masks[layer_idx - 1]
+      if layer_idx != 0 and vertical_dropout_rate > 0:
+        input = nn.dropout(input,
+                           rate=vertical_dropout_rate,
+                           deterministic=train)
       state, output = cell((c, h), input)
       states.append(state)
       input = output
@@ -146,8 +151,8 @@ class Decoder(nn.Module):
 
   @staticmethod
   def create_dropout_masks(num_masks: int, shape: Tuple,
-                           dropout_rate: float):
-    if dropout_rate == 0:
+                           dropout_rate: float, train: bool):
+    if not train or dropout_rate == 0:
       return [None] * num_masks
     masks = []
     for i in range(0, num_masks):
@@ -167,8 +172,10 @@ class Decoder(nn.Module):
             shared_embedding: nn.Module,
             vocab_size: int,
             num_layers: int,
-            horizontal_dropout_rate: int,
-            vertical_dropout_rate: int,
+            horizontal_dropout_rate: float,
+            vertical_dropout_rate: float,
+            embed_dropout_rate: float = EMBED_DROPOUT,
+            attention_layer_dropout: float = ATTENTION_DROPOUT,
             train: bool = False):
     """
     The decoder follows Luong's decoder in how attention is used (the current
@@ -190,6 +197,12 @@ class Decoder(nn.Module):
         the encoder)
       vocab_size: vocabulary size
       num_layers: number of layers in the LSTM
+      horizontal_dropout_rate: dropout applied at the same layer (same mask
+        across time steps).
+      vertical_dropout_rate: dropout applied between layers.
+      embed_dropout_rate: dropout applied on the embeddings.
+      attention_layer_dropout: dropout applied on the attention layer input (on
+        the concatenation of current state and context vector)
       train: boolean choosing from train and inference flow
     """
     multilayer_lstm_cell = MultilayerLSTM.partial(num_layers=num_layers).shared(
@@ -210,11 +223,8 @@ class Decoder(nn.Module):
     h_dropout_masks = Decoder.create_dropout_masks(
         num_masks=num_layers,
         shape=(batch_size, hidden_size),
-        dropout_rate=horizontal_dropout_rate)
-    v_dropout_masks = Decoder.create_dropout_masks(
-        num_masks=num_layers - 1,
-        shape=(batch_size, hidden_size),
-        dropout_rate=vertical_dropout_rate)
+        dropout_rate=horizontal_dropout_rate,
+        train=train)
 
     def decode_step_fn(carry, x):
       rng, previous_states, last_prediction, prev_attention = carry
@@ -222,14 +232,19 @@ class Decoder(nn.Module):
       if not train:
         x = last_prediction
       x = shared_embedding(x)
+      x = nn.dropout(x, rate=embed_dropout_rate, deterministic=train)
       lstm_input = jnp.concatenate([x, prev_attention], axis=-1)
       states, h = multilayer_lstm_cell(horizontal_dropout_masks=h_dropout_masks,
-                                       vertical_dropout_masks=v_dropout_masks,
+                                       dropout_rate=vertical_dropout_rate,
                                        input=lstm_input,
-                                       previous_states=previous_states)
+                                       previous_states=previous_states,
+                                       train=train)
       context = mlp_attention(jnp.expand_dims(h, 1), projected_keys,
                               encoder_hidden_states, attention_mask)
       context_and_state = jnp.concatenate([context, h], axis=-1)
+      context_and_state = nn.dropout(context_and_state,
+                                     rate=attention_layer_dropout,
+                                     deterministic=train)
       attention = jnp.tanh(attention_layer(context_and_state))
       logits = projection(attention)
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
@@ -273,7 +288,8 @@ class Seq2seq(nn.Module):
             train: bool = True,
             hidden_size: int = LSTM_HIDDEN_SIZE,
             num_layers=NUM_LAYERS,
-            dropout=DROPOUT):
+            horizontal_dropout_rate=HORIZONTAL_DROPOUT,
+            vertical_dropout_rate=VERTICAL_DROPOUT):
     """Run the seq2seq model.
 
     Args:
@@ -304,11 +320,11 @@ class Seq2seq(nn.Module):
 
     encoder = Encoder.partial(hidden_size=hidden_size,
                               num_layers=num_layers,
-                              horizontal_dropout_rate=dropout,
-                              vertical_dropout_rate=dropout)
+                              horizontal_dropout_rate=horizontal_dropout_rate,
+                              vertical_dropout_rate=vertical_dropout_rate)
     decoder = Decoder.partial(num_layers=num_layers,
-                              horizontal_dropout_rate=dropout,
-                              vertical_dropout_rate=dropout)
+                              horizontal_dropout_rate=horizontal_dropout_rate,
+                              vertical_dropout_rate=vertical_dropout_rate)
     # compute attention masks
     mask = compute_attention_masks(encoder_inputs.shape, encoder_inputs_lengths)
 
