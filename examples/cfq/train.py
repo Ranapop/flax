@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 import functools
 import jax
 import jax.numpy as jnp
+from jax.experimental.optimizers import clip_grads
 
 import flax
 from flax import jax_utils
@@ -187,6 +188,7 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   (_, output), grad = grad_fn(optimizer.target)
   logits, predictions = output
   grad = jax.lax.pmean(grad, axis_name='batch')
+  grad = clip_grads(grad, max_norm=1.0)
   optimizer = optimizer.apply_gradient(grad)
   metrics = {}
   metrics = compute_metrics(logits,
