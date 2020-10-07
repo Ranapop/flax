@@ -107,7 +107,7 @@ class MultilayerLSTM(nn.Module):
   def apply(self,
             num_layers: int,
             horizontal_dropout_masks: jnp.array,
-            dropout_rate: float,
+            vertical_dropout_rate: float,
             input: jnp.array, previous_states: List,
             train: bool):
     """
@@ -117,8 +117,9 @@ class MultilayerLSTM(nn.Module):
         mask is used at each time step and applied on the hidden state that is
         fed into the cell to the right). This is the recurrent dropout used in
         https://arxiv.org/abs/1512.05287. [num_layers, batch_size, hidden_size]
-      dropout_rate: dropout rate between layers, yet the dropout mask is not
-        reused across timestamps. It's only applied if the number of layers > 1.
+      vertical_dropout_rate: dropout rate between layers, yet the dropout mask
+        is not reused across timestamps. It's only applied if the number of
+        layers > 1.
       input: input given to the first LSTM layer [batch_size, input_size]
       previous_states: list of (c,h) for each layer
         shape [num_layers, batch_size, 2*hidden_size]
@@ -134,8 +135,10 @@ class MultilayerLSTM(nn.Module):
       if horizontal_dropout_masks[layer_idx] is not None:
         h = h * horizontal_dropout_masks[layer_idx]
       # Apply dropout to the hidden state from lower layer.
-      if layer_idx != 0 and dropout_rate > 0:
-        input = nn.dropout(input, rate=dropout_rate, deterministic=train)
+      if layer_idx != 0 and vertical_dropout_rate > 0:
+        input = nn.dropout(input,
+                           rate=vertical_dropout_rate,
+                           deterministic=train)
       state, output = cell((c, h), input)
       states.append(state)
       input = output
