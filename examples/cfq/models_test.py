@@ -86,7 +86,7 @@ class ModelsTest(parameterized.TestCase):
       (states,
        y), _ = multilayer_lstm.init(nn.make_rng(),
                                     horizontal_dropout_masks=h_dropout_masks,
-                                    dropout_rate=dropout_rate,
+                                    vertical_dropout_rate=dropout_rate,
                                     input=input,
                                     previous_states=previous_states,
                                     train=False)

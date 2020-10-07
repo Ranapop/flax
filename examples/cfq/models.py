@@ -234,11 +234,12 @@ class Decoder(nn.Module):
       x = shared_embedding(x)
       x = nn.dropout(x, rate=embed_dropout_rate, deterministic=train)
       lstm_input = jnp.concatenate([x, prev_attention], axis=-1)
-      states, h = multilayer_lstm_cell(horizontal_dropout_masks=h_dropout_masks,
-                                       dropout_rate=vertical_dropout_rate,
-                                       input=lstm_input,
-                                       previous_states=previous_states,
-                                       train=train)
+      states, h = multilayer_lstm_cell(
+        horizontal_dropout_masks=h_dropout_masks,
+        vertical_dropout_rate=vertical_dropout_rate,
+        input=lstm_input,
+        previous_states=previous_states,
+        train=train)
       context = mlp_attention(jnp.expand_dims(h, 1), projected_keys,
                               encoder_hidden_states, attention_mask)
       context_and_state = jnp.concatenate([context, h], axis=-1)
