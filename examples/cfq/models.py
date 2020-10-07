@@ -195,7 +195,7 @@ class Decoder(nn.Module):
     multilayer_lstm_cell = MultilayerLSTM.partial(num_layers=num_layers).shared(
         name='multilayer_lstm')
     attention_layer = nn.Dense.shared(features=ATTENTION_LAYER_SIZE,
-                                       name='attention_layer')
+                                      name='attention_layer')
     projection = nn.Dense.shared(features=vocab_size, name='projection')
     mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE).shared(
         name='attention')
@@ -217,8 +217,7 @@ class Decoder(nn.Module):
         dropout_rate=vertical_dropout_rate)
 
     def decode_step_fn(carry, x):
-      rng, multilayer_lstm_output, last_prediction, prev_attention = carry
-      previous_states, _ = multilayer_lstm_output
+      rng, previous_states, last_prediction, prev_attention = carry
       carry_rng, categorical_rng = jax.random.split(rng, 2)
       if not train:
         x = last_prediction
@@ -235,15 +234,14 @@ class Decoder(nn.Module):
       logits = projection(attention)
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
       predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
-      new_carry = (carry_rng, (states, h), predicted_tokens_uint8, attention)
+      new_carry = (carry_rng, states, predicted_tokens_uint8, attention)
       new_x = (logits, predicted_tokens_uint8)
       return new_carry, new_x
 
     # initialisig the LSTM states and final output with the
     # encoder hidden states
-    multilayer_lstm_output = (init_states, init_states[-1][1])
     attention = jnp.zeros((batch_size, ATTENTION_LAYER_SIZE))
-    init_carry = (nn.make_rng(), multilayer_lstm_output, inputs[:, 0], attention)
+    init_carry = (nn.make_rng(), init_states, inputs[:, 0], attention)
 
     if self.is_initializing():
       # initialize parameters before scan
