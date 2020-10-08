@@ -56,8 +56,8 @@ def indices_to_str(batch_inputs: jnp.ndarray, data_source: inp.CFQDataSource):
 
 def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
   """Set positions beyond the length of each sequence to 0."""
-  return sequence_batch * (lengths[:, jnp.newaxis] > jnp.arange(
-      sequence_batch.shape[1]))
+  mask = (lengths[:, jnp.newaxis] > jnp.arange(sequence_batch.shape[1]))
+  return sequence_batch * mask
 
 
 def create_model(vocab_size: int) -> nn.Module:
@@ -85,8 +85,10 @@ def cross_entropy_loss(logits: jnp.array, labels: jnp.array,
   labels = common_utils.onehot(labels, vocab_size)
   log_soft = nn.log_softmax(logits)
   log_sum = jnp.sum(log_soft * labels, axis=-1)
-  masked_log_sum = jnp.mean(mask_sequences(log_sum, lengths))
-  return -masked_log_sum
+  masked_log_sums = jnp.sum(mask_sequences(log_sum, lengths))
+  mean_losses = jnp.divide(masked_log_sums, lengths)
+  mean_loss = jnp.mean(mean_losses)
+  return - mean_loss
 
 
 def pad_along_axis(array: jnp.array,
@@ -103,6 +105,27 @@ def pad_along_axis(array: jnp.array,
                                    padding_size)
   padded = jnp.pad(array, pad_shape)
   return padded
+
+
+def compute_perfect_match_accuracy(predictions: jnp.array,
+                                   labels: jnp.array,
+                                   lengths: jnp.array) -> jnp.array:
+    """Compute perfect match accuracy.
+    
+    The accuracy is 1 only if the sequences are equal, otherwise is 0. The
+    sequences may be padded and the lengths of the gold sequences are used to
+    only compare sequences until the <eos>.
+    Args:
+      predictions: predictions [batch_size, predicted seq len]
+      labels: ohe gold labels, shape [batch_size, labels seq_len]
+    returns:
+      accuracy [batch_size]
+    """
+    token_accuracy = jnp.equal(predictions, labels)
+    sequence_accuracy = (jnp.sum(mask_sequences(token_accuracy, lengths),
+                               axis=-1) == lengths)
+    accuracy = jnp.mean(sequence_accuracy)
+    return accuracy                  
 
 
 def compute_metrics(logits: jnp.array,
@@ -135,9 +158,8 @@ def compute_metrics(logits: jnp.array,
     predictions = pad_along_axis(predictions, padding_size, 1)
 
   loss = cross_entropy_loss(logits, labels, lengths, vocab_size)
-  token_accuracy = jnp.equal(predictions, labels)
-  sequence_accuracy = (jnp.sum(mask_sequences(token_accuracy, lengths),
-                               axis=-1) == lengths)
+  sequence_accuracy = compute_perfect_match_accuracy(
+    predictions, labels, lengths)
   accuracy = jnp.mean(sequence_accuracy)
   metrics = {
       'loss': loss,
@@ -168,7 +190,7 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   input_lengths = batch[constants.QUESTION_LEN_KEY]
   labels = batch[constants.QUERY_KEY]
   labels_no_bos = labels[:, 1:]
-  queries_lengths = batch[constants.QUERY_LEN_KEY]
+  queries_lengths = batch[constants.QUERY_NO_BOS_LEN_KEY]
 
   def loss_fn(model):
     """Compute cross-entropy loss."""
@@ -214,9 +236,10 @@ def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
                                  (should be a static argnum)
     """
   # This simply creates a batch (batch size = inputs.shape[0])
-  # filled with sequences of max_output_len of only the bos encoding
+  # filled with sequences of max_output_len of only the bos encoding. The length
+  # is the desired output length + 2 (bos and eos tokens).
   initial_dec_inputs = jnp.tile(bos_encoding,
-                                (inputs.shape[0], predicted_output_length))
+                                (inputs.shape[0], predicted_output_length + 2))
   with nn.stochastic(rng):
     logits, predictions = model(encoder_inputs=inputs,
                                 decoder_inputs=initial_dec_inputs,
@@ -256,7 +279,7 @@ def evaluate_model(model: nn.Module,
         logits,
         inferred_outputs,
         gold_outputs,
-        batch[constants.QUERY_LEN_KEY],
+        batch[constants.QUERY_NO_BOS_LEN_KEY],
         data_source.vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
     if no_logged_examples is not None and no_batches == 0:

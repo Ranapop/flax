@@ -97,7 +97,8 @@ class CFQDataSource:
         constants.QUESTION_KEY: [None],
         constants.QUERY_KEY: [query_pad],
         constants.QUESTION_LEN_KEY: [],
-        constants.QUERY_LEN_KEY: []
+        constants.QUERY_LEN_KEY: [],
+        constants.QUERY_NO_BOS_LEN_KEY: []
     }
 
   def add_bos_eos(self, sequence: tf.Tensor) -> tf.Tensor:
@@ -122,6 +123,8 @@ class CFQDataSource:
     example[constants.QUESTION_LEN_KEY] = tf.size(
         example[constants.QUESTION_KEY])
     example[constants.QUERY_LEN_KEY] = tf.size(example[constants.QUERY_KEY])
+    example[constants.QUERY_NO_BOS_LEN_KEY] = tf.math.subtract(
+      example[constants.QUERY_LEN_KEY], tf.constant(1))
     return example
 
   def get_output_length(self, example: ExampleType) -> tf.Tensor:
@@ -204,8 +207,9 @@ if __name__ == '__main__':
                                           drop_remainder=False,
                                           shuffle=True)
   batch = next(tfds.as_numpy(train_batches.skip(4)))
-  questions, queries, lengths = batch[constants.QUESTION_KEY], batch[
-      constants.QUERY_KEY], batch[constants.QUESTION_LEN_KEY]
+  questions, queries, lengths, no_bos_lengths = batch[constants.QUESTION_KEY], batch[
+      constants.QUERY_KEY], batch[constants.QUERY_LEN_KEY], batch[
+      constants.QUERY_NO_BOS_LEN_KEY]
   questions_strings = []
   print('Questions')
   for question in questions:
@@ -214,5 +218,9 @@ if __name__ == '__main__':
   print('Queries')
   for query in queries:
     print(data_source.indices_to_sequence_string(query))
+  print('Query sizes')
+  print(lengths)
+  print('Query no bos lengths')
+  print(no_bos_lengths)
   print('Vocab size')
   print(data_source.vocab_size)
