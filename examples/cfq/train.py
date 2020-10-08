@@ -89,7 +89,7 @@ def cross_entropy_loss(logits: jnp.array, labels: jnp.array,
   masked_log_sums = jnp.sum(mask_sequences(log_sum, lengths))
   mean_losses = jnp.divide(masked_log_sums, lengths)
   mean_loss = jnp.mean(mean_losses)
-  return - mean_loss
+  return -mean_loss
 
 
 def pad_along_axis(array: jnp.array,
@@ -113,9 +113,11 @@ def compute_perfect_match_accuracy(predictions: jnp.array,
                                    lengths: jnp.array) -> jnp.array:
     """Compute perfect match accuracy.
     
-    The accuracy is 1 only if the sequences are equal, otherwise is 0. The
-    sequences may be padded and the lengths of the gold sequences are used to
-    only compare sequences until the <eos>.
+    This function computes the mean accuracy at batch level - averaged sequence
+    level accuracies. At sequence level the accuracy is the perfect match
+    accuracy: 1 if the sequences are equal, 0 otherwise (so 0 for partially
+    matching). Also, the sequences may be padded and the lengths of the gold
+    sequences are used to only compare sequences until the <eos>.
     Args:
       predictions: predictions [batch_size, predicted seq len]
       labels: ohe gold labels, shape [batch_size, labels seq_len]
