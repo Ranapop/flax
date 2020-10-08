@@ -43,7 +43,7 @@ class CFQDataSource:
                replace_with_dummy: bool = True):
     # Load datasets.
     if replace_with_dummy:
-      # Load dummy data 
+      # Load dummy data.
       data = inp_utils.create_dummy_data()
       vocab_file = 'dummy_vocab'
     else:
@@ -204,9 +204,8 @@ if __name__ == '__main__':
                                           drop_remainder=False,
                                           shuffle=True)
   batch = next(tfds.as_numpy(train_batches.skip(4)))
-  questions, queries, lengths, no_bos_lengths = batch[constants.QUESTION_KEY], batch[
-      constants.QUERY_KEY], batch[constants.QUERY_LEN_KEY], batch[
-      constants.QUERY_NO_BOS_LEN_KEY]
+  questions, queries, lengths = batch[constants.QUESTION_KEY], batch[
+      constants.QUERY_KEY], batch[constants.QUERY_LEN_KEY]
   questions_strings = []
   print('Questions')
   for question in questions:
@@ -217,7 +216,5 @@ if __name__ == '__main__':
     print(data_source.indices_to_sequence_string(query))
   print('Query sizes')
   print(lengths)
-  print('Query no bos lengths')
-  print(no_bos_lengths)
   print('Vocab size')
   print(data_source.vocab_size)
