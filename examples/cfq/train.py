@@ -145,7 +145,7 @@ def compute_metrics(logits: jnp.array,
               [batch_size, logits seq_len, vocab_size]
       predictions: predictions [batch_size, predicted seq len]
       labels: ohe gold labels, shape [batch_size, labels seq_len]
-      queries_lengths: lengths of gold queries (until eos)
+      queries_lengths: lengths of gold queries (until eos) [batch_size]
       vocab_size: vocabulary size
 
     """
@@ -193,7 +193,7 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   input_lengths = batch[constants.QUESTION_LEN_KEY]
   labels = batch[constants.QUERY_KEY]
   labels_no_bos = labels[:, 1:]
-  queries_lengths = batch[constants.QUERY_NO_BOS_LEN_KEY]
+  queries_lengths = batch[constants.QUERY_LEN_KEY] - 1
 
   def loss_fn(model):
     """Compute cross-entropy loss."""
@@ -283,7 +283,7 @@ def evaluate_model(model: nn.Module,
         logits,
         inferred_outputs,
         gold_outputs,
-        batch[constants.QUERY_NO_BOS_LEN_KEY],
+        batch[constants.QUERY_LEN_KEY] - 1,
         data_source.vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
     if no_logged_examples is not None and no_batches == 0:

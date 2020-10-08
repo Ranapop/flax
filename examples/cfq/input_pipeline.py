@@ -97,8 +97,7 @@ class CFQDataSource:
         constants.QUESTION_KEY: [None],
         constants.QUERY_KEY: [query_pad],
         constants.QUESTION_LEN_KEY: [],
-        constants.QUERY_LEN_KEY: [],
-        constants.QUERY_NO_BOS_LEN_KEY: []
+        constants.QUERY_LEN_KEY: []
     }
 
   def add_bos_eos(self, sequence: tf.Tensor) -> tf.Tensor:
@@ -123,8 +122,6 @@ class CFQDataSource:
     example[constants.QUESTION_LEN_KEY] = tf.size(
         example[constants.QUESTION_KEY])
     example[constants.QUERY_LEN_KEY] = tf.size(example[constants.QUERY_KEY])
-    example[constants.QUERY_NO_BOS_LEN_KEY] = tf.math.subtract(
-      example[constants.QUERY_LEN_KEY], tf.constant(1))
     return example
 
   def get_output_length(self, example: ExampleType) -> tf.Tensor:
