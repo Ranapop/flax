@@ -276,9 +276,13 @@ def evaluate_model(model: nn.Module,
     inputs = batch[constants.QUESTION_KEY]
     input_lengths = batch[constants.QUESTION_LEN_KEY]
     gold_outputs = batch[constants.QUERY_KEY][:, 1:]
-    logits, inferred_outputs = infer(model, inputs, input_lengths, nn.make_rng(),
-                                data_source.vocab_size, data_source.bos_idx,
-                                predicted_output_length)
+    with nn.stateful() as state:
+      logits, inferred_outputs = infer(model, inputs, input_lengths,
+                                       nn.make_rng(),
+                                       data_source.vocab_size,
+                                       data_source.bos_idx,
+                                       predicted_output_length)
+    gold_lengths = batch[constants.QUERY_LEN_KEY] - 1
     metrics = compute_metrics(
         logits,
         inferred_outputs,
@@ -290,9 +294,18 @@ def evaluate_model(model: nn.Module,
       #log the first examples in the batch
       gold_seq = indices_to_str(gold_outputs, data_source)
       inferred_seq = indices_to_str(inferred_outputs, data_source)
+      state_dict = state.as_dict()
+      print('state dict')
+      print(state_dict)
+      decoder_state = state_dict['/decoder']
+      attention_weigts = decoder_state['attention']
       for i in range(0, no_logged_examples):
         logging.info('\nGold seq:\n %s\nInferred seq:\n %s\n', gold_seq[i],
                      inferred_seq[i])
+        logging.info('\nAttention weights:\n')
+        print(attention_weigts)
+        # for j in range(0, gold_lengths[i]):
+        #   logging.info(f"{i}:{attention_weigts[i].items()}")
     no_batches += 1
   avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
   return avg_metrics
@@ -378,8 +391,9 @@ def train_model(learning_rate: float = None,
         step_key = nn.make_rng()
         # Shard the step PRNG key
         sharded_keys = common_utils.shard_prng_key(step_key)
-        optimizer, metrics = train_step(optimizer, batch, sharded_keys,
-                                        data_source.vocab_size)
+        with nn.stateful() as state:
+          optimizer, metrics = train_step(optimizer, batch, sharded_keys,
+                                          data_source.vocab_size)
         train_metrics.append(metrics)
         no_batches += 1
       train_metrics = common_utils.get_metrics(train_metrics)

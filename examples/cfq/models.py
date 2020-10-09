@@ -96,9 +96,8 @@ class MlpAttention(nn.Module):
     # TODO: see if I can rewrite this to not have the squeezing and unsqueezing
     scores = jnp.where(mask, scores, -jnp.inf)  # Using exp(-inf) = 0 below.
     scores = nn.softmax(scores, axis=-1)
-
-    attention = jnp.sum(jnp.expand_dims(scores, 2) * values, axis=1)
-    return attention  # Shape: <float32>[batch_size, seq_len]
+    context = jnp.sum(jnp.expand_dims(scores, 2) * values, axis=1)
+    return context, scores  # Shape: <float32>[batch_size, seq_len]
 
 
 class MultilayerLSTM(nn.Module):
@@ -240,8 +239,8 @@ class Decoder(nn.Module):
         input=lstm_input,
         previous_states=previous_states,
         train=train)
-      context = mlp_attention(jnp.expand_dims(h, 1), projected_keys,
-                              encoder_hidden_states, attention_mask)
+      context, scores = mlp_attention(jnp.expand_dims(h, 1), projected_keys,
+                                      encoder_hidden_states, attention_mask)
       context_and_state = jnp.concatenate([context, h], axis=-1)
       context_and_state = nn.dropout(context_and_state,
                                      rate=attention_layer_dropout,
@@ -251,7 +250,7 @@ class Decoder(nn.Module):
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
       predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
       new_carry = (carry_rng, states, predicted_tokens_uint8, attention)
-      new_x = (logits, predicted_tokens_uint8)
+      new_x = (logits, predicted_tokens_uint8, scores)
       return new_carry, new_x
 
     # initialisig the LSTM states and final output with the
@@ -263,11 +262,19 @@ class Decoder(nn.Module):
       # initialize parameters before scan
       decode_step_fn(init_carry, inputs[:, 0])
 
-    _, (logits, predictions) = jax_utils.scan_in_dim(
+    _, (logits, predictions, attention_weights) = jax_utils.scan_in_dim(
         decode_step_fn,
         init=init_carry,  # rng, lstm_state, last_pred
         xs=inputs,
         axis=1)
+    if not self.is_initializing() and not train:
+      print('Adding attention weights')
+      attention_memory = self.state('attention')
+      attention_weights = jnp.array(attention_weights)
+      # Going from [output_seq_len, batch_size, input_seq_len]
+      # to [batch_size, output_seq_len, input_seq_len].
+      jnp.swapaxes(attention_weights, 1, 2)
+      attention_memory.value = attention_weights
     return logits, predictions
 
 
@@ -323,7 +330,8 @@ class Seq2seq(nn.Module):
                               num_layers=num_layers,
                               horizontal_dropout_rate=horizontal_dropout_rate,
                               vertical_dropout_rate=vertical_dropout_rate)
-    decoder = Decoder.partial(num_layers=num_layers,
+    decoder = Decoder.partial(name='decoder',
+                              num_layers=num_layers,
                               horizontal_dropout_rate=horizontal_dropout_rate,
                               vertical_dropout_rate=vertical_dropout_rate)
     # compute attention masks
