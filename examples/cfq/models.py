@@ -268,6 +268,8 @@ class Decoder(nn.Module):
         init=init_carry,  # rng, lstm_state, last_pred
         xs=inputs,
         axis=1)
+    # The attention weights are only examined on the evaluation flow, so this
+    # if is used to avoid unnecesary operations.
     if not self.is_initializing() and not train:
       attention_weights = jnp.array(scores)
       # Going from [output_seq_len, batch_size, input_seq_len]
