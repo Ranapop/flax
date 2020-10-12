@@ -354,6 +354,10 @@ def train_model(learning_rate: float = None,
     data_source.dev_dataset at each epoch and log the results
     """
   if os.path.isdir(model_dir):
+    # If attemptying to save in a directory where the model was saved before,
+    # first remove the directory with its contents. This is done mostly
+    # because the checkpoint saving will through an error when saving in the
+    # same place twice.
     shutil.rmtree(model_dir)
   os.makedirs(model_dir)
   logging_file_name = os.path.join(model_dir, 'logged_examples.txt')
@@ -448,7 +452,7 @@ def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
                                  batches=dev_batches,
                                  data_source=data_source,
                                  predicted_output_length=max_out_len,
-                                 logging_file = logging_file
+                                 logging_file = logging_file,
                                  no_logged_examples=3)
     logging.info('Loss %.4f, acc %.2f', dev_metrics[LOSS_KEY],
                  dev_metrics[ACC_KEY])
