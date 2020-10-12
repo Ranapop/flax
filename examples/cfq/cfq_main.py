@@ -42,7 +42,7 @@ flags.DEFINE_float('learning_rate',
 
 flags.DEFINE_integer('batch_size',
                      short_name='b',
-                     default=1024,
+                     default=2048,
                      help=('Batch size for training.'))
 
 flags.DEFINE_integer('num_train_steps',
