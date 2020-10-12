@@ -23,7 +23,6 @@ from absl import logging
 import tensorflow_datasets as tfds
 import tensorflow.compat.v2 as tf
 import numpy as np
-import matplotlib.pyplot as plt
 
 import functools
 import jax
@@ -317,32 +316,10 @@ def evaluate_model(model: nn.Module,
   return avg_metrics
 
 
-def plot_metrics(metrics: Dict[Text, float], no_plot_points):
-  """Plot metrics and save figs in temp"""
-  x = range(1, no_plot_points + 1)
-
-  # plot accuracies
-  plt.plot(x, metrics[TRAIN_ACCURACIES], label='train acc')
-  plt.plot(x, metrics[TEST_ACCURACIES], label='test acc')
-  plt.xlabel('Train step')
-  plt.title("Accuracies")
-  plt.legend()
-  plt.show()
-  plt.savefig('temp/accuracies.png')
-  plt.clf()
-  # plot losses
-  plt.plot(x, metrics[TRAIN_LOSSES], label='train loss')
-  plt.plot(x, metrics[TEST_LOSSES], label='test loss')
-  plt.xlabel('Train step')
-  plt.title("Losses")
-  plt.legend()
-  plt.show()
-  plt.savefig('temp/losses.png')
-  plt.clf()
-
 def shard(xs):
   return jax.tree_map(
       lambda x: x.reshape((jax.device_count(), -1) + x.shape[1:]), xs)
+
 
 def save_to_tensorboard(summary_writer: tensorboard.SummaryWriter,
                         dict: Dict, step: int):
@@ -405,12 +382,6 @@ def train_model(learning_rate: float = None,
 
     train_iter = iter(train_batches)
     train_metrics = []
-    plotted_metrics = {
-        TRAIN_ACCURACIES: [],
-        TRAIN_LOSSES: [],
-        TEST_ACCURACIES: [],
-        TEST_LOSSES: []
-    }
     for step, batch in zip(range(num_train_steps), train_iter):
       if batch_size % jax.device_count() > 0:
         raise ValueError('Batch size must be divisible by the number of devices')
@@ -436,13 +407,7 @@ def train_model(learning_rate: float = None,
         log(step, train_summary, dev_metrics)
         save_to_tensorboard(train_summary_writer, train_summary, step)
         save_to_tensorboard(eval_summary_writer, dev_metrics, step)
-        plotted_metrics[TRAIN_ACCURACIES].append(train_summary[ACC_KEY])
-        plotted_metrics[TRAIN_LOSSES].append(train_summary[LOSS_KEY])
-        plotted_metrics[TEST_ACCURACIES].append(dev_metrics[ACC_KEY])
-        plotted_metrics[TEST_LOSSES].append(dev_metrics[LOSS_KEY])
 
-    no_plot_points = len(plotted_metrics[TRAIN_ACCURACIES])
-    plot_metrics(plotted_metrics, no_plot_points)
     logging.info('Done training')
 
   logging.info('Saving model at %s', model_dir)
