@@ -341,7 +341,7 @@ def train_model(learning_rate: float = None,
   """ Train model for num_train_steps.
 
     Do the training on data_source.train_dataset and evaluate on
-    data_source.dev_dataset every few steps and log the results
+    data_source.dev_dataset every few steps and log the results.
     """
   if os.path.isdir(model_dir):
     # If attemptying to save in a directory where the model was saved before,
