@@ -273,7 +273,7 @@ def evaluate_model(model: nn.Module,
                    batches: tf.data.Dataset,
                    data_source: inp.CFQDataSource,
                    predicted_output_length: int,
-                   logging_file: TextIO,
+                   logging_file_name: str,
                    no_logged_examples: int = None):
   """Evaluate the model on the validation/test batches
 
@@ -289,11 +289,13 @@ def evaluate_model(model: nn.Module,
     """
   no_batches = 0
   avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
+  logging_file = open(logging_file_name,'a')
   for batch in tfds.as_numpy(batches):
     inputs = batch[constants.QUESTION_KEY]
     input_lengths = batch[constants.QUESTION_LEN_KEY]
     gold_outputs = batch[constants.QUERY_KEY][:, 1:]
-    logits, inferred_outputs, attention_weights = infer(model, inputs, input_lengths, nn.make_rng(),
+    logits, inferred_outputs, attention_weights = infer(model,
+                                inputs, input_lengths, nn.make_rng(),
                                 data_source.vocab_size, data_source.bos_idx,
                                 predicted_output_length)
     metrics = compute_metrics(
@@ -310,6 +312,7 @@ def evaluate_model(model: nn.Module,
                      data_source)
     no_batches += 1
   avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
+  logging_file.close()
   return avg_metrics
 
 
@@ -361,7 +364,6 @@ def train_model(learning_rate: float = None,
     shutil.rmtree(model_dir)
   os.makedirs(model_dir)
   logging_file_name = os.path.join(model_dir, 'logged_examples.txt')
-  logging_file = open(logging_file_name,'w')
 
   with nn.stochastic(jax.random.PRNGKey(seed)):
     model = create_model(data_source.vocab_size)
@@ -416,7 +418,7 @@ def train_model(learning_rate: float = None,
                                    batches=dev_batches,
                                    data_source=data_source,
                                    predicted_output_length=max_out_len,
-                                   logging_file = logging_file,
+                                   logging_file_name = logging_file_name,
                                    no_logged_examples=3)
       log(epoch, train_summary, dev_metrics)
       metrics_per_epoch[TRAIN_ACCURACIES].append(train_summary[ACC_KEY])
@@ -429,7 +431,6 @@ def train_model(learning_rate: float = None,
 
   logging.info('Saving model at %s', model_dir)
   checkpoints.save_checkpoint(model_dir, optimizer, num_epochs)
-  logging_file.close()
 
 
   return optimizer.target
@@ -440,7 +441,6 @@ def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
   """Evaluate model at model_dir on dev subset"""
   with nn.stochastic(jax.random.PRNGKey(seed)):
     logging_file_name = os.path.join(model_dir, 'eval_logged_examples.txt')
-    logging_file = open(logging_file_name,'w')
     model = create_model(data_source.vocab_size)
     optimizer = flax.optim.Adam().create(model)
     optimizer = checkpoints.restore_checkpoint(model_dir, optimizer)
@@ -452,8 +452,7 @@ def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
                                  batches=dev_batches,
                                  data_source=data_source,
                                  predicted_output_length=max_out_len,
-                                 logging_file = logging_file,
+                                 logging_file_name = logging_file_name,
                                  no_logged_examples=3)
     logging.info('Loss %.4f, acc %.2f', dev_metrics[LOSS_KEY],
                  dev_metrics[ACC_KEY])
-    logging_file.close()
