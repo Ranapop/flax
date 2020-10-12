@@ -417,7 +417,7 @@ def train_model(learning_rate: float = None,
                                     batches=dev_batches,
                                     data_source=data_source,
                                     predicted_output_length=max_out_len,
-                                    logging_file = logging_file,
+                                    logging_file_name = logging_file_name,
                                     no_logged_examples=3)
         log(step, train_summary, dev_metrics)
         plotted_metrics[TRAIN_ACCURACIES].append(train_summary[ACC_KEY])
@@ -428,10 +428,9 @@ def train_model(learning_rate: float = None,
     no_plot_points = len(plotted_metrics[TRAIN_ACCURACIES])
     plot_metrics(plotted_metrics, no_plot_points)
     logging.info('Done training')
-    print('Trained for ',num_train_steps)
 
   logging.info('Saving model at %s', model_dir)
-  checkpoints.save_checkpoint(model_dir, optimizer, num_epochs)
+  checkpoints.save_checkpoint(model_dir, optimizer, num_train_steps)
 
 
   return optimizer.target
