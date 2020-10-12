@@ -74,7 +74,7 @@ flags.DEFINE_boolean('dummy_data',
                      help=('Use dummy dataset (reversed sequences)'))
 
 flags.DEFINE_string('model_dir',
-                    default=None,
+                    default='temp/current_model',
                     help=('Model dir to save model to/load model from.'))
 
 

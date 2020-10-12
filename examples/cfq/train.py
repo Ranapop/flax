@@ -15,7 +15,9 @@
 # Lint as: python3
 """Module for training/evaluation (metrics, loss, train, evaluate)"""
 
-from typing import Any, Text, Dict
+import os
+import shutil
+from typing import Any, Text, Dict, TextIO
 from absl import logging
 
 import tensorflow_datasets as tfds
@@ -185,6 +187,20 @@ def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
+def write_examples(file: TextIO, no_logged_examples: int,
+                   gold_outputs: jnp.array, inferred_outputs: jnp.array,
+                   attention_weights: jnp.array,
+                   data_source: inp.CFQDataSource):
+  #log the first examples in the batch
+  gold_seq = indices_to_str(gold_outputs, data_source)
+  inferred_seq = indices_to_str(inferred_outputs, data_source)
+  for i in range(0, no_logged_examples):
+    file.write('\nGold seq:\n {0} \nInferred seq:\n {1}\n'.format(gold_seq[i],
+                  inferred_seq[i]))
+    file.write('Attention weights\n')
+    np.savetxt(file, attention_weights[i], fmt='%0.2f')
+
+
 @functools.partial(jax.pmap, axis_name='batch', static_broadcasted_argnums=(3))
 def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   """Train one step."""
@@ -198,10 +214,10 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   def loss_fn(model):
     """Compute cross-entropy loss."""
     with nn.stochastic(rng):
-      logits, predictions = model(encoder_inputs=inputs,
-                                  decoder_inputs=labels,
-                                  encoder_inputs_lengths=input_lengths,
-                                  vocab_size=vocab_size)
+      logits, predictions, _ = model(encoder_inputs=inputs,
+                                     decoder_inputs=labels,
+                                     encoder_inputs_lengths=input_lengths,
+                                     vocab_size=vocab_size)
     loss = cross_entropy_loss(logits,
                               labels_no_bos,
                               queries_lengths,
@@ -245,18 +261,19 @@ def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
   initial_dec_inputs = jnp.tile(bos_encoding,
                                 (inputs.shape[0], predicted_output_length + 2))
   with nn.stochastic(rng):
-    logits, predictions = model(encoder_inputs=inputs,
-                                decoder_inputs=initial_dec_inputs,
-                                encoder_inputs_lengths=inputs_lengths,
-                                vocab_size=vocab_size,
-                                train=False)
-  return logits, predictions
+    logits, predictions, attention_weights = model(encoder_inputs=inputs,
+      decoder_inputs=initial_dec_inputs,
+      encoder_inputs_lengths=inputs_lengths,
+      vocab_size=vocab_size,
+      train=False)
+  return logits, predictions, attention_weights
 
 
 def evaluate_model(model: nn.Module,
                    batches: tf.data.Dataset,
                    data_source: inp.CFQDataSource,
                    predicted_output_length: int,
+                   logging_file_name: str,
                    no_logged_examples: int = None):
   """Evaluate the model on the validation/test batches
 
@@ -272,11 +289,13 @@ def evaluate_model(model: nn.Module,
     """
   no_batches = 0
   avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
+  logging_file = open(logging_file_name,'a')
   for batch in tfds.as_numpy(batches):
     inputs = batch[constants.QUESTION_KEY]
     input_lengths = batch[constants.QUESTION_LEN_KEY]
     gold_outputs = batch[constants.QUERY_KEY][:, 1:]
-    logits, inferred_outputs = infer(model, inputs, input_lengths, nn.make_rng(),
+    logits, inferred_outputs, attention_weights = infer(model,
+                                inputs, input_lengths, nn.make_rng(),
                                 data_source.vocab_size, data_source.bos_idx,
                                 predicted_output_length)
     metrics = compute_metrics(
@@ -287,14 +306,13 @@ def evaluate_model(model: nn.Module,
         data_source.vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
     if no_logged_examples is not None and no_batches == 0:
-      #log the first examples in the batch
-      gold_seq = indices_to_str(gold_outputs, data_source)
-      inferred_seq = indices_to_str(inferred_outputs, data_source)
-      for i in range(0, no_logged_examples):
-        logging.info('\nGold seq:\n %s\nInferred seq:\n %s\n', gold_seq[i],
-                     inferred_seq[i])
+      write_examples(logging_file, no_logged_examples,
+                     gold_outputs, inferred_outputs,
+                     attention_weights,
+                     data_source)
     no_batches += 1
   avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
+  logging_file.close()
   return avg_metrics
 
 
@@ -338,6 +356,14 @@ def train_model(learning_rate: float = None,
     Do the training on data_source.train_dataset and evaluate on
     data_source.dev_dataset at each epoch and log the results
     """
+  if os.path.isdir(model_dir):
+    # If attemptying to save in a directory where the model was saved before,
+    # first remove the directory with its contents. This is done mostly
+    # because the checkpoint saving will through an error when saving in the
+    # same place twice.
+    shutil.rmtree(model_dir)
+  os.makedirs(model_dir)
+  logging_file_name = os.path.join(model_dir, 'logged_examples.txt')
 
   with nn.stochastic(jax.random.PRNGKey(seed)):
     model = create_model(data_source.vocab_size)
@@ -392,6 +418,7 @@ def train_model(learning_rate: float = None,
                                    batches=dev_batches,
                                    data_source=data_source,
                                    predicted_output_length=max_out_len,
+                                   logging_file_name = logging_file_name,
                                    no_logged_examples=3)
       log(epoch, train_summary, dev_metrics)
       metrics_per_epoch[TRAIN_ACCURACIES].append(train_summary[ACC_KEY])
@@ -402,10 +429,9 @@ def train_model(learning_rate: float = None,
     plot_metrics(metrics_per_epoch, num_epochs)
     logging.info('Done training')
 
-  #is it ok to only save at the end?
-  if model_dir is not None:
-    logging.info('Saving model at %s', model_dir)
-    checkpoints.save_checkpoint(model_dir, optimizer, num_epochs)
+  logging.info('Saving model at %s', model_dir)
+  checkpoints.save_checkpoint(model_dir, optimizer, num_epochs)
+
 
   return optimizer.target
 
@@ -414,8 +440,10 @@ def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
                seed: int, batch_size: int):
   """Evaluate model at model_dir on dev subset"""
   with nn.stochastic(jax.random.PRNGKey(seed)):
+    logging_file_name = os.path.join(model_dir, 'eval_logged_examples.txt')
     model = create_model(data_source.vocab_size)
     optimizer = flax.optim.Adam().create(model)
+    optimizer = checkpoints.restore_checkpoint(model_dir, optimizer)
     dev_batches = data_source.get_batches(split = 'dev',
                                           batch_size=batch_size,
                                           shuffle=True)
@@ -424,6 +452,7 @@ def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
                                  batches=dev_batches,
                                  data_source=data_source,
                                  predicted_output_length=max_out_len,
+                                 logging_file_name = logging_file_name,
                                  no_logged_examples=3)
     logging.info('Loss %.4f, acc %.2f', dev_metrics[LOSS_KEY],
                  dev_metrics[ACC_KEY])
