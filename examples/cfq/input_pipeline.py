@@ -187,9 +187,12 @@ class CFQDataSource:
     dataset = self.splits[split]
     max_length = inp_utils.get_max_length(dataset, self.get_output_length)
     padded_shapes = self.get_padded_shapes(max_length)
+    training = False
+    if split == 'train':
+      training = True
     return inp_utils.get_bucketed_batches(
         dataset=dataset,
-        training=split == 'train',
+        training=training,
         batch_size=batch_size,
         bucket_size=bucket_size,
         max_length=max_length,
