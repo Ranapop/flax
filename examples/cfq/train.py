@@ -35,6 +35,7 @@ from flax import jax_utils
 from flax import nn
 from flax.training import checkpoints
 from flax.training import common_utils
+from flax.metrics import tensorboard
 
 import input_pipeline as inp
 import constants
@@ -343,6 +344,14 @@ def shard(xs):
   return jax.tree_map(
       lambda x: x.reshape((jax.device_count(), -1) + x.shape[1:]), xs)
 
+def save_to_tensorboard(summary_writer: tensorboard.SummaryWriter,
+                        dict: Dict, step: int):
+  if jax.host_id() == 0:
+    for key, val in dict.items():
+      summary_writer.scalar(key, val, step)
+    summary_writer.flush()
+
+
 def train_model(learning_rate: float = None,
                 num_train_steps: int = None,
                 max_out_len: int = None,
@@ -365,6 +374,11 @@ def train_model(learning_rate: float = None,
     shutil.rmtree(model_dir)
   os.makedirs(model_dir)
   logging_file_name = os.path.join(model_dir, 'logged_examples.txt')
+  if jax.host_id() == 0:
+    train_summary_writer = tensorboard.SummaryWriter(
+        os.path.join(model_dir, 'train'))
+    eval_summary_writer = tensorboard.SummaryWriter(
+        os.path.join(model_dir, 'eval'))
 
   with nn.stochastic(jax.random.PRNGKey(seed)):
     model = create_model(data_source.vocab_size)
@@ -420,6 +434,8 @@ def train_model(learning_rate: float = None,
                                     logging_file_name = logging_file_name,
                                     no_logged_examples=3)
         log(step, train_summary, dev_metrics)
+        save_to_tensorboard(train_summary_writer, train_summary, step)
+        save_to_tensorboard(eval_summary_writer, dev_metrics, step)
         plotted_metrics[TRAIN_ACCURACIES].append(train_summary[ACC_KEY])
         plotted_metrics[TRAIN_LOSSES].append(train_summary[LOSS_KEY])
         plotted_metrics[TEST_ACCURACIES].append(dev_metrics[ACC_KEY])
