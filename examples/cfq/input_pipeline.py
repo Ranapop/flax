@@ -170,9 +170,12 @@ class CFQDataSource:
       padded_shapes = self.get_padded_shapes(max_output_len)
     else:
       padded_shapes = self.get_padded_shapes(None)
-    return dataset.padded_batch(batch_size,
-                                padded_shapes=padded_shapes,
-                                drop_remainder=drop_remainder)
+    dataset = dataset.padded_batch(batch_size,
+                                   padded_shapes=padded_shapes,
+                                   drop_remainder=drop_remainder)
+    if split=='train':
+      dataset = dataset.repeat()
+    return dataset.prefetch(constants.AUTOTUNE)
 
   def get_bucketed_batches(self,
                            split: Text,
@@ -186,6 +189,7 @@ class CFQDataSource:
     padded_shapes = self.get_padded_shapes(max_length)
     return inp_utils.get_bucketed_batches(
         dataset=dataset,
+        training=split == 'train',
         batch_size=batch_size,
         bucket_size=bucket_size,
         max_length=max_length,

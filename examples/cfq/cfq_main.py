@@ -45,10 +45,15 @@ flags.DEFINE_integer('batch_size',
                      default=1024,
                      help=('Batch size for training.'))
 
-flags.DEFINE_integer('epochs',
+flags.DEFINE_integer('num_train_steps',
+                     short_name='s',
+                     default=35000,
+                     help=('Number of train steps.'))
+
+flags.DEFINE_integer('eval_frequency',
                      short_name='e',
-                     default=750,
-                     help=('Number of epochs.'))
+                     default=100,
+                     help=('At how many steps evaluation is performed.'))
 
 flags.DEFINE_integer(
     'max_query_length',
@@ -97,13 +102,14 @@ def main(_):
   else:
     # train model
     trained_model = train.train_model(learning_rate=FLAGS.learning_rate,
-                                      num_epochs=FLAGS.epochs,
+                                      num_train_steps=FLAGS.num_train_steps,
                                       max_out_len=FLAGS.max_query_length,
                                       seed=FLAGS.seed,
                                       data_source=data_source,
                                       batch_size=FLAGS.batch_size,
                                       bucketing=FLAGS.use_bucketing,
-                                      model_dir=FLAGS.model_dir)
+                                      model_dir=FLAGS.model_dir,
+                                      eval_freq=FLAGS.eval_frequency)
 
 
 if __name__ == '__main__':

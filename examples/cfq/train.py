@@ -173,17 +173,17 @@ def compute_metrics(logits: jnp.array,
   return metrics
 
 
-def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
-  """Logs performance for an epoch.
+def log(step: int, train_metrics: Dict, dev_metrics: Dict):
+  """Logs performance at a certain step..
 
     Args:
-      epoch: The epoch number.
-      train_metrics: A dict with the train metrics for this epoch.
-      dev_metrics: A dict with the validation metrics for this epoch.
+      step: The step number.
+      train_metrics: A dict with the train metrics for this step.
+      dev_metrics: A dict with the validation metrics for this step.
     """
   logging.info(
-      'Epoch %02d train loss %.4f dev loss %.4f train acc %.2f dev acc %.2f',
-      epoch + 1, train_metrics[LOSS_KEY], dev_metrics[LOSS_KEY],
+      'Step %02d train loss %.4f dev loss %.4f train acc %.2f dev acc %.2f',
+      step + 1, train_metrics[LOSS_KEY], dev_metrics[LOSS_KEY],
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
@@ -316,14 +316,14 @@ def evaluate_model(model: nn.Module,
   return avg_metrics
 
 
-def plot_metrics(metrics: Dict[Text, float], no_epochs):
+def plot_metrics(metrics: Dict[Text, float], no_plot_points):
   """Plot metrics and save figs in temp"""
-  x = range(1, no_epochs + 1)
+  x = range(1, no_plot_points + 1)
 
   # plot accuracies
   plt.plot(x, metrics[TRAIN_ACCURACIES], label='train acc')
   plt.plot(x, metrics[TEST_ACCURACIES], label='test acc')
-  plt.xlabel('Epoch')
+  plt.xlabel('Train step')
   plt.title("Accuracies")
   plt.legend()
   plt.show()
@@ -332,7 +332,7 @@ def plot_metrics(metrics: Dict[Text, float], no_epochs):
   # plot losses
   plt.plot(x, metrics[TRAIN_LOSSES], label='train loss')
   plt.plot(x, metrics[TEST_LOSSES], label='test loss')
-  plt.xlabel('Epoch')
+  plt.xlabel('Train step')
   plt.title("Losses")
   plt.legend()
   plt.show()
@@ -344,17 +344,18 @@ def shard(xs):
       lambda x: x.reshape((jax.device_count(), -1) + x.shape[1:]), xs)
 
 def train_model(learning_rate: float = None,
-                num_epochs: int = None,
+                num_train_steps: int = None,
                 max_out_len: int = None,
                 seed: int = None,
                 data_source: inp.CFQDataSource = None,
                 batch_size: int = None,
                 bucketing: bool = False,
-                model_dir=None):
-  """ Train model on num_epochs
+                model_dir=None,
+                eval_freq: float = None):
+  """ Train model for num_train_steps.
 
     Do the training on data_source.train_dataset and evaluate on
-    data_source.dev_dataset at each epoch and log the results
+    data_source.dev_dataset every few steps and log the results
     """
   if os.path.isdir(model_dir):
     # If attemptying to save in a directory where the model was saved before,
@@ -388,46 +389,46 @@ def train_model(learning_rate: float = None,
                                           shuffle = True,
                                           drop_remainder = True)
 
+    train_iter = iter(train_batches)
     train_metrics = []
-    metrics_per_epoch = {
+    plotted_metrics = {
         TRAIN_ACCURACIES: [],
         TRAIN_LOSSES: [],
         TEST_ACCURACIES: [],
         TEST_LOSSES: []
     }
-    for epoch in range(num_epochs):
-      no_batches = 0
-      for batch in tfds.as_numpy(train_batches):
-        if batch_size % jax.device_count() > 0:
-          raise ValueError('Batch size must be divisible by the number of devices')
-        batch = shard(batch)
-        step_key = nn.make_rng()
-        # Shard the step PRNG key
-        sharded_keys = common_utils.shard_prng_key(step_key)
-        optimizer, metrics = train_step(optimizer, batch, sharded_keys,
-                                        data_source.vocab_size)
-        train_metrics.append(metrics)
-        no_batches += 1
-      train_metrics = common_utils.get_metrics(train_metrics)
-      # Get training epoch summary for logging
-      train_summary = jax.tree_map(lambda x: x.mean(), train_metrics)
-      train_metrics = []
-      # evaluate
-      model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
-      dev_metrics = evaluate_model(model=model,
-                                   batches=dev_batches,
-                                   data_source=data_source,
-                                   predicted_output_length=max_out_len,
-                                   logging_file_name = logging_file_name,
-                                   no_logged_examples=3)
-      log(epoch, train_summary, dev_metrics)
-      metrics_per_epoch[TRAIN_ACCURACIES].append(train_summary[ACC_KEY])
-      metrics_per_epoch[TRAIN_LOSSES].append(train_summary[LOSS_KEY])
-      metrics_per_epoch[TEST_ACCURACIES].append(dev_metrics[ACC_KEY])
-      metrics_per_epoch[TEST_LOSSES].append(dev_metrics[LOSS_KEY])
+    for step, batch in zip(range(num_train_steps), train_iter):
+      if batch_size % jax.device_count() > 0:
+        raise ValueError('Batch size must be divisible by the number of devices')
+      batch = common_utils.shard(jax.tree_map(lambda x: x._numpy(), batch))
+      step_key = nn.make_rng()
+      # Shard the step PRNG key
+      sharded_keys = common_utils.shard_prng_key(step_key)
+      optimizer, metrics = train_step(optimizer, batch, sharded_keys,
+                                      data_source.vocab_size)
+      train_metrics.append(metrics)
+      if (step + 1) % eval_freq == 0:
+        train_metrics = common_utils.get_metrics(train_metrics)
+        train_summary = jax.tree_map(lambda x: x.mean(), train_metrics)
+        train_metrics = []
+        # evaluate
+        model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
+        dev_metrics = evaluate_model(model=model,
+                                    batches=dev_batches,
+                                    data_source=data_source,
+                                    predicted_output_length=max_out_len,
+                                    logging_file = logging_file,
+                                    no_logged_examples=3)
+        log(step, train_summary, dev_metrics)
+        plotted_metrics[TRAIN_ACCURACIES].append(train_summary[ACC_KEY])
+        plotted_metrics[TRAIN_LOSSES].append(train_summary[LOSS_KEY])
+        plotted_metrics[TEST_ACCURACIES].append(dev_metrics[ACC_KEY])
+        plotted_metrics[TEST_LOSSES].append(dev_metrics[LOSS_KEY])
 
-    plot_metrics(metrics_per_epoch, num_epochs)
+    no_plot_points = len(plotted_metrics[TRAIN_ACCURACIES])
+    plot_metrics(plotted_metrics, no_plot_points)
     logging.info('Done training')
+    print('Trained for ',num_train_steps)
 
   logging.info('Saving model at %s', model_dir)
   checkpoints.save_checkpoint(model_dir, optimizer, num_epochs)
