@@ -23,7 +23,6 @@ from absl import logging
 import tensorflow_datasets as tfds
 import tensorflow.compat.v2 as tf
 import numpy as np
-import matplotlib.pyplot as plt
 
 import functools
 import jax
@@ -35,6 +34,7 @@ from flax import jax_utils
 from flax import nn
 from flax.training import checkpoints
 from flax.training import common_utils
+from flax.metrics import tensorboard
 
 import input_pipeline as inp
 import constants
@@ -173,17 +173,17 @@ def compute_metrics(logits: jnp.array,
   return metrics
 
 
-def log(epoch: int, train_metrics: Dict, dev_metrics: Dict):
-  """Logs performance for an epoch.
+def log(step: int, train_metrics: Dict, dev_metrics: Dict):
+  """Logs performance at a certain step..
 
     Args:
-      epoch: The epoch number.
-      train_metrics: A dict with the train metrics for this epoch.
-      dev_metrics: A dict with the validation metrics for this epoch.
+      step: The step number.
+      train_metrics: A dict with the train metrics for this step.
+      dev_metrics: A dict with the validation metrics for this step.
     """
   logging.info(
-      'Epoch %02d train loss %.4f dev loss %.4f train acc %.2f dev acc %.2f',
-      epoch + 1, train_metrics[LOSS_KEY], dev_metrics[LOSS_KEY],
+      'Step %02d train loss %.4f dev loss %.4f train acc %.2f dev acc %.2f',
+      step + 1, train_metrics[LOSS_KEY], dev_metrics[LOSS_KEY],
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
@@ -316,45 +316,32 @@ def evaluate_model(model: nn.Module,
   return avg_metrics
 
 
-def plot_metrics(metrics: Dict[Text, float], no_epochs):
-  """Plot metrics and save figs in temp"""
-  x = range(1, no_epochs + 1)
-
-  # plot accuracies
-  plt.plot(x, metrics[TRAIN_ACCURACIES], label='train acc')
-  plt.plot(x, metrics[TEST_ACCURACIES], label='test acc')
-  plt.xlabel('Epoch')
-  plt.title("Accuracies")
-  plt.legend()
-  plt.show()
-  plt.savefig('temp/accuracies.png')
-  plt.clf()
-  # plot losses
-  plt.plot(x, metrics[TRAIN_LOSSES], label='train loss')
-  plt.plot(x, metrics[TEST_LOSSES], label='test loss')
-  plt.xlabel('Epoch')
-  plt.title("Losses")
-  plt.legend()
-  plt.show()
-  plt.savefig('temp/losses.png')
-  plt.clf()
-
 def shard(xs):
   return jax.tree_map(
       lambda x: x.reshape((jax.device_count(), -1) + x.shape[1:]), xs)
 
+
+def save_to_tensorboard(summary_writer: tensorboard.SummaryWriter,
+                        dict: Dict, step: int):
+  if jax.host_id() == 0:
+    for key, val in dict.items():
+      summary_writer.scalar(key, val, step)
+    summary_writer.flush()
+
+
 def train_model(learning_rate: float = None,
-                num_epochs: int = None,
+                num_train_steps: int = None,
                 max_out_len: int = None,
                 seed: int = None,
                 data_source: inp.CFQDataSource = None,
                 batch_size: int = None,
                 bucketing: bool = False,
-                model_dir=None):
-  """ Train model on num_epochs
+                model_dir=None,
+                eval_freq: float = None):
+  """ Train model for num_train_steps.
 
     Do the training on data_source.train_dataset and evaluate on
-    data_source.dev_dataset at each epoch and log the results
+    data_source.dev_dataset every few steps and log the results.
     """
   if os.path.isdir(model_dir):
     # If attemptying to save in a directory where the model was saved before,
@@ -364,6 +351,11 @@ def train_model(learning_rate: float = None,
     shutil.rmtree(model_dir)
   os.makedirs(model_dir)
   logging_file_name = os.path.join(model_dir, 'logged_examples.txt')
+  if jax.host_id() == 0:
+    train_summary_writer = tensorboard.SummaryWriter(
+        os.path.join(model_dir, 'train'))
+    eval_summary_writer = tensorboard.SummaryWriter(
+        os.path.join(model_dir, 'eval'))
 
   with nn.stochastic(jax.random.PRNGKey(seed)):
     model = create_model(data_source.vocab_size)
@@ -388,49 +380,38 @@ def train_model(learning_rate: float = None,
                                           shuffle = True,
                                           drop_remainder = True)
 
+    train_iter = iter(train_batches)
     train_metrics = []
-    metrics_per_epoch = {
-        TRAIN_ACCURACIES: [],
-        TRAIN_LOSSES: [],
-        TEST_ACCURACIES: [],
-        TEST_LOSSES: []
-    }
-    for epoch in range(num_epochs):
-      no_batches = 0
-      for batch in tfds.as_numpy(train_batches):
-        if batch_size % jax.device_count() > 0:
-          raise ValueError('Batch size must be divisible by the number of devices')
-        batch = shard(batch)
-        step_key = nn.make_rng()
-        # Shard the step PRNG key
-        sharded_keys = common_utils.shard_prng_key(step_key)
-        optimizer, metrics = train_step(optimizer, batch, sharded_keys,
-                                        data_source.vocab_size)
-        train_metrics.append(metrics)
-        no_batches += 1
-      train_metrics = common_utils.get_metrics(train_metrics)
-      # Get training epoch summary for logging
-      train_summary = jax.tree_map(lambda x: x.mean(), train_metrics)
-      train_metrics = []
-      # evaluate
-      model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
-      dev_metrics = evaluate_model(model=model,
-                                   batches=dev_batches,
-                                   data_source=data_source,
-                                   predicted_output_length=max_out_len,
-                                   logging_file_name = logging_file_name,
-                                   no_logged_examples=3)
-      log(epoch, train_summary, dev_metrics)
-      metrics_per_epoch[TRAIN_ACCURACIES].append(train_summary[ACC_KEY])
-      metrics_per_epoch[TRAIN_LOSSES].append(train_summary[LOSS_KEY])
-      metrics_per_epoch[TEST_ACCURACIES].append(dev_metrics[ACC_KEY])
-      metrics_per_epoch[TEST_LOSSES].append(dev_metrics[LOSS_KEY])
+    for step, batch in zip(range(num_train_steps), train_iter):
+      if batch_size % jax.device_count() > 0:
+        raise ValueError('Batch size must be divisible by the number of devices')
+      batch = common_utils.shard(jax.tree_map(lambda x: x._numpy(), batch))
+      step_key = nn.make_rng()
+      # Shard the step PRNG key
+      sharded_keys = common_utils.shard_prng_key(step_key)
+      optimizer, metrics = train_step(optimizer, batch, sharded_keys,
+                                      data_source.vocab_size)
+      train_metrics.append(metrics)
+      if (step + 1) % eval_freq == 0:
+        train_metrics = common_utils.get_metrics(train_metrics)
+        train_summary = jax.tree_map(lambda x: x.mean(), train_metrics)
+        train_metrics = []
+        # evaluate
+        model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
+        dev_metrics = evaluate_model(model=model,
+                                    batches=dev_batches,
+                                    data_source=data_source,
+                                    predicted_output_length=max_out_len,
+                                    logging_file_name = logging_file_name,
+                                    no_logged_examples=3)
+        log(step, train_summary, dev_metrics)
+        save_to_tensorboard(train_summary_writer, train_summary, step)
+        save_to_tensorboard(eval_summary_writer, dev_metrics, step)
 
-    plot_metrics(metrics_per_epoch, num_epochs)
     logging.info('Done training')
 
   logging.info('Saving model at %s', model_dir)
-  checkpoints.save_checkpoint(model_dir, optimizer, num_epochs)
+  checkpoints.save_checkpoint(model_dir, optimizer, num_train_steps)
 
 
   return optimizer.target

@@ -209,6 +209,7 @@ def get_bucket_boundaries(bucket_size: int, max_size: int) -> np.ndarray:
 
 
 def get_bucketed_batches(dataset: tf.data.Dataset,
+                         training: bool,
                          batch_size: int,
                          bucket_size: int,
                          max_length: int,
@@ -228,6 +229,8 @@ def get_bucketed_batches(dataset: tf.data.Dataset,
   controlled by the seed.
   Args:
     dataset: A TF Dataset with examples to be shuffled and batched.
+    training: Data used for training or testing (for training the data is
+      repeated).
     batch_size: The size of each batch.
     bucket_size: How many different lengths go in each bucket.
     max_length: The maximum length to provide a bucket for.
@@ -266,9 +269,13 @@ def get_bucketed_batches(dataset: tf.data.Dataset,
     # For shuffling we need to know how many training examples we have.
     num_examples = cardinality(dataset)
     num_batches = num_examples // batch_size
-    return dataset.shuffle(
+    dataset = dataset.shuffle(
         num_examples, seed=seed,
         reshuffle_each_iteration=True).apply(bucket_fn).shuffle(
             num_batches, seed=seed,
-            reshuffle_each_iteration=True).prefetch(constants.AUTOTUNE)
-  return dataset.apply(bucket_fn).prefetch(constants.AUTOTUNE)
+            reshuffle_each_iteration=True)
+  else:
+    dataset = dataset.apply(bucket_fn)
+  if training:
+    dataset = dataset.repeat()
+  return dataset.prefetch(constants.AUTOTUNE)
