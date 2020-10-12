@@ -31,7 +31,7 @@ NUM_LAYERS = 2
 HORIZONTAL_DROPOUT = 0
 VERTICAL_DROPOUT = 0.4
 EMBED_DROPOUT = 0
-ATTENTION_DROPOUT = 0
+ATTENTION_DROPOUT = 0.1
 
 class Encoder(nn.Module):
   """LSTM encoder, returning state after EOS is input."""
@@ -318,6 +318,7 @@ class Seq2seq(nn.Module):
         num_embeddings=vocab_size,
         features=emb_dim,
         embedding_init=nn.initializers.normal(stddev=1.0))
+    bridge_layer = nn.Dense.partial(features=2*hidden_size)
 
     encoder = Encoder.partial(hidden_size=hidden_size,
                               num_layers=num_layers,
@@ -333,6 +334,15 @@ class Seq2seq(nn.Module):
     hidden_states, init_decoder_states = encoder(encoder_inputs,
                                                  encoder_inputs_lengths,
                                                  shared_embedding, train)
+    # Project encoder hidden states in new space before passing to decoder for
+    # use in initialization.
+    for i in range(num_layers):
+      (c,h) = init_decoder_states[i]
+      init_decoder_states[i] = bridge_layer(init_decoder_states[i])
+      lstm_state = jnp.concatenate([c,h], axis=-1)
+      lstm_state = bridge_layer(lstm_state)
+      lstm_state = jnp.array_split(lstm_state, 2, axis=-1)
+      init_decoder_states[i] = (lstm_state[0], lstm_state[1])
     # Decode outputs.
     logits, predictions = decoder(init_decoder_states,
                                   hidden_states,
