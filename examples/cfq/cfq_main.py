@@ -42,7 +42,7 @@ flags.DEFINE_float('learning_rate',
 
 flags.DEFINE_integer('batch_size',
                      short_name='b',
-                     default=1024,
+                     default=2048,
                      help=('Batch size for training.'))
 
 flags.DEFINE_integer('num_train_steps',
@@ -82,6 +82,9 @@ flags.DEFINE_string('model_dir',
                     default='temp/current_model',
                     help=('Model dir to save model to/load model from.'))
 
+flags.DEFINE_string('cfq_split',
+                    default='random_split',
+                    help=('Cfq split (random_split, mcd1 etc.).'))
 
 def main(_):
   """Load the cfq data and train the model"""
@@ -89,8 +92,7 @@ def main(_):
   data_source = inp.CFQDataSource(
       seed=FLAGS.seed,
       fixed_output_len=False,
-      #TODO: flag for split
-      cfq_split='random_split',
+      cfq_split=FLAGS.cfq_split,
       replace_with_dummy=FLAGS.dummy_data)
 
   if FLAGS.only_run_test:
