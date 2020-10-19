@@ -40,7 +40,7 @@ class CFQDataSource:
                fixed_output_len: bool,
                tokenizer: text.Tokenizer = text.WhitespaceTokenizer(),
                cfq_split: Text = 'mcd1',
-               replace_with_dummy: bool = True):
+               replace_with_dummy: bool = False):
     # Load datasets.
     if replace_with_dummy:
       # Load dummy data.
@@ -144,10 +144,13 @@ class CFQDataSource:
       example_len = tf.math.maximum(question_len, query_len)
     return example_len
 
-  def indices_to_sequence_string(self, indices: jnp.ndarray) -> Text:
+  def indices_to_sequence_string(self,
+                                 indices: jnp.ndarray,
+                                 keep_padding: bool = False) -> Text:
     """Transforms a list of vocab indices into a string
-        (e.g. from token indices to question/query)"""
-    tokens = [self.i2w[i].decode() for i in indices]
+        (e.g. from token indices to question/query). When keep_padding is False,
+        the padding tokens are filtered out (zero-valued indices)."""
+    tokens = [self.i2w[i].decode() for i in indices if keep_padding or i!=0]
     str_seq = ' '.join(tokens)
     return str_seq
 
@@ -208,18 +211,16 @@ if __name__ == '__main__':
                                           batch_size=5,
                                           drop_remainder=False,
                                           shuffle=True)
-  batch = next(tfds.as_numpy(train_batches.skip(4)))
-  questions, queries, lengths = batch[constants.QUESTION_KEY], batch[
-      constants.QUERY_KEY], batch[constants.QUERY_LEN_KEY]
-  questions_strings = []
-  print('Questions')
-  for question in questions:
-    print(data_source.indices_to_sequence_string(question))
-  print()
-  print('Queries')
-  for query in queries:
-    print(data_source.indices_to_sequence_string(query))
-  print('Query sizes')
-  print(lengths)
-  print('Vocab size')
-  print(data_source.vocab_size)
+
+  # Print queries
+  batch_no = 1
+  for batch in tfds.as_numpy(train_batches):
+    queries = batch[constants.QUERY_KEY]
+    print('Batch no ',batch_no)
+    for query in queries:
+      print(data_source.indices_to_sequence_string(query))
+    print()
+    if batch_no == 30:
+      break
+    batch_no+=1
+    
