@@ -146,9 +146,10 @@ class CFQDataSource:
 
   def indices_to_sequence_string(self,
                                  indices: jnp.ndarray,
-                                 keep_padding: bool = True) -> Text:
+                                 keep_padding: bool = False) -> Text:
     """Transforms a list of vocab indices into a string
-        (e.g. from token indices to question/query)"""
+        (e.g. from token indices to question/query). When keep_padding is False,
+        the padding tokens are filtered out (zero-valued indices)."""
     tokens = [self.i2w[i].decode() for i in indices if keep_padding or i!=0]
     str_seq = ' '.join(tokens)
     return str_seq
