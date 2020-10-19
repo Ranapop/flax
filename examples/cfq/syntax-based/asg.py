@@ -43,7 +43,8 @@ def var_token_rule(substring, grammar):
   return action_sequence
   
 def where_entry_rule(substring, grammar):
-  match = re.match(r'FILTER ( (.*) != (.*) )', substring)
+  substring = substring.strip()
+  match = re.match(r'FILTER \( (.*) \!= (.*) \)', substring)
   if match:
     action_sequence = [apply_rule_act(grammar, 'where_entry', 1),
                        apply_rule_act(grammar, 'filter_clause', 0)]
@@ -53,10 +54,9 @@ def where_entry_rule(substring, grammar):
   else:
     action_sequence = [apply_rule_act(grammar, 'where_entry', 0),
                        apply_rule_act(grammar, 'triples_block', 0)]
-    substring = substring.strip()
     terms = re.split('\s', substring)
     if len(terms)!=3:
-      raise Exception('triples_block rule not matched')
+      raise Exception('triples_block rule not matched', substring)
     action_sequence += var_token_rule(terms[0], grammar)
     action_sequence.append(generate_act(terms[1]))
     action_sequence += var_token_rule(terms[2], grammar)
