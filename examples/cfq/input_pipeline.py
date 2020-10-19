@@ -218,7 +218,7 @@ if __name__ == '__main__':
     queries = batch[constants.QUERY_KEY]
     print('Batch no ',batch_no)
     for query in queries:
-      print(data_source.indices_to_sequence_string(query, keep_padding=False))
+      print(data_source.indices_to_sequence_string(query))
     print()
     if batch_no == 30:
       break
