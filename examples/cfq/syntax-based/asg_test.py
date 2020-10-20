@@ -6,7 +6,7 @@ from grammar import Grammar, GRAMMAR_STR
 class AsgTest(parameterized.TestCase):
 
 
-  def test_generate_action_sequence_muliple(self):
+  def test_enerate_action_sequence_muliple(self):
     query = """SELECT DISTINCT ?x0 WHERE {
       ?x0 a people.person .
       ?x0 influence.influencenode.influencedby ?x1 .
@@ -17,12 +17,9 @@ class AsgTest(parameterized.TestCase):
       apply_rule_act(grammar, 'query', 0),
       apply_rule_act(grammar, 'select_query', 0),
       apply_rule_act(grammar, 'select_clause', 0),
-      apply_rule_act(grammar, 'VAR', 0),
-      generate_act('0'),
+      apply_rule_act(grammar, 'where_clause', 1),
+      apply_rule_act(grammar, 'where_clause', 1),
       apply_rule_act(grammar, 'where_clause', 0),
-      apply_rule_act(grammar, 'where_multiple', 0),
-      apply_rule_act(grammar, 'where_entries', 1),
-      apply_rule_act(grammar, 'where_entries', 0),
       apply_rule_act(grammar, 'where_entry', 0),
       apply_rule_act(grammar, 'triples_block', 0),
       apply_rule_act(grammar, 'var_token', 0),
@@ -52,7 +49,7 @@ class AsgTest(parameterized.TestCase):
     self.assertEqual(generated_action_sequence, expected_action_sequence)
 
   def test_generate_action_sequence_filter(self):
-    query = """SELECT count(*)  WHERE { 
+    query = """SELECT count(*)  WHERE {
       ?x0 a film.editor .
       ?x0 influence.influence_node.influenced_by ?x1 .
       ?x1 simplified_token M1 .
@@ -66,11 +63,10 @@ class AsgTest(parameterized.TestCase):
         apply_rule_act(grammar, 'query', 0),
         apply_rule_act(grammar, 'select_query', 0),
         apply_rule_act(grammar, 'select_clause', 1),
+        apply_rule_act(grammar, 'where_clause', 1),
+        apply_rule_act(grammar, 'where_clause', 1),
+        apply_rule_act(grammar, 'where_clause', 1),
         apply_rule_act(grammar, 'where_clause', 0),
-        apply_rule_act(grammar, 'where_multiple', 0),
-        apply_rule_act(grammar, 'where_entries', 1),
-        apply_rule_act(grammar, 'where_entries', 1),
-        apply_rule_act(grammar, 'where_entries', 0),
         apply_rule_act(grammar, 'where_entry', 0),
         apply_rule_act(grammar, 'triples_block', 0),
         apply_rule_act(grammar, 'var_token', 0),

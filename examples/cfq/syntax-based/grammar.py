@@ -3,13 +3,10 @@ import re
 GRAMMAR_STR = """
   query: select_query
   select_query: select_clause "WHERE" "{" where_clause "}"
-  select_clause: "SELECT" "DISTINCT" VAR 
+  select_clause: "SELECT" "DISTINCT" "?x0"
                | "SELECT" "count(*)"     
-  where_clause: where_multiple 
-              | where_entry     
-  where_multiple: where_entries where_entry
-  where_entries: where_entry "."               
-               | where_entries where_entry "." 
+  where_clause: where_entry 
+              | where_clause "." where_entry
   where_entry: triples_block
              | filter_clause
   filter_clause: "FILTER" "(" var_token "!=" var_token ")"
