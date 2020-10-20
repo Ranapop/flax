@@ -13,7 +13,10 @@ def generate_act(token):
 
 
 def var_rule(substring, grammar):
-  "Receives something of the form <?x0>"
+  """
+  VAR: "?x" DIGIT
+  DIGIT: /\d+/
+  """
   action_sequence = [apply_rule_act(grammar, 'VAR', 0)]
   match = re.match(r"\?x(\d+)", substring)
   if match:
@@ -25,7 +28,10 @@ def var_rule(substring, grammar):
 
 
 def select_clause_rule(substring, grammar):
-  "Receives either <DISTINCT var> or <count(*)> "
+  """
+  select_clause: "SELECT" "DISTINCT" "?x0"
+               | "SELECT" "count(*)" 
+  """
   match = re.match(r'DISTINCT \?x0', substring)
   if match:
     action_sequence = [apply_rule_act(grammar, 'select_clause', 0)]
@@ -37,29 +43,44 @@ def select_clause_rule(substring, grammar):
 
 
 def var_token_rule(substring, grammar):
+  """
+  var_token: VAR
+           | TOKEN
+  TOKEN: /[^\s]+/
+  """
   if re.match(r"\?x(\d+)", substring):
+    # VAR branch
     action_sequence = [apply_rule_act(grammar, 'var_token', 0)]
     action_sequence += var_rule(substring, grammar)
   else:
+    # TOKEN brancg
     action_sequence = [apply_rule_act(grammar, 'var_token', 1),
                        generate_act(substring)]
   return action_sequence
   
 
 def where_entry_rule(substring, grammar):
+  """
+  where_entry: triples_block
+             | filter_clause
+  filter_clause: "FILTER" "(" var_token "!=" var_token ")"
+  triples_block: var_token TOKEN var_token
+  """
   substring = substring.strip()
   match = re.match(r'FILTER \( (.*) \!= (.*) \)', substring)
   if match:
+    # filter_clause branch
     action_sequence = [apply_rule_act(grammar, 'where_entry', 1),
                        apply_rule_act(grammar, 'filter_clause', 0)]
     (term1, term2) = match.groups()
     action_sequence += var_token_rule(term1, grammar)
     action_sequence += var_token_rule(term2, grammar)
   else:
+    # triples_block branch
     action_sequence = [apply_rule_act(grammar, 'where_entry', 0),
                        apply_rule_act(grammar, 'triples_block', 0)]
     terms = re.split('\s', substring)
-    if len(terms)!=3:
+    if len(terms) != 3:
       raise Exception('triples_block rule not matched', substring)
     action_sequence += var_token_rule(terms[0], grammar)
     action_sequence.append(generate_act(terms[1]))
@@ -68,11 +89,16 @@ def where_entry_rule(substring, grammar):
 
 
 def where_clause_rule_rec(substrings, grammar):
-  "Receives the list of where clauses."
+  """
+  where_clause: where_entry
+              | where_clause "." where_entry
+  """
   if len(substrings) == 1:
+    # where_entry branch
     action_sequence = [apply_rule_act(grammar, 'where_clause', 0)]
     action_sequence += where_entry_rule(substrings[0], grammar)
   else:
+    # where_clause "." where_entry branch
     action_sequence = [apply_rule_act(grammar, 'where_clause', 1)]
     action_sequence += where_clause_rule_rec(substrings[0:-1], grammar)
     action_sequence += where_entry_rule(substrings[-1], grammar)
@@ -87,6 +113,10 @@ def where_clause_rule(substring, grammar):
 
 
 def query_rule(query, grammar):
+  """
+  query: select_query
+  select_query: select_clause "WHERE" "{" where_clause "}"
+  """
   action_sequence = [apply_rule_act(grammar, 'query', 0),
                      apply_rule_act(grammar,'select_query', 0)]
   # Replace multiple spaces/new lines with simple space.
