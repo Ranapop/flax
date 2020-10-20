@@ -31,6 +31,15 @@ def generate_sub_rules(rule):
 
 
 def generate_grammar(grammar_str):
+  """
+  Method for generating the grammar from a string.
+  The current logic assumes that each rule branch is on a separate line.
+  This is valid:
+  a : b
+    | c
+  This is not:
+  a : b | c
+  """
   grammar_str = grammar_str.strip()
   split_lines = re.split('\n', grammar_str)
   rules = []
