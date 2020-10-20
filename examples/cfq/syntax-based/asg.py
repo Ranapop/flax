@@ -14,8 +14,12 @@ def generate_act(token):
 
 def var_rule(substring, grammar):
   """
-  VAR: "?x" DIGIT
-  DIGIT: /\d+/
+  Rules:
+    VAR: "?x" DIGIT
+    DIGIT: /\d+/
+  Args:
+    substring: query substring to be matched by VAR
+    grammar: grammar object
   """
   action_sequence = [apply_rule_act(grammar, 'VAR', 0)]
   match = re.match(r"\?x(\d+)", substring)
@@ -29,8 +33,12 @@ def var_rule(substring, grammar):
 
 def select_clause_rule(substring, grammar):
   """
-  select_clause: "SELECT" "DISTINCT" "?x0"
-               | "SELECT" "count(*)" 
+  Rules:
+    select_clause: "SELECT" "DISTINCT" "?x0"
+                 | "SELECT" "count(*)"
+  Args:
+    substring: query substring to be matched by select_clause (without "SELECT")
+    grammar: grammar object
   """
   match = re.match(r'DISTINCT \?x0', substring)
   if match:
@@ -44,9 +52,13 @@ def select_clause_rule(substring, grammar):
 
 def var_token_rule(substring, grammar):
   """
-  var_token: VAR
-           | TOKEN
-  TOKEN: /[^\s]+/
+  Rules:
+    var_token: VAR
+             | TOKEN
+    TOKEN: /[^\s]+/
+  Args:
+    substring: query substring to be matched by select_clause (without "SELECT")
+    grammar: grammar object
   """
   if re.match(r"\?x(\d+)", substring):
     # VAR branch
@@ -61,10 +73,14 @@ def var_token_rule(substring, grammar):
 
 def where_entry_rule(substring, grammar):
   """
-  where_entry: triples_block
-             | filter_clause
-  filter_clause: "FILTER" "(" var_token "!=" var_token ")"
-  triples_block: var_token TOKEN var_token
+  Rules:
+    where_entry: triples_block
+               | filter_clause
+    filter_clause: "FILTER" "(" var_token "!=" var_token ")"
+    triples_block: var_token TOKEN var_token
+  Args:
+    substring: query substring to be matched by where_entry
+    grammar: grammar object
   """
   substring = substring.strip()
   match = re.match(r'FILTER \( (.*) \!= (.*) \)', substring)
@@ -90,8 +106,12 @@ def where_entry_rule(substring, grammar):
 
 def where_clause_rule_rec(substrings, grammar):
   """
-  where_clause: where_entry
-              | where_clause "." where_entry
+  Rules:
+    where_clause: where_entry
+                | where_clause "." where_entry
+  Args:
+    substring: list of query substrings to be matched by the where_clause
+    grammar: grammar object
   """
   if len(substrings) == 1:
     # where_entry branch
@@ -106,7 +126,14 @@ def where_clause_rule_rec(substrings, grammar):
 
 
 def where_clause_rule(substring, grammar):
-  "Receives the substring inside the brackets {}"
+  """
+  Rules:
+    where_clause: where_entry
+                | where_clause "." where_entry
+  Args:
+    substring: query substring to be matched by one or more where_clause
+    grammar: grammar object
+  """
   where_clauses = re.split(r' \. ', substring)
   action_sequence = where_clause_rule_rec(where_clauses, grammar)
   return action_sequence
@@ -114,8 +141,12 @@ def where_clause_rule(substring, grammar):
 
 def query_rule(query, grammar):
   """
-  query: select_query
-  select_query: select_clause "WHERE" "{" where_clause "}"
+  Rules:
+    query: select_query
+    select_query: select_clause "WHERE" "{" where_clause "}"
+  Args:
+    query: query
+    grammar: grammar object
   """
   action_sequence = [apply_rule_act(grammar, 'query', 0),
                      apply_rule_act(grammar,'select_query', 0)]
