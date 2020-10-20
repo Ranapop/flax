@@ -1,5 +1,6 @@
 import re
 import collections
+from typing import Dict
 
 GRAMMAR_STR = """
   query: select_query
@@ -19,18 +20,22 @@ GRAMMAR_STR = """
   TOKEN: /[^\s]+/
 """
 
-def generate_sub_rules(rule):
+def remove_multiple_spaces(s: str):
+  return ' '.join(s.strip().split())
+
+def generate_sub_rules(rule: str):
   sub_rules = []
-  match = re.match(r'\s*(.*):\s*(.*)\s*', rule)
+  rule = remove_multiple_spaces(rule)
+  match = re.match(r'(.*): (.*)', rule)
   if match:
     (head, body) = match.groups()
-    branches = re.split(r'\s*\|\s*', body)
+    branches = re.split(r' | ', body)
     for branch in branches:
       sub_rules.append((head, branch.strip()))
   return sub_rules
 
 
-def generate_grammar(grammar_str):
+def generate_grammar(grammar_str: str):
   """
   Method for generating the grammar from a string.
   The current logic assumes that each rule branch is on a separate line.
@@ -59,7 +64,7 @@ def generate_grammar(grammar_str):
   sub_rules_dict = {f'r{i}': sub_rules[i] for i in range(len(sub_rules))}
   return sub_rules_dict
 
-def generate_rules_by_head(sub_rules_dict):
+def generate_rules_by_head(sub_rules_dict: Dict):
   result = collections.defaultdict(list)
   for rule_name, (head, body) in sub_rules_dict.items():
     result[head].append((rule_name, body))
@@ -67,15 +72,15 @@ def generate_rules_by_head(sub_rules_dict):
 
 class Grammar:
 
-  def __init__(self, grammar_str):
+  def __init__(self, grammar_str: str):
     self.sub_rules = generate_grammar(grammar_str)
     self.rules_by_head = generate_rules_by_head(self.sub_rules)
 
-  def get_rule_by_head(self, head, index):
+  def get_rule_by_head(self, head: str, index: int):
     head_rules = self.rules_by_head[head]
     return head_rules[index]
 
-  def get_rule_name_by_head(self, head, index):
+  def get_rule_name_by_head(self, head: str, index: int):
     return self.get_rule_by_head(head, index)[0]
 
 if __name__ == "__main__":
