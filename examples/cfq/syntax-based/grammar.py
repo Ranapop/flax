@@ -1,4 +1,5 @@
 import re
+import collections
 
 GRAMMAR_STR = """
   query: select_query
@@ -19,14 +20,13 @@ GRAMMAR_STR = """
 """
 
 def generate_sub_rules(rule):
-
   sub_rules = []
   match = re.match(r'\s*(.*):\s*(.*)\s*', rule)
   if match:
     (head, body) = match.groups()
     branches = re.split(r'\s*\|\s*', body)
     for branch in branches:
-      sub_rules.append((head,branch.strip()))
+      sub_rules.append((head, branch.strip()))
   return sub_rules
 
 
@@ -47,14 +47,12 @@ def generate_grammar(grammar_str):
   for rule in rules:
     sub_rules += generate_sub_rules(rule)
 
-  sub_rules_dict = {'r{0}'.format(i): sub_rules[i] for i in range(len(sub_rules))}
+  sub_rules_dict = {f'r{i}': sub_rules[i] for i in range(len(sub_rules))}
   return sub_rules_dict
 
 def generate_rules_by_head(sub_rules_dict):
-  result = {}
+  result = collections.defaultdict(list)
   for rule_name, (head, body) in sub_rules_dict.items():
-    if head not in result:
-      result[head] = []
     result[head].append((rule_name, body))
   return result
 
@@ -69,7 +67,7 @@ class Grammar:
     return head_rules[index]
 
   def get_rule_name_by_head(self, head, index):
-    return self.rules_by_head[head][index][0]
+    return self.get_rule_by_head(head, index)[0]
 
 if __name__ == "__main__":
   grammar = Grammar(GRAMMAR_STR)

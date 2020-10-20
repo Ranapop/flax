@@ -3,8 +3,8 @@ from absl.testing import parameterized
 from asg import apply_rule_act, generate_act, generate_action_sequence
 from grammar import Grammar, GRAMMAR_STR
 
-class AsgTest(parameterized.TestCase):
 
+class AsgTest(parameterized.TestCase):
 
   def test_enerate_action_sequence_muliple(self):
     query = """SELECT DISTINCT ?x0 WHERE {

@@ -5,7 +5,7 @@ GENERATE_TOKEN = 1
 
 
 def apply_rule_act(grammar, head, index):
-  return (APPLY_RULE, grammar.get_rule_name_by_head(head,index))
+  return (APPLY_RULE, grammar.get_rule_name_by_head(head, index))
 
 
 def generate_act(token):
@@ -14,7 +14,7 @@ def generate_act(token):
 
 def var_rule(substring, grammar):
   "Receives something of the form <?x0>"
-  action_sequence = [apply_rule_act(grammar, 'VAR',0)]
+  action_sequence = [apply_rule_act(grammar, 'VAR', 0)]
   match = re.match(r"\?x(\d+)", substring)
   if match:
       digit = match.groups()[0]
@@ -87,9 +87,9 @@ def where_clause_rule(substring, grammar):
 
 
 def query_rule(query, grammar):
-  action_sequence = [apply_rule_act(grammar, 'query',0),
-                     apply_rule_act(grammar,'select_query',0)]
-  # Replce multiple spaces/new lines with simple space.
+  action_sequence = [apply_rule_act(grammar, 'query', 0),
+                     apply_rule_act(grammar,'select_query', 0)]
+  # Replace multiple spaces/new lines with simple space.
   query = re.sub(r'\n|\s+',' ', query)
   match = re.match(r'SELECT (.*) WHERE \{ (.*) \}', query)
   (select_clause_input, where_body) = match.groups()
