@@ -29,7 +29,7 @@ def generate_sub_rules(rule: str):
   match = re.match(r'(.*): (.*)', rule)
   if match:
     (head, body) = match.groups()
-    branches = re.split(r' | ', body)
+    branches = re.split(r' \| ', body)
     for branch in branches:
       sub_rules.append((head, branch.strip()))
   return sub_rules
