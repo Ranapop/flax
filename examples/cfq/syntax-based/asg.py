@@ -1,5 +1,7 @@
 import re
+from typing import Tuple
 
+Action = Tuple[int, str]
 APPLY_RULE = 0
 GENERATE_TOKEN = 1
 

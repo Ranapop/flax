@@ -68,10 +68,13 @@ class Grammar:
     self.rules_by_head = generate_rules_by_head(self.sub_rules)
 
   def get_rule_by_head(self, head, index):
+    """Returns a tuple of (rule_name, rule_body) given the head, for e.g.
+    (r0,select_query)"""
     head_rules = self.rules_by_head[head]
     return head_rules[index]
 
   def get_rule_name_by_head(self, head, index):
+    "Returns the name of the rule (eg. r0) for the given head and index."
     return self.rules_by_head[head][index][0]
 
 if __name__ == "__main__":
