@@ -254,6 +254,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
                tokenizer: text.Tokenizer = text.WhitespaceTokenizer(),
                cfq_split: Text = 'mcd1',
                grammar: gr.Grammar = gr.Grammar(gr.GRAMMAR_STR)):
+    self.grammar = grammar
     super().__init__(seed,
                      fixed_output_len,
                      tokenizer,
@@ -262,13 +263,16 @@ class Seq2TreeCfqDataSource(CFQDataSource):
   def build_tokens_vocab(self, vocab_file, tokenizer, dataset, dummy):
     vocab = super().build_tokens_vocab(vocab_file, tokenizer, dataset, dummy)
     # TODO: Take them from the grammar.
+    syntax_tokens_list = self.grammar.get_syntax_tokens()
+    print(syntax_tokens_list)
     synatax_tokens = [b"WHERE", b"{", b"}",
                       b"SELECT", b"DISTINCT", b"?x0",
-                      b"count",
+                      b"count(*)",
                       b".",
                       b"FILTER", b"(", b"!=", b")"]
-    for syntax_token in synatax_tokens:
-      del vocab[syntax_token]
+    for syntax_token in syntax_tokens_list:
+      byte_token = syntax_token.encode()
+      del vocab[byte_token]
     return vocab
 
   def construct_new_fields(self, example: ExampleType) -> ExampleType:
@@ -279,7 +283,6 @@ class Seq2TreeCfqDataSource(CFQDataSource):
 if __name__ == '__main__':
   #TODO: remove this and add tests
   data_source = Seq2TreeCfqDataSource(seed=13467, fixed_output_len=True)
-  
 
 
   # data_source = Seq2SeqCfqDataSource(seed=13467, fixed_output_len=True)
