@@ -69,6 +69,8 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
 
 
 def apply_first_action(action: Action, grammar: Grammar):
+  """Applies the first action in the sequence of actions and constructs the
+  tree root."""
   action_type, action_value = action
   if action_type != APPLY_RULE:
     raise Exception('First action should be rule application')
@@ -78,6 +80,7 @@ def apply_first_action(action: Action, grammar: Grammar):
 
 
 def apply_sequence_of_actions(action_sequence: List, grammar: Grammar):
+  """Applies a sequence of actions to construct a syntax tree."""
   root = apply_first_action(action_sequence[0], grammar)
   frontier_nodes = deque()
   frontier_nodes.append(root)
