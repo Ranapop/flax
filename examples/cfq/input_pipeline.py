@@ -26,6 +26,7 @@ import numpy as np
 import input_pipeline_utils as inp_utils
 import preprocessing
 import constants
+import syntax_based.grammar as gr
 
 ExampleType = Dict[Text, tf.Tensor]
 
@@ -210,7 +211,6 @@ class Seq2SeqCfqDataSource(CFQDataSource):
                      cfq_split,
                      replace_with_dummy)
 
-  
   def get_specific_padded_shapes(self, output_pad):
     return {
         constants.QUESTION_KEY: [None],
@@ -245,23 +245,58 @@ class Seq2SeqCfqDataSource(CFQDataSource):
     str_seq = ' '.join(tokens)
     return str_seq
 
+class Seq2TreeCfqDataSource(CFQDataSource):
+  """Provides the cfq data for a seq2tree model."""
+
+  def __init__(self,
+               seed: int,
+               fixed_output_len: bool,
+               tokenizer: text.Tokenizer = text.WhitespaceTokenizer(),
+               cfq_split: Text = 'mcd1',
+               grammar: gr.Grammar = gr.Grammar(gr.GRAMMAR_STR)):
+    super().__init__(seed,
+                     fixed_output_len,
+                     tokenizer,
+                     cfq_split)
+
+  def build_tokens_vocab(self, vocab_file, tokenizer, dataset, dummy):
+    vocab = super().build_tokens_vocab(vocab_file, tokenizer, dataset, dummy)
+    # TODO: Take them from the grammar.
+    synatax_tokens = [b"WHERE", b"{", b"}",
+                      b"SELECT", b"DISTINCT", b"?x0",
+                      b"count",
+                      b".",
+                      b"FILTER", b"(", b"!=", b")"]
+    for syntax_token in synatax_tokens:
+      del vocab[syntax_token]
+    return vocab
+
+  def construct_new_fields(self, example: ExampleType) -> ExampleType:
+    """Dummy implementation."""
+    return example
+
+
 if __name__ == '__main__':
   #TODO: remove this and add tests
-  data_source = Seq2SeqCfqDataSource(seed=13467, fixed_output_len=True)
-  train_batches = data_source.get_batches('train',
-                                          batch_size=5,
-                                          drop_remainder=False,
-                                          shuffle=True)
+  data_source = Seq2TreeCfqDataSource(seed=13467, fixed_output_len=True)
+  
 
-  # Print queries
-  batch_no = 1
-  for batch in tfds.as_numpy(train_batches):
-    queries = batch[constants.QUERY_KEY]
-    print('Batch no ',batch_no)
-    for query in queries:
-      print(data_source.indices_to_sequence_string(query))
-    print()
-    if batch_no == 30:
-      break
-    batch_no+=1
+
+  # data_source = Seq2SeqCfqDataSource(seed=13467, fixed_output_len=True)
+  # train_batches = data_source.get_batches('train',
+  #                                         batch_size=5,
+  #                                         drop_remainder=False,
+  #                                         shuffle=True)
+
+  # # Print queries
+  # batch_no = 1
+  # for batch in tfds.as_numpy(train_batches):
+  #   queries = batch[constants.QUERY_KEY]
+  #   print('Batch no ',batch_no)
+  #   for query in queries:
+  #     print(data_source.indices_to_sequence_string(query))
+  #   print()
+  #   if batch_no == 30:
+  #     break
+  #   batch_no+=1
     
