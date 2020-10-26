@@ -83,6 +83,19 @@ class Grammar:
   def get_rule_name_by_head(self, head: str, index: int):
     return self.get_rule_by_head(head, index)[0]
 
+  def get_syntax_tokens(self):
+    """Retrieve a list of syntax tokens from the grammar."""
+    syntax_tokens_set = set()
+    for _, rule in self.sub_rules.items():
+      _, rule_body = rule
+      rule_tokens = rule_body.split()
+      for rule_token in rule_tokens:
+        match = re.match(r'\"(.*)\"', rule_token)
+        if match:
+          syntax_token = match.groups()[0]
+          syntax_tokens_set.add(syntax_token)
+    return list(syntax_tokens_set)
+
 if __name__ == "__main__":
   grammar = Grammar(GRAMMAR_STR)
   sub_rules = grammar.sub_rules
