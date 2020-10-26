@@ -80,7 +80,7 @@ class GrammarTest(parameterized.TestCase):
       'd': [('r4', '"some_other_token"')]}
     self.assertEqual(grammar.sub_rules, expected_sub_rules)
     self.assertEqual(grammar.rules_by_head, expected_rules_by_head)
-    
+ 
 
 if __name__ == '__main__':
   absltest.main()
