@@ -16,7 +16,7 @@
 """Module with unit tests for grammar.py"""
 from absl.testing import absltest
 from absl.testing import parameterized
-from grammar import generate_grammar
+from grammar import generate_grammar, Grammar
 
 
 class GrammarTest(parameterized.TestCase):
@@ -58,6 +58,29 @@ class GrammarTest(parameterized.TestCase):
       'r14': ('TOKEN', '/[^\\s]+/')
     }
     self.assertEqual(grammar_dict, expected_grammar_dict)
+
+  def test_Grammar(self):
+    grammar_str = """
+      a: b
+      b: c | d
+      c: "some_token"
+      d: "some_other_token"
+    """
+    grammar = Grammar(grammar_str)
+    expected_sub_rules = {
+      'r0': ('a', 'b'),
+      'r1': ('b', 'c'),
+      'r2': ('b', 'd'),
+      'r3': ('c', '"some_token"'),
+      'r4': ('d', '"some_other_token"')}
+    expected_rules_by_head = {
+      'a': [('r0', 'b')],
+      'b': [('r1', 'c'), ('r2', 'd')],
+      'c': [('r3', '"some_token"')],
+      'd': [('r4', '"some_other_token"')]}
+    self.assertEqual(grammar.sub_rules, expected_sub_rules)
+    self.assertEqual(grammar.rules_by_head, expected_rules_by_head)
+    
 
 if __name__ == '__main__':
   absltest.main()
