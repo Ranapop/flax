@@ -101,11 +101,3 @@ class Grammar:
   def get_rule_name_by_head(self, head: str, index: int):
     "Returns the name of the rule (eg. r0) for the given head and index."
     return self.get_rule_by_head(head, index)[0]
-
-if __name__ == "__main__":
-  grammar = Grammar(GRAMMAR_STR)
-  sub_rules = grammar.sub_rules
-  print(sub_rules)
-  for rule, branches in grammar.rules_by_head.items():
-    print(rule)
-    print(branches)

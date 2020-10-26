@@ -14,6 +14,7 @@
 
 # Lint as: python3
 """This module is for constructing the syntax tree from the action sequence."""
+
 import re
 from typing import List
 from grammar import Grammar, GRAMMAR_STR
@@ -48,7 +49,7 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
     head, body = grammar.sub_rules[rule_name]
     if head != current_node.value:
       raise Exception('Invalid action. Got {} and expected {}'.format(
-        head, current_node.value))
+          head, current_node.value))
     rule_tokens = body.split()
     for rule_token in rule_tokens:
       match = re.match(r'\"(.*)\"', rule_token)
@@ -66,6 +67,7 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
     frontier_nodes_stack.extend(new_frontier_nodes)
   return frontier_nodes_stack
 
+
 def apply_first_action(action: Action, grammar: Grammar):
   action_type, action_value = action
   if action_type != APPLY_RULE:
@@ -74,6 +76,7 @@ def apply_first_action(action: Action, grammar: Grammar):
   root = Node(None, node_value)
   return root
 
+
 def apply_sequence_of_actions(action_sequence: List, grammar: Grammar):
   root = apply_first_action(action_sequence[0], grammar)
   frontier_nodes = deque()
@@ -81,6 +84,7 @@ def apply_sequence_of_actions(action_sequence: List, grammar: Grammar):
   for action in action_sequence[1:]:
     frontier_nodes = apply_action(frontier_nodes, action, grammar)
   return root
+
 
 def traverse_tree(root: Node):
   """DFS raversal of tree. The result of the traversal should be the query. In
@@ -99,7 +103,8 @@ def traverse_tree(root: Node):
     delimiter = ' '
   return delimiter.join(children_substrings)
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
   query = """SELECT DISTINCT ?x0 WHERE {
       ?x0 a people.person .
       ?x0 influence.influencenode.influencedby ?x1 .
@@ -109,6 +114,3 @@ if __name__=="__main__":
   root = apply_sequence_of_actions(generated_action_sequence, grammar)
   query = traverse_tree(root)
   print(query)
-
-
-    

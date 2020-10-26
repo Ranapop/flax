@@ -14,6 +14,7 @@
 
 # Lint as: python3
 """Module with integration tests for gemerating/applying action sequences."""
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from grammar import Grammar, GRAMMAR_STR
@@ -23,23 +24,23 @@ from node import apply_sequence_of_actions, traverse_tree
 class ActionSequenceTest(parameterized.TestCase):
 
   def test_action_sequence(self):
-      """Test that when going query -> sequence of actions -> tree -> query2
-      the input and output query are equal (query, query2)."""
-      query = """SELECT count(*) WHERE {
+    """Test that when going query -> sequence of actions -> tree -> query2
+    the input and output query are equal (query, query2)."""
+    query = """SELECT count(*) WHERE {
                  ?x0 ns:film.cinematographer.film ?x1 .
                  ?x0 ns:film.writer.film ?x1 .
                  ?x1 a ns:film.film .
                  ?x2 ns:film.film_costumer_designer.costume_design_for_film M1 .
                  M2 ns:film.film.starring/ns:film.performance.actor ?x0 .
                  M2 ns:film.film.starring/ns:film.performance.actor ?x2
-              }"""
-      no_extra_spaces_query = " ".join(query.split())
-      grammar = Grammar(GRAMMAR_STR)
-      act_seq = generate_action_sequence(query, grammar)
-      root = apply_sequence_of_actions(act_seq, grammar)
-      generated_query = traverse_tree(root)
-      no_extra_spaces_generated_query =  " ".join(generated_query.split())
-      self.assertEqual(no_extra_spaces_query, no_extra_spaces_generated_query)
+               }"""
+    no_extra_spaces_query = " ".join(query.split())
+    grammar = Grammar(GRAMMAR_STR)
+    act_seq = generate_action_sequence(query, grammar)
+    root = apply_sequence_of_actions(act_seq, grammar)
+    generated_query = traverse_tree(root)
+    no_extra_spaces_generated_query =  " ".join(generated_query.split())
+    self.assertEqual(no_extra_spaces_query, no_extra_spaces_generated_query)
        
 
 
