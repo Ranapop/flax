@@ -47,8 +47,6 @@ def preprocess_question(tensor: tf.Tensor):
 def preprocess_sparql(tensor: tf.Tensor):
   """Do various preprocessing on the SPARQL query."""
   query = tensor.numpy().decode()
-  # Tokenize braces.
-  query = query.replace('count(*)', 'count ( * )')
 
   tokens = []
   for token in query.split():
