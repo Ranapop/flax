@@ -296,14 +296,15 @@ def evaluate_model(model: nn.Module,
     gold_outputs = batch[constants.QUERY_KEY][:, 1:]
     logits, inferred_outputs, attention_weights = infer(model,
                                 inputs, input_lengths, nn.make_rng(),
-                                data_source.vocab_size, data_source.bos_idx,
+                                data_source.tokens_vocab_size,
+                                data_source.bos_idx,
                                 predicted_output_length)
     metrics = compute_metrics(
         logits,
         inferred_outputs,
         gold_outputs,
         batch[constants.QUERY_LEN_KEY] - 1,
-        data_source.vocab_size)
+        data_source.tokens_vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
     if no_logged_examples is not None and no_batches == 0:
       write_examples(logging_file, no_logged_examples,
@@ -358,7 +359,7 @@ def train_model(learning_rate: float = None,
         os.path.join(model_dir, 'eval'))
 
   with nn.stochastic(jax.random.PRNGKey(seed)):
-    model = create_model(data_source.vocab_size)
+    model = create_model(data_source.tokens_vocab_size)
     optimizer = flax.optim.Adam(learning_rate=learning_rate).create(model)
     optimizer = jax_utils.replicate(optimizer)
 
@@ -390,7 +391,7 @@ def train_model(learning_rate: float = None,
       # Shard the step PRNG key
       sharded_keys = common_utils.shard_prng_key(step_key)
       optimizer, metrics = train_step(optimizer, batch, sharded_keys,
-                                      data_source.vocab_size)
+                                      data_source.tokens_vocab_size)
       train_metrics.append(metrics)
       if (step + 1) % eval_freq == 0:
         train_metrics = common_utils.get_metrics(train_metrics)
@@ -422,7 +423,7 @@ def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
   """Evaluate model at model_dir on dev subset"""
   with nn.stochastic(jax.random.PRNGKey(seed)):
     logging_file_name = os.path.join(model_dir, 'eval_logged_examples.txt')
-    model = create_model(data_source.vocab_size)
+    model = create_model(data_source.tokens_vocab_size)
     optimizer = flax.optim.Adam().create(model)
     optimizer = checkpoints.restore_checkpoint(model_dir, optimizer)
     dev_batches = data_source.get_batches(split = 'dev',
