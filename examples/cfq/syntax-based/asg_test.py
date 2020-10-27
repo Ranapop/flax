@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Lint as: python3
-"""Module for unit tests for asg.py"""
+"""Module for unit tests for asg.py."""
 from absl.testing import absltest
 from absl.testing import parameterized
 from asg import apply_rule_act, generate_act, generate_action_sequence

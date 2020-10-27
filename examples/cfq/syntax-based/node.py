@@ -34,7 +34,7 @@ class Node:
 
 
 def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
-  """Applies an action (apply rule or generate token). The action extends a
+  """Applies an action (apply rule or generate token). The action extends an
   AST that is under construction by extending the stack of frontier nodes.
   The function returns the extended stack."""
   current_node: Node = frontier_nodes_stack.pop()
@@ -45,8 +45,7 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
     current_node.add_child(child)
   else:
     new_frontier_nodes = []
-    rule_name = action_value
-    head, body = grammar.sub_rules[rule_name]
+    head, body = grammar.sub_rules[action_value]
     if head != current_node.value:
       raise Exception('Invalid action. Got {} and expected {}'.format(
           head, current_node.value))
@@ -57,12 +56,11 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
         # Create a leaf node with a token from the rule (e.g. SELECT).
         node_value = match.groups()[0]
         child = Node(current_node, node_value)
-        current_node.add_child(child)
       else:
         # Create new frontier node.
         child = Node(current_node, rule_token)
-        current_node.add_child(child)
         new_frontier_nodes.append(child)
+      current_node.add_child(child)
     new_frontier_nodes.reverse()
     frontier_nodes_stack.extend(new_frontier_nodes)
   return frontier_nodes_stack
@@ -90,7 +88,7 @@ def apply_sequence_of_actions(action_sequence: List, grammar: Grammar):
 
 
 def traverse_tree(root: Node):
-  """DFS raversal of tree. The result of the traversal should be the query. In
+  """DFS traversal of tree. The result of the traversal should be the query. In
   case the parent node is a terminal, the descendents will be simply
   concatenated, e.g. VAR, otherwise the substrings are merged together by spaces.
   """

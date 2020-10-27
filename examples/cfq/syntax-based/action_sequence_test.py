@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Lint as: python3
-"""Module with integration tests for gemerating/applying action sequences."""
+"""Module with integration tests for generating/applying action sequences."""
 
 from absl.testing import absltest
 from absl.testing import parameterized

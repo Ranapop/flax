@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Lint as: python3
-"""Module for gramamr definition and parsing."""
+"""Module for grammar definition and parsing."""
 import re
 import collections
 from typing import Dict
@@ -94,7 +94,7 @@ class Grammar:
 
   def get_rule_by_head(self, head: str, index: int):
     """Returns a tuple of (rule_name, rule_body) given the head, for e.g.
-    (r0,select_query)"""
+    (r0, select_query)"""
     head_rules = self.rules_by_head[head]
     return head_rules[index]
 
