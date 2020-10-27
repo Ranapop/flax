@@ -41,8 +41,27 @@ class ActionSequenceTest(parameterized.TestCase):
     generated_query = traverse_tree(root)
     no_extra_spaces_generated_query =  " ".join(generated_query.split())
     self.assertEqual(no_extra_spaces_query, no_extra_spaces_generated_query)
-       
-
+     
+  def test_second_action_sequence(self):
+    """Test that when going query -> sequence of actions -> tree -> query2
+    the input and output query are equal (query, query2)."""
+    query = """SELECT count(*) WHERE {
+                ?x0 ns:film.director.film M0 .
+                ?x0 ns:influence.influence_node.influenced ?x1 .
+                ?x0 ns:influence.influence_node.influenced ?x2 .
+                ?x0 ns:influence.influence_node.influenced ?x3 .
+                ?x1 a ns:film.writer .
+                ?x2 ns:organization.organization_founder.organizations_founded ?x4 .
+                ?x3 ns:film.writer.film M3 .
+                ?x4 a ns:film.production_company
+            }"""
+    no_extra_spaces_query = " ".join(query.split())
+    grammar = Grammar(GRAMMAR_STR)
+    act_seq = generate_action_sequence(query, grammar)
+    root = apply_sequence_of_actions(act_seq, grammar)
+    generated_query = traverse_tree(root)
+    no_extra_spaces_generated_query =  " ".join(generated_query.split())
+    self.assertEqual(no_extra_spaces_query, no_extra_spaces_generated_query)
 
 if __name__ == '__main__':
   absltest.main()

@@ -29,25 +29,6 @@ def generate_act(token):
     return (GENERATE_TOKEN, token)
 
 
-def var_rule(substring, grammar):
-  """
-  Rules:
-    VAR: "?x" DIGIT
-    DIGIT: /\d+/
-  Args:
-    substring: query substring to be matched by VAR
-    grammar: grammar object
-  """
-  action_sequence = [apply_rule_act(grammar, 'VAR', 0)]
-  match = re.match(r"\?x(\d+)", substring)
-  if match:
-      digit = match.groups()[0]
-      action_sequence.append(generate_act(digit))
-  else:
-    raise Exception('var rule not matched')
-  return action_sequence
-
-
 def select_clause_rule(substring, grammar):
   """
   Rules:
@@ -77,10 +58,12 @@ def var_token_rule(substring, grammar):
     substring: query substring to be matched by select_clause (without "SELECT")
     grammar: grammar object
   """
-  if re.match(r"\?x(\d+)", substring):
+  match = re.match(r"\?x(\d+)", substring)
+  if match:
     # VAR branch
+    digit = match.groups()[0]
     action_sequence = [apply_rule_act(grammar, 'var_token', 0)]
-    action_sequence += var_rule(substring, grammar)
+    action_sequence += [apply_rule_act(grammar, 'VAR', int(digit))]
   else:
     # TOKEN brancg
     action_sequence = [apply_rule_act(grammar, 'var_token', 1),

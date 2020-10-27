@@ -32,6 +32,8 @@ class Node:
   def add_child(self, child: 'Node'):
     self.children.append(child)
 
+  def __repr__(self):
+    return self.value
 
 def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
   """Applies an action (apply rule or generate token). The action extends an

@@ -35,8 +35,7 @@ class GrammarTest(parameterized.TestCase):
       triples_block: var_token TOKEN var_token
       var_token: VAR
                 | TOKEN 
-      VAR: "?x" DIGIT 
-      DIGIT: /\d+/
+      VAR: "?x0" | "?x1" | "?x2" | "?x3" | "?x4" | "?x5" 
       TOKEN: /[^\s]+/
     """
     grammar_dict = generate_grammar(grammar_str)
@@ -53,9 +52,13 @@ class GrammarTest(parameterized.TestCase):
       'r9': ('triples_block', 'var_token TOKEN var_token'),
       'r10': ('var_token', 'VAR'),
       'r11': ('var_token', 'TOKEN'),
-      'r12': ('VAR', '"?x" DIGIT'),
-      'r13': ('DIGIT', '/\\d+/'),
-      'r14': ('TOKEN', '/[^\\s]+/')
+      'r12': ('VAR', '"?x0"'),
+      'r13': ('VAR', '"?x1"'),
+      'r14': ('VAR', '"?x2"'),
+      'r15': ('VAR', '"?x3"'),
+      'r16': ('VAR', '"?x4"'),
+      'r17': ('VAR', '"?x5"'),
+      'r18': ('TOKEN', '/[^\\s]+/')
     }
     self.assertEqual(grammar_dict, expected_grammar_dict)
 
