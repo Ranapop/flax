@@ -31,8 +31,7 @@ GRAMMAR_STR = """
   triples_block: var_token TOKEN var_token
   var_token: VAR
            | TOKEN 
-  VAR: "?x" DIGIT 
-  DIGIT: /\d+/
+  VAR: "?x0" | "?x1" | "?x2" | "?x3" | "?x4" | "?x5"
   TOKEN: /[^\s]+/
 """
 
