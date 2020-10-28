@@ -156,7 +156,7 @@ class Grammar:
       self.branches.append(rule_branch)
       self.rules[head].append(branch_id)
 
-  def get_branch_by_head_and_index(self, head: str, index: int):
+  def get_branch_id_by_head_and_index(self, head: str, index: int):
     """Returns the branch id given the head and index"""
     head_rules = self.rules[head]
     return head_rules[index]
