@@ -1,5 +1,22 @@
-import re
+# Copyright 2020 The Flax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+# Lint as: python3
+import re
+from typing import Tuple
+
+Action = Tuple[int, str]
 APPLY_RULE = 0
 GENERATE_TOKEN = 1
 
@@ -10,25 +27,6 @@ def apply_rule_act(grammar, head, index):
 
 def generate_act(token):
     return (GENERATE_TOKEN, token)
-
-
-def var_rule(substring, grammar):
-  """
-  Rules:
-    VAR: "?x" DIGIT
-    DIGIT: /\d+/
-  Args:
-    substring: query substring to be matched by VAR
-    grammar: grammar object
-  """
-  action_sequence = [apply_rule_act(grammar, 'VAR', 0)]
-  match = re.match(r"\?x(\d+)", substring)
-  if match:
-      digit = match.groups()[0]
-      action_sequence.append(generate_act(digit))
-  else:
-    raise Exception('var rule not matched')
-  return action_sequence
 
 
 def select_clause_rule(substring, grammar):
@@ -60,12 +58,14 @@ def var_token_rule(substring, grammar):
     substring: query substring to be matched by select_clause (without "SELECT")
     grammar: grammar object
   """
-  if re.match(r"\?x(\d+)", substring):
+  match = re.match(r"\?x(\d+)", substring)
+  if match:
     # VAR branch
+    digit = match.groups()[0]
     action_sequence = [apply_rule_act(grammar, 'var_token', 0)]
-    action_sequence += var_rule(substring, grammar)
+    action_sequence += [apply_rule_act(grammar, 'VAR', int(digit))]
   else:
-    # TOKEN brancg
+    # TOKEN branch
     action_sequence = [apply_rule_act(grammar, 'var_token', 1),
                        generate_act(substring)]
   return action_sequence
