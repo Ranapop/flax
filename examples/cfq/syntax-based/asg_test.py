@@ -44,32 +44,32 @@ class AsgTest(parameterized.TestCase):
     grammar = Grammar(grammar_str)
     generated_action_sequence = generate_action_sequence(query, grammar)
     expected_action_sequence = [
-      (0, 0),
-      (0, 1),
-      (0, 2),
-      (0, 5),
-      (0, 5),
-      (0, 4),
-      (0, 6),
-      (0, 7),
-      (0, 8),
-      (0, 10),
+      (0, 0), # query -> select_query
+      (0, 1), # select_query -> select_clause "WHERE" "{" where_clause "}"
+      (0, 2), # select_clause -> "SELECT" "DISTINCT" "?x0"
+      (0, 5), # where_clause -> where_clause "." where_entry
+      (0, 5), # where_clause -> where_clause "." where_entry
+      (0, 4), # where_clause -> where_entry
+      (0, 6), # where_entry -> triples_block
+      (0, 7), # triples_block -> var_token TOKEN var_token
+      (0, 8), # var_token -> VAR
+      (0, 10), # VAR -> "?x0"
       (1, 'a'),
-      (0, 9),
+      (0, 9), # var_token -> TOKEN
       (1, 'people.person'),
-      (0, 6),
-      (0, 7),
-      (0, 8),
-      (0, 10),
+      (0, 6), # where_entry -> triples_block
+      (0, 7), # triples_block -> var_token TOKEN var_token
+      (0, 8), # var_token -> VAR
+      (0, 10), # VAR -> "?x0"
       (1, 'influence.influencenode.influencedby'),
-      (0, 8),
-      (0, 11),
-      (0, 6),
-      (0, 7),
-      (0, 8),
-      (0, 11),
+      (0, 8), # var_token -> VAR
+      (0, 11), # VAR -> "?x1"
+      (0, 6), # where_entry -> triples_block
+      (0, 7), # triples_block -> var_token TOKEN var_token
+      (0, 8), # var_token -> VAR
+      (0, 11), # VAR -> "?x1"
       (1, 'film.actor.filmnsfilm.performance.character'),
-      (0, 9),
+      (0, 9), # var_token -> TOKEN
       (1, 'M1')
     ]
     self.assertEqual(generated_action_sequence, expected_action_sequence)
@@ -101,39 +101,39 @@ class AsgTest(parameterized.TestCase):
     grammar = Grammar(grammar_str)
     generated_action_sequence = generate_action_sequence(query, grammar)
     expected_action_sequence = [
-      (0, 0),
-      (0, 1),
-      (0, 3),
-      (0, 5),
-      (0, 5),
-      (0, 5),
-      (0, 4),
-      (0, 6),
-      (0, 9),
-      (0, 10),
-      (0, 12),
+      (0, 0), # query -> select_query
+      (0, 1), # select_query -> select_clause "WHERE" "{" where_clause "}"
+      (0, 3), # select_clause -> "SELECT" "count(*)"
+      (0, 5), # where_clause -> where_clause "." where_entry
+      (0, 5), # where_clause -> where_clause "." where_entry
+      (0, 5), # where_clause -> where_clause "." where_entry
+      (0, 4), # where_clause -> where_entry
+      (0, 6), # where_entry -> triples_block
+      (0, 9), # triples_block -> var_token TOKEN var_token
+      (0, 10), # var_token -> VAR
+      (0, 12), # VAR -> "?x0"
       (1, 'a'),
-      (0, 11),
+      (0, 11), # var_token -> TOKEN
       (1, 'film.editor'),
-      (0, 6),
-      (0, 9),
-      (0, 10),
-      (0, 12),
+      (0, 6), # where_entry -> triples_block
+      (0, 9), # triples_block -> var_token TOKEN var_token
+      (0, 10), # var_token -> VAR
+      (0, 12), # VAR -> "?x0"
       (1, 'influence.influence_node.influenced_by'),
-      (0, 10),
-      (0, 13),
-      (0, 6),
-      (0, 9),
-      (0, 10),
-      (0, 13),
+      (0, 10), # var_token -> VAR
+      (0, 13), # VAR -> "?x1"
+      (0, 6), # where_entry -> triples_block
+      (0, 9), # triples_block -> var_token TOKEN var_token
+      (0, 10), # var_token -> VAR
+      (0, 13), # VAR -> "?x1"
       (1, 'simplified_token'),
-      (0, 11),
+      (0, 11), # var_token -> TOKEN
       (1, 'M1'),
-      (0, 7),
-      (0, 8),
-      (0, 10),
-      (0, 13),
-      (0, 11),
+      (0, 7), # where_entry -> filter_clause
+      (0, 8), # filter_clause -> "FILTER" "(" var_token "!=" var_token ")"
+      (0, 10), # var_token -> VAR
+      (0, 13), # VAR -> "?x1"
+      (0, 11), # var_token -> TOKEN
       (1, 'M1')
     ]
     self.assertEqual(generated_action_sequence, expected_action_sequence)
