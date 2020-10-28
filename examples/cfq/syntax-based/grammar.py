@@ -155,6 +155,8 @@ class Grammar:
       rule_branch = RuleBranch(id=branch_id, body_str=body)
       self.branches.append(rule_branch)
       self.rules[head].append(branch_id)
+    first_rule = sub_rules[0]
+    self.grammar_entry = first_rule[0]
 
   def get_branch_id_by_head_and_index(self, head: str, index: int):
     """Returns the branch id given the head and index"""
@@ -169,7 +171,4 @@ if __name__ == "__main__":
     print(branch)
   print('\nRules')
   print(grammar.rules)
-  
-        
-
 
