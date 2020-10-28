@@ -19,7 +19,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from grammar import Grammar, GRAMMAR_STR
 from asg import generate_action_sequence
-from node import apply_sequence_of_actions, traverse_tree
+from node import apply_sequence_of_actions, extract_query
 
 class ActionSequenceTest(parameterized.TestCase):
 
@@ -38,7 +38,7 @@ class ActionSequenceTest(parameterized.TestCase):
     grammar = Grammar(GRAMMAR_STR)
     act_seq = generate_action_sequence(query, grammar)
     root = apply_sequence_of_actions(act_seq, grammar)
-    generated_query = traverse_tree(root)
+    generated_query = extract_query(root, grammar)
     no_extra_spaces_generated_query =  " ".join(generated_query.split())
     self.assertEqual(no_extra_spaces_query, no_extra_spaces_generated_query)
      
@@ -59,7 +59,7 @@ class ActionSequenceTest(parameterized.TestCase):
     grammar = Grammar(GRAMMAR_STR)
     act_seq = generate_action_sequence(query, grammar)
     root = apply_sequence_of_actions(act_seq, grammar)
-    generated_query = traverse_tree(root)
+    generated_query = extract_query(root, grammar)
     no_extra_spaces_generated_query =  " ".join(generated_query.split())
     self.assertEqual(no_extra_spaces_query, no_extra_spaces_generated_query)
 
