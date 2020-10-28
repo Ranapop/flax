@@ -34,8 +34,7 @@ class AsgTest(parameterized.TestCase):
       triples_block: var_token TOKEN var_token
       var_token: VAR
               | TOKEN 
-      VAR: "?x" DIGIT 
-      DIGIT: /\d+/
+      VAR: "?x0" | "?x1" | "?x2" | "?x3" | "?x4" | "?x5"
       TOKEN: /[^\s]+/
     """
     query = """SELECT DISTINCT ?x0 WHERE {
@@ -45,35 +44,34 @@ class AsgTest(parameterized.TestCase):
     grammar = Grammar(grammar_str)
     generated_action_sequence = generate_action_sequence(query, grammar)
     expected_action_sequence = [
-      (0, 'r0'),
-      (0, 'r1'),
-      (0, 'r6'),
-      (0, 'r13'),
-      (0, 'r13'),
-      (0, 'r12'),
-      (0, 'r17'),
-      (0, 'r18'),
-      (0, 'r21'),
-      (0, 'r24'),
-      (1, '0'),
+      (0, 0),
+      (0, 1),
+      (0, 2),
+      (0, 5),
+      (0, 5),
+      (0, 4),
+      (0, 6),
+      (0, 7),
+      (0, 8),
+      (0, 10),
       (1, 'a'),
-      (0, 'r22'),
+      (0, 9),
       (1, 'people.person'),
-      (0, 'r17'), (0, 'r18'),
-      (0, 'r21'), (0, 'r24'),
-      (1, '0'),
+      (0, 6),
+      (0, 7),
+      (0, 8),
+      (0, 10),
       (1, 'influence.influencenode.influencedby'),
-      (0, 'r21'),
-      (0, 'r24'),
-      (1, '1'),
-      (0, 'r17'),
-      (0, 'r18'),
-      (0, 'r21'),
-      (0, 'r24'),
-      (1, '1'),
+      (0, 8),
+      (0, 11),
+      (0, 6),
+      (0, 7),
+      (0, 8),
+      (0, 11),
       (1, 'film.actor.filmnsfilm.performance.character'),
-      (0, 'r22'),
-      (1, 'M1')]
+      (0, 9),
+      (1, 'M1')
+    ]
     self.assertEqual(generated_action_sequence, expected_action_sequence)
 
   def test_generate_action_sequence_filter(self):
@@ -90,8 +88,7 @@ class AsgTest(parameterized.TestCase):
       triples_block: var_token TOKEN var_token
       var_token: VAR
               | TOKEN 
-      VAR: "?x" DIGIT 
-      DIGIT: /\d+/
+      VAR: "?x0" | "?x1" | "?x2" | "?x3" | "?x4" | "?x5"
       TOKEN: /[^\s]+/
     """
     query = """SELECT count(*)  WHERE {
@@ -104,45 +101,41 @@ class AsgTest(parameterized.TestCase):
     grammar = Grammar(grammar_str)
     generated_action_sequence = generate_action_sequence(query, grammar)
     expected_action_sequence = [
-      (0, 'r0'),
-      (0, 'r1'),
-      (0, 'r7'),
-      (0, 'r13'),
-      (0, 'r13'),
-      (0, 'r13'),
-      (0, 'r12'),
-      (0, 'r17'),
-      (0, 'r26'),
-      (0, 'r29'),
-      (0, 'r32'),
-      (1, '0'),
+      (0, 0),
+      (0, 1),
+      (0, 3),
+      (0, 5),
+      (0, 5),
+      (0, 5),
+      (0, 4),
+      (0, 6),
+      (0, 9),
+      (0, 10),
+      (0, 12),
       (1, 'a'),
-      (0, 'r30'),
+      (0, 11),
       (1, 'film.editor'),
-      (0, 'r17'),
-      (0, 'r26'),
-      (0, 'r29'),
-      (0, 'r32'),
-      (1, '0'),
+      (0, 6),
+      (0, 9),
+      (0, 10),
+      (0, 12),
       (1, 'influence.influence_node.influenced_by'),
-      (0, 'r29'),
-      (0, 'r32'),
-      (1, '1'),
-      (0, 'r17'),
-      (0, 'r26'),
-      (0, 'r29'),
-      (0, 'r32'),
-      (1, '1'),
+      (0, 10),
+      (0, 13),
+      (0, 6),
+      (0, 9),
+      (0, 10),
+      (0, 13),
       (1, 'simplified_token'),
-      (0, 'r30'),
+      (0, 11),
       (1, 'M1'),
-      (0, 'r18'),
-      (0, 'r20'),
-      (0, 'r29'),
-      (0, 'r32'),
-      (1, '1'),
-      (0, 'r30'),
-      (1, 'M1')]
+      (0, 7),
+      (0, 8),
+      (0, 10),
+      (0, 13),
+      (0, 11),
+      (1, 'M1')
+    ]
     self.assertEqual(generated_action_sequence, expected_action_sequence)
 
 

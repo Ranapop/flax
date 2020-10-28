@@ -14,15 +14,15 @@
 
 # Lint as: python3
 import re
-from typing import Tuple
+from typing import Tuple, Union
 
-Action = Tuple[int, str]
+Action = Tuple[int, Union[str, int]]
 APPLY_RULE = 0
 GENERATE_TOKEN = 1
 
 
 def apply_rule_act(grammar, head, index):
-  return (APPLY_RULE, grammar.get_rule_name_by_head(head, index))
+  return (APPLY_RULE, grammar.get_branch_id_by_head_and_index(head, index))
 
 
 def generate_act(token):
@@ -69,7 +69,7 @@ def var_token_rule(substring, grammar):
     action_sequence = [apply_rule_act(grammar, 'var_token', 1),
                        generate_act(substring)]
   return action_sequence
-  
+
 
 def where_entry_rule(substring, grammar):
   """
