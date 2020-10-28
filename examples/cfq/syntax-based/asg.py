@@ -65,7 +65,7 @@ def var_token_rule(substring, grammar):
     action_sequence = [apply_rule_act(grammar, 'var_token', 0)]
     action_sequence += [apply_rule_act(grammar, 'VAR', int(digit))]
   else:
-    # TOKEN brancg
+    # TOKEN branch
     action_sequence = [apply_rule_act(grammar, 'var_token', 1),
                        generate_act(substring)]
   return action_sequence
