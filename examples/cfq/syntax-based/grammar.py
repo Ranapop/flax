@@ -133,7 +133,7 @@ class RuleBranch:
     return rule_terms
 
   def __eq__(self, other):
-    """Overrides the default implementation"""
+    """Overrides the default implementation."""
     return self.branch_id == other.branch_id and self.body == other.body
 
   def __repr__(self):
@@ -159,16 +159,7 @@ class Grammar:
     self.grammar_entry = first_rule[0]
 
   def get_branch_id_by_head_and_index(self, head: str, index: int):
-    """Returns the branch id given the head and index"""
+    """Returns the branch id given the head and index."""
     head_rules = self.rules[head]
     return head_rules[index]
-
-
-if __name__ == "__main__":
-  grammar = Grammar(GRAMMAR_STR)
-  print('Branches')
-  for branch in grammar.branches:
-    print(branch)
-  print('\nRules')
-  print(grammar.rules)
 

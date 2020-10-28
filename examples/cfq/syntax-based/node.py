@@ -69,6 +69,7 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
 def construct_root(grammar: Grammar):
   return Node(None, grammar.grammar_entry)
 
+
 def apply_sequence_of_actions(action_sequence: List, grammar: Grammar):
   """Applies a sequence of actions to construct a syntax tree."""
   root = construct_root(grammar)
