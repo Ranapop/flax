@@ -17,6 +17,7 @@
 import re
 import collections
 from typing import Dict, List
+from enum import Enum
 
 GRAMMAR_STR = """
   query: select_query
@@ -79,6 +80,11 @@ def extract_sub_rules(grammar_str: str):
     sub_rules += extract_sub_rules_from_rules(rule)
   return sub_rules
 
+class TermType(Enum):
+  SYNTAX_TERM = 0
+  REGEX_TERM = 1
+  RULE_TERM = 2
+
 class Term:
   """
   Class describing a term (token on the right side of a rule). It contains a
@@ -86,12 +92,8 @@ class Term:
   contains the string "SELECT", if the term is a regex term, it also contains a
   string, for eg. "/[^\s]+/", and if the term is a rule head, the head is stored.
   """
-  # TODO: enum
-  SYNTAX_TERM = 0
-  REGEX_TERM = 1
-  RULE_TERM = 2
 
-  def __init__(self, term_type: int, value: str):
+  def __init__(self, term_type: TermType, value: str):
     self.term_type = term_type
     self.value = value
 
@@ -117,16 +119,16 @@ class RuleBranch:
       if match:
         # Syntax token matched.
         syntax_token = match.groups()[0]
-        term = Term(Term.SYNTAX_TERM, syntax_token)
+        term = Term(TermType.SYNTAX_TERM, syntax_token)
       else:
         match = re.match(r'\/(.*)\/', body_token)
         if match:
           # Regex token matched.
           regex_token = match.groups()[0]
-          term = Term(Term.REGEX_TERM, regex_token)
+          term = Term(TermType.REGEX_TERM, regex_token)
         else:
           # Rule token => store rule head.
-          term = Term(Term.RULE_TERM, body_token)
+          term = Term(TermType.RULE_TERM, body_token)
       rule_terms.append(term)
     return rule_terms
 
