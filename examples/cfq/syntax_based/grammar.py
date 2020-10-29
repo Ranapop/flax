@@ -172,4 +172,3 @@ class Grammar:
     """Returns the branch id given the head and index."""
     head_rules = self.rules[head]
     return head_rules[index]
-
