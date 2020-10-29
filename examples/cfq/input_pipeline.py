@@ -262,14 +262,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
 
   def build_tokens_vocab(self, vocab_file, tokenizer, dataset, dummy):
     vocab = super().build_tokens_vocab(vocab_file, tokenizer, dataset, dummy)
-    # TODO: Take them from the grammar.
-    syntax_tokens_list = self.grammar.get_syntax_tokens()
-    print(syntax_tokens_list)
-    synatax_tokens = [b"WHERE", b"{", b"}",
-                      b"SELECT", b"DISTINCT", b"?x0",
-                      b"count(*)",
-                      b".",
-                      b"FILTER", b"(", b"!=", b")"]
+    syntax_tokens_list = self.grammar.collect_syntax_tokens()
     for syntax_token in syntax_tokens_list:
       byte_token = syntax_token.encode()
       del vocab[byte_token]

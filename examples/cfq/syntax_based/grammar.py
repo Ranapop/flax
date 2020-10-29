@@ -168,6 +168,14 @@ class Grammar:
     first_rule = sub_rules[0]
     self.grammar_entry = first_rule[0]
 
+  def collect_syntax_tokens(self):
+    syntax_tokens = set()
+    for branch in self.branches:
+       for term in branch.body:
+         if term.term_type == TermType.SYNTAX_TERM:
+           syntax_tokens.add(term.value)
+    return list(syntax_tokens)
+
   def get_branch_id_by_head_and_index(self, head: str, index: int):
     """Returns the branch id given the head and index."""
     head_rules = self.rules[head]
