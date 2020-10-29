@@ -40,25 +40,25 @@ class GrammarTest(parameterized.TestCase):
     """
     grammar = Grammar(grammar_str)
     expected_branches = [
-      RuleBranch(0,"select_query"),
-      RuleBranch(1,"select_clause \"WHERE\" \"{\" where_clause \"}\""),
-      RuleBranch(2,"\"SELECT\" \"DISTINCT\" \"?x0\""),
-      RuleBranch(3,"\"SELECT\" \"count(*)\""),
-      RuleBranch(4,"where_entry"),
-      RuleBranch(5,"where_clause \".\" where_entry"),
-      RuleBranch(6,"triples_block"),
-      RuleBranch(7,"filter_clause"),
-      RuleBranch(8,"\"FILTER\" \"(\" var_token \"!=\" var_token \")\""),
-      RuleBranch(9,"var_token TOKEN var_token"),
-      RuleBranch(10,"VAR"),
-      RuleBranch(11,"TOKEN"),
-      RuleBranch(12,"\"?x0\""),
-      RuleBranch(13,"\"?x1\""),
-      RuleBranch(14,"\"?x2\""),
-      RuleBranch(15,"\"?x3\""),
-      RuleBranch(16,"\"?x4\""),
-      RuleBranch(17,"\"?x5\""),
-      RuleBranch(18,"/[^\s]+/")
+      RuleBranch(0, 'select_query'),
+      RuleBranch(1, 'select_clause "WHERE" "{" where_clause "}"'),
+      RuleBranch(2, '"SELECT" "DISTINCT" "?x0"'),
+      RuleBranch(3, '"SELECT" "count(*)"'),
+      RuleBranch(4, 'where_entry'),
+      RuleBranch(5, 'where_clause "." where_entry'),
+      RuleBranch(6, 'triples_block'),
+      RuleBranch(7, 'filter_clause'),
+      RuleBranch(8, '"FILTER" "(" var_token "!=" var_token ")"'),
+      RuleBranch(9, 'var_token TOKEN var_token'),
+      RuleBranch(10, 'VAR'),
+      RuleBranch(11, 'TOKEN'),
+      RuleBranch(12, '"?x0"'),
+      RuleBranch(13, '"?x1"'),
+      RuleBranch(14, '"?x2"'),
+      RuleBranch(15, '"?x3"'),
+      RuleBranch(16, '"?x4"'),
+      RuleBranch(17, '"?x5"'),
+      RuleBranch(18, '/[^\s]+/')
     ]
     expected_rules = {
       'query': [0], 'select_query': [1], 'select_clause': [2, 3],
@@ -80,11 +80,11 @@ class GrammarTest(parameterized.TestCase):
     """
     grammar = Grammar(grammar_str)
     expected_branches = [
-      RuleBranch(0, "b"),
-      RuleBranch(1, "c"),
-      RuleBranch(2, "d"),
-      RuleBranch(3, "\"some_token\""),
-      RuleBranch(4, "\"some_other_token\""),
+      RuleBranch(0, 'b'),
+      RuleBranch(1, 'c'),
+      RuleBranch(2, 'd'),
+      RuleBranch(3, '"some_token"'),
+      RuleBranch(4, '"some_other_token"'),
     ]
     expected_rules = {
       'a': [0],
