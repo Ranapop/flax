@@ -17,20 +17,24 @@
 
 import re
 from typing import List
-from grammar import Grammar, GRAMMAR_STR
+from grammar import Grammar, GRAMMAR_STR, TermType
 from asg import generate_action_sequence
 from collections import deque
 from asg import Action, APPLY_RULE, GENERATE_TOKEN
-
 class Node:
 
   def __init__(self, parent: 'Node', value: str):
     self.parent = parent
     self.value = value
     self.children = []
+    # id of rule expanded at this node.
+    self.rule_id = None
 
   def add_child(self, child: 'Node'):
     self.children.append(child)
+
+  def set_rule_id(self, id: int):
+    self.rule_id = id
 
   def __repr__(self):
     return self.value
@@ -45,61 +49,58 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
     # Generate leaf node with token stored in the action.
     child = Node(current_node, action_value)
     current_node.add_child(child)
+    # A terminal node has only one branch. Set the id of that.
+    rule_id = grammar.get_branch_id_by_head_and_index(current_node.value, 0)
+    current_node.set_rule_id(rule_id)
   else:
+    current_node.set_rule_id(action_value)
     new_frontier_nodes = []
-    head, body = grammar.sub_rules[action_value]
-    if head != current_node.value:
-      raise Exception('Invalid action. Got {} and expected {}'.format(
-          head, current_node.value))
-    rule_tokens = body.split()
-    for rule_token in rule_tokens:
-      match = re.match(r'\"(.*)\"', rule_token)
-      if match:
-        # Create a leaf node with a token from the rule (e.g. SELECT).
-        node_value = match.groups()[0]
-        child = Node(current_node, node_value)
-      else:
-        # Create new frontier node.
-        child = Node(current_node, rule_token)
+    rule_branch = grammar.branches[action_value]
+    for term in rule_branch.body:
+      if term.term_type == TermType.RULE_TERM:
+        child = Node(current_node, term.value)
         new_frontier_nodes.append(child)
-      current_node.add_child(child)
+        current_node.add_child(child)
     new_frontier_nodes.reverse()
     frontier_nodes_stack.extend(new_frontier_nodes)
   return frontier_nodes_stack
 
 
-def apply_first_action(action: Action, grammar: Grammar):
-  """Applies the first action in the sequence of actions and constructs the
-  tree root."""
-  action_type, action_value = action
-  if action_type != APPLY_RULE:
-    raise Exception('First action should be rule application')
-  _, node_value = grammar.sub_rules[action_value]
-  root = Node(None, node_value)
-  return root
+def construct_root(grammar: Grammar):
+  return Node(None, grammar.grammar_entry)
 
 
 def apply_sequence_of_actions(action_sequence: List, grammar: Grammar):
   """Applies a sequence of actions to construct a syntax tree."""
-  root = apply_first_action(action_sequence[0], grammar)
+  root = construct_root(grammar)
   frontier_nodes = deque()
   frontier_nodes.append(root)
-  for action in action_sequence[1:]:
+  for action in action_sequence:
     frontier_nodes = apply_action(frontier_nodes, action, grammar)
   return root
 
 
-def traverse_tree(root: Node):
+def extract_query(root: Node, grammar: Grammar):
   """DFS traversal of tree. The result of the traversal should be the query. In
   case the parent node is a terminal, the descendents will be simply
   concatenated, e.g. VAR, otherwise the substrings are merged together by spaces.
+  When rule nodes are being visited, the grammar rule is traversed and the syntax
+  tokens are added, besides visiting the children nodes in the AST.
   """
-  if len(root.children) == 0:
+  if root.rule_id is None:
+    # leaf/token node
     return root.value
   children_substrings = []
-  for child in root.children:
-    child_substr = traverse_tree(child)
-    children_substrings.append(child_substr)
+  rule_branch = grammar.branches[root.rule_id]
+  child_idx = 0
+  for term in rule_branch.body:
+    if term.term_type == TermType.SYNTAX_TERM:
+      children_substrings.append(term.value)
+    else:
+      child_node = root.children[child_idx]
+      child_substr = extract_query(child_node, grammar)
+      children_substrings.append(child_substr)
+      child_idx += 1
   if root.value.isupper():
     delimiter = ''
   else:
@@ -115,5 +116,7 @@ if __name__ == "__main__":
   grammar = Grammar(GRAMMAR_STR)
   generated_action_sequence = generate_action_sequence(query, grammar)
   root = apply_sequence_of_actions(generated_action_sequence, grammar)
-  query = traverse_tree(root)
+  query = extract_query(root, grammar)
   print(query)
+
+

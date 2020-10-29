@@ -16,7 +16,8 @@
 """Module for grammar definition and parsing."""
 import re
 import collections
-from typing import Dict
+from typing import Dict, List
+from enum import Enum
 
 GRAMMAR_STR = """
   query: select_query
@@ -38,7 +39,7 @@ GRAMMAR_STR = """
 def remove_multiple_spaces(s: str):
   return ' '.join(s.strip().split())
 
-def generate_sub_rules(rule: str):
+def extract_sub_rules_from_rules(rule: str):
   sub_rules = []
   rule = remove_multiple_spaces(rule)
   match = re.match(r'(.*): (.*)', rule)
@@ -50,15 +51,17 @@ def generate_sub_rules(rule: str):
   return sub_rules
 
 
-def generate_grammar(grammar_str: str):
+def extract_sub_rules(grammar_str: str):
   """
-  Method for generating the grammar from a string.
+  Method for extracting the sub rules (head -> branch) from a grammar string.
   The current logic assumes that each rule branch is on a separate line.
-  This is valid:
-  a : b
-    | c
-  This is not:
-  a : b | c
+  For the following grammar:
+  a -> b | c
+  b -> d
+  c -> "C"
+  d -> "D"
+  it would generate a list of tuples (head,branch):
+  [('a','b'), ('a','c'), ('b', 'd'), ('c','"C"'), ('d','"D"')]
   """
   grammar_str = grammar_str.strip()
   split_lines = re.split('\n', grammar_str)
@@ -74,29 +77,99 @@ def generate_grammar(grammar_str: str):
     rules.append(current_rule)
   sub_rules = []
   for rule in rules:
-    sub_rules += generate_sub_rules(rule)
+    sub_rules += extract_sub_rules_from_rules(rule)
+  return sub_rules
 
-  sub_rules_dict = {f'r{i}': sub_rules[i] for i in range(len(sub_rules))}
-  return sub_rules_dict
+class TermType(Enum):
+  SYNTAX_TERM = 0
+  REGEX_TERM = 1
+  RULE_TERM = 2
 
-def generate_rules_by_head(sub_rules_dict: Dict):
-  result = collections.defaultdict(list)
-  for rule_name, (head, body) in sub_rules_dict.items():
-    result[head].append((rule_name, body))
-  return result
+class Term:
+  """
+  Class describing a term (token on the right side of a rule). It contains a
+  type and a value. If the term is a syntax token, eg. "SELECT", the value
+  contains the string "SELECT", if the term is a regex term, it also contains a
+  string, for eg. "/[^\s]+/", and if the term is a rule head in another rule,
+  the type is RULE_TERM and the token is stored in the value field of Term.
+  """
+
+  def __init__(self, term_type: TermType, value: str):
+    self.term_type = term_type
+    self.value = value
+
+  def __repr__(self):
+    return self.value
+
+  def __eq__(self, other):
+    """Overrides the default implementation."""
+    return self.term_type == other.term_type and self.value == other.value
+
+class RuleBranch:
+  """Class describing a branch of a rule. For example, for the rule
+   a -> b c "smth" | d e, there are two branches, 'b c "smth"' and 'd e'. Each
+   branch can be interpreted as having the body formed of a list of terms, in
+   this example [b, c, "smth"] and [d, e] respectively."""
+
+  def __init__(self, id: int, body_str: str):
+    """
+    Args:
+      id: the rule id (index in the list of rule branches of the grammar).
+      body_str: the branch body (eg. 'b c "smth"', will be tokenized and
+                transformed in a list of Term instances in this constructor).
+    """
+    self.branch_id = id
+    self.body = RuleBranch.construct_from_string(body_str)
+
+  @staticmethod
+  def construct_from_string(body: str):
+    rule_terms = []
+    body_tokens = body.split()
+    for body_token in body_tokens:
+      match = re.match(r'\"(.*)\"', body_token)
+      if match:
+        # Syntax token matched.
+        syntax_token = match.groups()[0]
+        term = Term(TermType.SYNTAX_TERM, syntax_token)
+      else:
+        match = re.match(r'\/(.*)\/', body_token)
+        if match:
+          # Regex token matched.
+          regex_token = match.groups()[0]
+          term = Term(TermType.REGEX_TERM, regex_token)
+        else:
+          # Rule token => store body token.
+          term = Term(TermType.RULE_TERM, body_token)
+      rule_terms.append(term)
+    return rule_terms
+
+  def __eq__(self, other):
+    """Overrides the default implementation."""
+    return self.branch_id == other.branch_id and self.body == other.body
+
+  def __repr__(self):
+    string_terms = [str(term) for term in self.body]
+    string_body = ' '.join(string_terms)
+    return string_body
 
 class Grammar:
 
   def __init__(self, grammar_str: str):
-    self.sub_rules = generate_grammar(grammar_str)
-    self.rules_by_head = generate_rules_by_head(self.sub_rules)
+    sub_rules = extract_sub_rules(grammar_str)
+    self.branches = []
+    self.rules = collections.defaultdict(list)
+    for branch_id in range(len(sub_rules)):
+      sub_rule = sub_rules[branch_id]
+      head = sub_rule[0]
+      body = sub_rule[1]
+      rule_branch = RuleBranch(id=branch_id, body_str=body)
+      self.branches.append(rule_branch)
+      self.rules[head].append(branch_id)
+    first_rule = sub_rules[0]
+    self.grammar_entry = first_rule[0]
 
-  def get_rule_by_head(self, head: str, index: int):
-    """Returns a tuple of (rule_name, rule_body) given the head, for e.g.
-    (r0, select_query)"""
-    head_rules = self.rules_by_head[head]
+  def get_branch_id_by_head_and_index(self, head: str, index: int):
+    """Returns the branch id given the head and index."""
+    head_rules = self.rules[head]
     return head_rules[index]
 
-  def get_rule_name_by_head(self, head: str, index: int):
-    "Returns the name of the rule (eg. r0) for the given head and index."
-    return self.get_rule_by_head(head, index)[0]
