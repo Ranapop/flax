@@ -17,10 +17,9 @@
 
 import re
 from typing import List
-from grammar import Grammar, GRAMMAR_STR, TermType
-from asg import generate_action_sequence
+from .grammar import Grammar, GRAMMAR_STR, TermType
+from .asg import generate_action_sequence, Action, APPLY_RULE, GENERATE_TOKEN
 from collections import deque
-from asg import Action, APPLY_RULE, GENERATE_TOKEN
 class Node:
 
   def __init__(self, parent: 'Node', value: str):
@@ -108,6 +107,18 @@ def extract_query(root: Node, grammar: Grammar):
   return delimiter.join(children_substrings)
 
 
+def get_parent_time_steps(root: Node,
+                          current_step: int = 0, parent_step: int = -1):
+  parent_time_steps = [parent_step]
+  parent_step = current_step
+  current_step += 1
+  for child in root.children:
+    child_parent_times = get_parent_time_steps(child, current_step, parent_step)
+    current_step += len(child_parent_times)
+    parent_time_steps += child_parent_times
+  return parent_time_steps
+
+
 if __name__ == "__main__":
   query = """SELECT DISTINCT ?x0 WHERE {
       ?x0 a people.person .
@@ -115,8 +126,11 @@ if __name__ == "__main__":
       ?x1 film.actor.filmnsfilm.performance.character M1 }"""
   grammar = Grammar(GRAMMAR_STR)
   generated_action_sequence = generate_action_sequence(query, grammar)
+  print(generated_action_sequence)
   root = apply_sequence_of_actions(generated_action_sequence, grammar)
-  query = extract_query(root, grammar)
-  print(query)
+  parent_time_steps = get_parent_time_steps(root)
+  print(parent_time_steps)
+  # query = extract_query(root, grammar)
+  # print(query)
 
 
