@@ -49,7 +49,7 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
     # Generate leaf node with token stored in the action.
     child = Node(current_node, action_value)
     current_node.add_child(child)
-    # A terminal node has only one branh. Set the id of that.
+    # A terminal node has only one branch. Set the id of that.
     rule_id = grammar.get_branch_id_by_head_and_index(current_node.value, 0)
     current_node.set_rule_id(rule_id)
   else:

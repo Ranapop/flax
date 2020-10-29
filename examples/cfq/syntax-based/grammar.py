@@ -61,7 +61,7 @@ def extract_sub_rules(grammar_str: str):
   c -> "C"
   d -> "D"
   it would generate a list of tuples (head,branch):
-  [('a','b'), ('a','c'), ('c','"C"'), ('d','"D"')]
+  [('a','b'), ('a','c'), ('b', 'd'), ('c','"C"'), ('d','"D"')]
   """
   grammar_str = grammar_str.strip()
   split_lines = re.split('\n', grammar_str)
@@ -90,7 +90,8 @@ class Term:
   Class describing a term (token on the right side of a rule). It contains a
   type and a value. If the term is a syntax token, eg. "SELECT", the value
   contains the string "SELECT", if the term is a regex term, it also contains a
-  string, for eg. "/[^\s]+/", and if the term is a rule head, the head is stored.
+  string, for eg. "/[^\s]+/", and if the term is a rule head in another rule,
+  the type is RULE_TERM and the token is stored in the value field of Term.
   """
 
   def __init__(self, term_type: TermType, value: str):
@@ -101,12 +102,22 @@ class Term:
     return self.value
 
   def __eq__(self, other):
-    """Overrides the default implementation"""
+    """Overrides the default implementation."""
     return self.term_type == other.term_type and self.value == other.value
 
 class RuleBranch:
+  """Class describing a branch of a rule. For example, for the rule
+   a -> b c "smth" | d e, there are two branches, 'b c "smth"' and 'd e'. Each
+   branch can be interpreted as having the body formed of a list of terms, in
+   this example [b, c, "smth"] and [d, e] respectively."""
 
   def __init__(self, id: int, body_str: str):
+    """
+    Args:
+      id: the rule id (index in the list of rule branches of the grammar).
+      body_str: the branch body (eg. 'b c "smth"', will be tokenized and
+                transformed in a list of Term instances in this constructor).
+    """
     self.branch_id = id
     self.body = RuleBranch.construct_from_string(body_str)
 
@@ -127,7 +138,7 @@ class RuleBranch:
           regex_token = match.groups()[0]
           term = Term(TermType.REGEX_TERM, regex_token)
         else:
-          # Rule token => store rule head.
+          # Rule token => store body token.
           term = Term(TermType.RULE_TERM, body_token)
       rule_terms.append(term)
     return rule_terms
@@ -147,9 +158,8 @@ class Grammar:
     sub_rules = extract_sub_rules(grammar_str)
     self.branches = []
     self.rules = collections.defaultdict(list)
-    for i in range(len(sub_rules)):
-      branch_id = i
-      sub_rule = sub_rules[i]
+    for branch_id in range(len(sub_rules)):
+      sub_rule = sub_rules[branch_id]
       head = sub_rule[0]
       body = sub_rule[1]
       rule_branch = RuleBranch(id=branch_id, body_str=body)
