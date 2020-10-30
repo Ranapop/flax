@@ -14,7 +14,7 @@
 """CFQ input pipeline."""
 
 # pylint: disable=too-many-arguments,import-error,too-many-instance-attributes,too-many-locals
-from typing import Dict, Text, List
+from typing import Dict, Text, List, Tuple
 
 from absl import logging
 import tensorflow.compat.v2 as tf
@@ -26,6 +26,8 @@ import numpy as np
 import input_pipeline_utils as inp_utils
 import preprocessing
 import constants
+from constants import QUESTION_KEY, QUESTION_LEN_KEY, QUERY_KEY, QUERY_LEN_KEY,\
+  ACTION_TYPES_KEY, ACTION_VALUES_KEY, PARENT_STEPS_KEY, ACTION_SEQ_LEN_KEY
 import syntax_based.grammar as gr
 import syntax_based.node as node
 import syntax_based.asg as asg
@@ -215,27 +217,24 @@ class Seq2SeqCfqDataSource(CFQDataSource):
 
   def get_specific_padded_shapes(self, output_pad):
     return {
-        constants.QUESTION_KEY: [None],
-        constants.QUERY_KEY: [output_pad],
-        constants.QUESTION_LEN_KEY: [],
-        constants.QUERY_LEN_KEY: []
+        QUESTION_KEY: [None],
+        QUERY_KEY: [output_pad],
+        QUESTION_LEN_KEY: [],
+        QUERY_LEN_KEY: []
     }
   
   def construct_new_fields(self, example: ExampleType) -> ExampleType:
     """Takes as input an example with QUESTION_KEY and QUERY_KEY and constructs
     new fields from that information."""
-    example[constants.QUESTION_KEY] = self.prepare_sequence(
-        example[constants.QUESTION_KEY])
-    example[constants.QUERY_KEY] = self.prepare_sequence(
-        example[constants.QUERY_KEY])
-    example[constants.QUESTION_LEN_KEY] = tf.size(
-        example[constants.QUESTION_KEY])
-    example[constants.QUERY_LEN_KEY] = tf.size(example[constants.QUERY_KEY])
+    example[QUESTION_KEY] = self.prepare_sequence(example[QUESTION_KEY])
+    example[QUERY_KEY] = self.prepare_sequence(example[QUERY_KEY])
+    example[QUESTION_LEN_KEY] = tf.size(example[QUESTION_KEY])
+    example[QUERY_LEN_KEY] = tf.size(example[QUERY_KEY])
     return example
 
   def get_output_length(self, example: ExampleType) -> tf.Tensor:
     """Function that takes a dataset entry and returns the query length"""
-    return example[constants.QUERY_LEN_KEY]
+    return example[QUERY_LEN_KEY]
 
   def indices_to_sequence_string(self,
                                  indices: jnp.ndarray,
@@ -263,6 +262,9 @@ class Seq2TreeCfqDataSource(CFQDataSource):
                      cfq_split)
 
   def build_tokens_vocab(self, vocab_file, tokenizer, dataset, dummy):
+    """Build tokens vocabulary by extracting the tokens from the questions and
+    queries in the dataset, then removing the syntax tokens.
+    """
     vocab = super().build_tokens_vocab(vocab_file, tokenizer, dataset, dummy)
     syntax_tokens_list = self.grammar.collect_syntax_tokens()
     for syntax_token in syntax_tokens_list:
@@ -272,6 +274,9 @@ class Seq2TreeCfqDataSource(CFQDataSource):
 
 
   def extract_data_from_act_seq(self, action_sequence: List[asg.Action]):
+    """Extract from the sequence of actions a sequence of action types (at each
+    position 0 for ApplyRule and 1 for GenerateRule), and a sequence of action
+    values (at each position either rule branch id or token id)."""
     action_types = []
     action_values = []
     for action in action_sequence:
@@ -283,41 +288,47 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     return (action_types, action_values)
 
 
-  def construct_output_fields(self, query: str):
+  def construct_output_fields(self,query: str
+                             ) -> Tuple[List[int],List[int],List[int]]:
+    """ Construct the output fields (action types, action values and parent
+    steps) from the query.
+    """
     query = query.numpy()
     query = query.decode()
-    action_sequence = asg.generate_action_sequence(query, self.grammar)
-    root = node.apply_sequence_of_actions(action_sequence, self.grammar)
+    act_sequence = asg.generate_action_sequence(query, self.grammar)
+    root = node.apply_sequence_of_actions(act_sequence, self.grammar)
     parent_time_steps = node.get_parent_time_steps(root)
-    action_types, action_values = self.extract_data_from_act_seq(action_sequence)
+    action_types, action_values = self.extract_data_from_act_seq(act_sequence)
     return (action_types, action_values, parent_time_steps)
 
   def construct_new_fields(self, example: ExampleType) -> ExampleType:
-    """Dummy implementation."""
+    """Populate the example with the 'question', 'question_len', 'action_types',
+    'action_values', 'parent_steps' and 'action_seq_len' fields."""
     new_example = {}
-    new_example['question'] = self.prepare_sequence(example['question'])
-    new_example[constants.QUESTION_LEN_KEY] = tf.size(
-        new_example[constants.QUESTION_KEY])
+    new_example[QUESTION_KEY] = self.prepare_sequence(example[QUESTION_KEY])
+    new_example[QUESTION_LEN_KEY] = tf.size(new_example[QUESTION_KEY])
     output_fields = tf.py_function(self.construct_output_fields,
-                                   [example['query']],
+                                   [example[QUERY_KEY]],
                                    Tout=(tf.int64, tf.int64, tf.int64))
-    new_example['action_types'], new_example['action_values'], new_example['parent_steps'] = output_fields
-    new_example['action_seq_length'] = tf.size(new_example['action_types'])
+    new_example[ACTION_TYPES_KEY],\
+      new_example[ACTION_VALUES_KEY],\
+      new_example[PARENT_STEPS_KEY] = output_fields
+    new_example[ACTION_SEQ_LEN_KEY] = tf.size(new_example[ACTION_TYPES_KEY])
     return new_example
 
   def get_output_length(self, example: ExampleType) -> tf.Tensor:
-    """Dummy implementation."""
-    return example['action_seq_length']
+    """Get output length (action sequence length)."""
+    return example[ACTION_SEQ_LEN_KEY]
 
   def get_specific_padded_shapes(self, output_pad):
-    """Dummy implementation."""
+    """Get padding shapes for processed data (will be used in batching)."""
     return {
-        'question': [None],
-        'question_len': [],
-        'action_types': [output_pad],
-        'action_values': [output_pad],
-        'parent_steps': [output_pad],
-        'action_seq_length': []
+        QUESTION_KEY: [None],
+        QUESTION_LEN_KEY: [],
+        ACTION_TYPES_KEY: [output_pad],
+        ACTION_VALUES_KEY: [output_pad],
+        PARENT_STEPS_KEY: [output_pad],
+        ACTION_SEQ_LEN_KEY: []
     }
 
 
