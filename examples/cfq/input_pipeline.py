@@ -14,7 +14,7 @@
 """CFQ input pipeline."""
 
 # pylint: disable=too-many-arguments,import-error,too-many-instance-attributes,too-many-locals
-from typing import Dict, Text
+from typing import Dict, Text, List
 
 from absl import logging
 import tensorflow.compat.v2 as tf
@@ -27,6 +27,8 @@ import input_pipeline_utils as inp_utils
 import preprocessing
 import constants
 import syntax_based.grammar as gr
+import syntax_based.node as node
+import syntax_based.asg as asg
 
 ExampleType = Dict[Text, tf.Tensor]
 
@@ -268,14 +270,64 @@ class Seq2TreeCfqDataSource(CFQDataSource):
       del vocab[byte_token]
     return vocab
 
+
+  def extract_data_from_act_seq(self, action_sequence: List[asg.Action]):
+    action_types = []
+    action_values = []
+    for action in action_sequence:
+      action_type, action_value = action
+      action_types.append(action_type)
+      if action_type == asg.GENERATE_TOKEN:
+        action_value = self.tokens_vocab[action_value.encode()]
+      action_values.append(action_value)
+    return (action_types, action_values)
+
+
+  def construct_output_fields(self, query: str):
+    query = query.numpy()
+    query = query.decode()
+    action_sequence = asg.generate_action_sequence(query, self.grammar)
+    root = node.apply_sequence_of_actions(action_sequence, self.grammar)
+    parent_time_steps = node.get_parent_time_steps(root)
+    action_types, action_values = self.extract_data_from_act_seq(action_sequence)
+    return (action_types, action_values, parent_time_steps)
+
   def construct_new_fields(self, example: ExampleType) -> ExampleType:
     """Dummy implementation."""
-    return example
+    new_example = {}
+    new_example['question'] = self.prepare_sequence(example['question'])
+    new_example[constants.QUESTION_LEN_KEY] = tf.size(
+        new_example[constants.QUESTION_KEY])
+    output_fields = tf.py_function(self.construct_output_fields,
+                                   [example['query']],
+                                   Tout=(tf.int64, tf.int64, tf.int64))
+    new_example['action_types'], new_example['action_values'], new_example['parent_steps'] = output_fields
+    new_example['action_seq_length'] = tf.size(new_example['action_types'])
+    return new_example
+
+  def get_output_length(self, example: ExampleType) -> tf.Tensor:
+    """Dummy implementation."""
+    return example['action_seq_length']
+
+  def get_specific_padded_shapes(self, output_pad):
+    """Dummy implementation."""
+    return {
+        'question': [None],
+        'question_len': [],
+        'action_types': [output_pad],
+        'action_values': [output_pad],
+        'parent_steps': [output_pad],
+        'action_seq_length': []
+    }
 
 
 if __name__ == '__main__':
   #TODO: remove this and add tests
   data_source = Seq2TreeCfqDataSource(seed=13467, fixed_output_len=True)
+  train_batches = data_source.get_batches('train',
+                                          batch_size=5,
+                                          drop_remainder=False,
+                                          shuffle=True)
 
 
   # data_source = Seq2SeqCfqDataSource(seed=13467, fixed_output_len=True)
