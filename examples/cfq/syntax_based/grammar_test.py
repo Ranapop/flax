@@ -16,7 +16,7 @@
 """Module with unit tests for grammar.py"""
 from absl.testing import absltest
 from absl.testing import parameterized
-from grammar import Grammar, RuleBranch, Term
+from grammar import Grammar, RuleBranch, Term, TermType
 
 
 class GrammarTest(parameterized.TestCase):
@@ -94,6 +94,11 @@ class GrammarTest(parameterized.TestCase):
     }
     self.assertEqual(grammar.branches, expected_branches)
     self.assertEqual(grammar.rules, expected_rules)
+
+  def test_regex_rule_branch(self):
+    rule_branch = RuleBranch(0, '/[^\s]+/')
+    term = rule_branch.body[0]
+    self.assertEqual(term.term_type, TermType.REGEX_TERM)
 
 
 if __name__ == '__main__':
