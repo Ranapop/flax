@@ -24,6 +24,7 @@ from jax.config import config
 
 import input_pipeline as inp
 import train
+import train_syntax_based
 
 # stage out as much as possible to XLA, not only computations depending
 # on arguments, see https://github.com/google/jax/pull/3370
@@ -86,32 +87,48 @@ flags.DEFINE_string('cfq_split',
                     default='random_split',
                     help=('Cfq split (random_split, mcd1 etc.).'))
 
+flags.DEFINE_boolean(
+  'syntax_based',
+  default=False,
+  help=('Train the syntax based model instead of the baseline.'))
+
 def main(_):
   """Load the cfq data and train the model"""
-  # prepare data source
-  data_source = inp.CFQDataSource(
+
+  if FLAGS.syntax_based:
+    train_fn = train_syntax_based.train_model
+    test_fn = train_syntax_based.test_model
+    data_source = inp.Seq2SeqCfqDataSource(
+      seed=FLAGS.seed,
+      fixed_output_len=False,
+      cfq_split=FLAGS.cfq_split,
+      replace_with_dummy=FLAGS.dummy_data)
+  else:
+    train_fn = train.train_model
+    test_fn = train.test_model
+    data_source = inp.Seq2SeqCfqDataSource(
       seed=FLAGS.seed,
       fixed_output_len=False,
       cfq_split=FLAGS.cfq_split,
       replace_with_dummy=FLAGS.dummy_data)
 
   if FLAGS.only_run_test:
-    train.test_model(model_dir=FLAGS.model_dir,
-                     data_source=data_source,
-                     max_out_len=FLAGS.max_query_length,
-                     seed=FLAGS.seed,
-                     batch_size=FLAGS.batch_size)
+    test_fn(model_dir=FLAGS.model_dir,
+            data_source=data_source,
+            max_out_len=FLAGS.max_query_length,
+            seed=FLAGS.seed,
+            batch_size=FLAGS.batch_size)
   else:
     # train model
-    trained_model = train.train_model(learning_rate=FLAGS.learning_rate,
-                                      num_train_steps=FLAGS.num_train_steps,
-                                      max_out_len=FLAGS.max_query_length,
-                                      seed=FLAGS.seed,
-                                      data_source=data_source,
-                                      batch_size=FLAGS.batch_size,
-                                      bucketing=FLAGS.use_bucketing,
-                                      model_dir=FLAGS.model_dir,
-                                      eval_freq=FLAGS.eval_frequency)
+    trained_model = train_fn(learning_rate=FLAGS.learning_rate,
+                             num_train_steps=FLAGS.num_train_steps,
+                             max_out_len=FLAGS.max_query_length,
+                             seed=FLAGS.seed,
+                             data_source=data_source,
+                             batch_size=FLAGS.batch_size,
+                             bucketing=FLAGS.use_bucketing,
+                             model_dir=FLAGS.model_dir,
+                             eval_freq=FLAGS.eval_frequency)
 
 
 if __name__ == '__main__':
