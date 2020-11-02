@@ -17,9 +17,10 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from grammar import Grammar, GRAMMAR_STR
-from asg import generate_action_sequence
-from node import apply_sequence_of_actions, extract_query
+import context
+from syntax_based.grammar import Grammar, GRAMMAR_STR
+from syntax_based.asg import generate_action_sequence
+from syntax_based.node import apply_sequence_of_actions, extract_query
 
 class ActionSequenceTest(parameterized.TestCase):
 
