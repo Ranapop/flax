@@ -67,6 +67,7 @@ def var_token_rule(substring, grammar):
   else:
     # TOKEN branch
     action_sequence = [apply_rule_act(grammar, 'var_token', 1),
+                       apply_rule_act(grammar, 'TOKEN', 0),
                        generate_act(substring)]
   return action_sequence
 
@@ -99,7 +100,8 @@ def where_entry_rule(substring, grammar):
     if len(terms) != 3:
       raise Exception('triples_block rule not matched', substring)
     action_sequence += var_token_rule(terms[0], grammar)
-    action_sequence.append(generate_act(terms[1]))
+    action_sequence += [apply_rule_act(grammar, 'TOKEN', 0),
+                       generate_act(terms[1])]
     action_sequence += var_token_rule(terms[2], grammar)
   return action_sequence
 

@@ -180,3 +180,22 @@ class Grammar:
     """Returns the branch id given the head and index."""
     head_rules = self.rules[head]
     return head_rules[index]
+
+  def get_head_for_branch(self, branch_id):
+    """Returns head for branch. Not optimal, but should only be needed for
+    debugging purposes."""
+    for head, branches in self.rules.items():
+      for branch in branches:
+        if branch == branch_id:
+          return head
+    return None
+
+  def print_grammar(self):
+    for head, branch_ids in self.rules.items():
+      for branch_id in branch_ids:
+        right_side = ''
+        branch = self.branches[branch_id]
+        for term in branch.body:
+          term_str = ' (' + term.value + ', ' + str(term.term_type) + ') '
+          right_side += term_str
+        print(head, ' -> ',term_str)
