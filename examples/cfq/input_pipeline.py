@@ -36,9 +36,9 @@ ExampleType = Dict[Text, tf.Tensor]
 
 
 class CFQDataSource:
-  """Provides base functionality for the CFQ dataset (extracting the vocabulary,
-  questiona and query preprocessing, batching). Some of the more speciffic
-  functionlaity is left to the class extending this one."""
+  """Provides the base functionality for the CFQ dataset (extracting the
+  vocabulary, questions and queries preprocessing, batching). Some of the more
+  speciffic functionality is left to the class extending this one."""
 
   # pylint: disable=too-few-public-methods
 
@@ -94,13 +94,18 @@ class CFQDataSource:
     }
 
   def build_tokens_vocab(self, vocab_file, tokenizer, dataset, dummy):
+    """Build the tokens (input and output) vocabulary."""
     return inp_utils.build_vocabulary(
         file_name=vocab_file,
-        input_features={constants.QUESTION_KEY, constants.QUERY_KEY},
+        input_features={QUESTION_KEY, QUERY_KEY},
         tokenizer=tokenizer,
         datasets=(dataset,),
         preprocessing_fun=preprocessing.preprocess_example,
         force_generation=dummy)
+
+  def get_specific_padded_shapes(self, output_pad):
+    """Get padding shapes for processed data (will be used in batching)."""
+    raise NotImplementedError()
 
   def get_padded_shapes(self, output_len):
     """The padded shapes used by batching functions."""
@@ -115,13 +120,15 @@ class CFQDataSource:
 
   def prepare_sequence(self, sequence: Text):
     """Prepares a sequence(question or query) by tokenizing it, transforming
-        it to a list of vocabulary indices, and adding the BOS and EOS tokens"""
+    it to a list of vocabulary indices, and adding the BOS and EOS tokens."""
     tokenized_seq = self.tokenizer.tokenize(sequence)
     indices = self.tf_tokens_vocab.lookup(tokenized_seq)
     wrapped_seq = self.add_bos_eos(indices)
     return tf.cast(wrapped_seq, tf.uint8)
 
   def construct_new_fields(self, example: ExampleType) -> ExampleType:
+    """Construct new fields (process the question and query to obtain new
+    fields for each dataset entry)."""
     raise NotImplementedError()
 
   def prepare_example(self, example: ExampleType) -> ExampleType:
@@ -136,12 +143,12 @@ class CFQDataSource:
 
   def get_example_length(self, example: ExampleType) -> tf.Tensor:
     """Returns the length of the example for the purpose of the bucketing
-        If the output should be of fixed length (self.fixed_output_len=True),
-        then the length of the example is given by the the input (question)
-        length, otherwise the example length is the maximum length of the 2
-        sequences (input and output)
-        """
-    input_len = example[constants.QUESTION_LEN_KEY]
+    If the output should be of fixed length (self.fixed_output_len=True),
+    then the length of the example is given by the the input (question)
+    length, otherwise the example length is the maximum length of the 2
+    sequences (input and output)
+    """
+    input_len = example[QUESTION_LEN_KEY]
     output_len = self.get_output_length(example)
     example_len = 0
     if self.fixed_output_len:
@@ -199,6 +206,7 @@ class CFQDataSource:
         shuffle=shuffle,
         drop_remainder=drop_remainder)
 
+
 class Seq2SeqCfqDataSource(CFQDataSource):
   """Provides the cfq data for a seq2seq model (tokenized input and output
   sequences with their lengths)."""
@@ -216,6 +224,7 @@ class Seq2SeqCfqDataSource(CFQDataSource):
                      replace_with_dummy)
 
   def get_specific_padded_shapes(self, output_pad):
+    """Get padding shapes for processed data (will be used in batching)."""
     return {
         QUESTION_KEY: [None],
         QUERY_KEY: [output_pad],
@@ -240,11 +249,12 @@ class Seq2SeqCfqDataSource(CFQDataSource):
                                  indices: jnp.ndarray,
                                  keep_padding: bool = False) -> Text:
     """Transforms a list of vocab indices into a string
-        (e.g. from token indices to question/query). When keep_padding is False,
-        the padding tokens are filtered out (zero-valued indices)."""
+    (e.g. from token indices to question/query). When keep_padding is False,
+    the padding tokens are filtered out (zero-valued indices)."""
     tokens = [self.i2w[i].decode() for i in indices if keep_padding or i!=0]
     str_seq = ' '.join(tokens)
     return str_seq
+
 
 class Seq2TreeCfqDataSource(CFQDataSource):
   """Provides the cfq data for a seq2tree model."""
@@ -254,12 +264,14 @@ class Seq2TreeCfqDataSource(CFQDataSource):
                fixed_output_len: bool,
                tokenizer: text.Tokenizer = text.WhitespaceTokenizer(),
                cfq_split: Text = 'mcd1',
-               grammar: gr.Grammar = gr.Grammar(gr.GRAMMAR_STR)):
+               grammar: gr.Grammar = gr.Grammar(gr.GRAMMAR_STR),
+               load_data: bool = True):
     self.grammar = grammar
-    super().__init__(seed,
-                     fixed_output_len,
-                     tokenizer,
-                     cfq_split)
+    if load_data:
+      super().__init__(seed,
+                       fixed_output_len,
+                       tokenizer,
+                       cfq_split)
 
   def build_tokens_vocab(self, vocab_file, tokenizer, dataset, dummy):
     """Build tokens vocabulary by extracting the tokens from the questions and
@@ -271,7 +283,6 @@ class Seq2TreeCfqDataSource(CFQDataSource):
       byte_token = syntax_token.encode()
       del vocab[byte_token]
     return vocab
-
 
   def extract_data_from_act_seq(self, action_sequence: List[asg.Action]):
     """Extract from the sequence of actions a sequence of action types (at each
@@ -287,8 +298,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
       action_values.append(action_value)
     return (action_types, action_values)
 
-
-  def construct_output_fields(self,query: str
+  def construct_output_fields(self, query: str
                              ) -> Tuple[List[int],List[int],List[int]]:
     """ Construct the output fields (action types, action values and parent
     steps) from the query.
@@ -297,9 +307,13 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     query = query.decode()
     act_sequence = asg.generate_action_sequence(query, self.grammar)
     root = node.apply_sequence_of_actions(act_sequence, self.grammar)
-    parent_time_steps = node.get_parent_time_steps(root)
+    parent_steps = node.get_parent_time_steps(root)
     action_types, action_values = self.extract_data_from_act_seq(act_sequence)
-    return (action_types, action_values, parent_time_steps)
+    if len(action_types) != len(parent_steps):
+      raise Exception(
+              'action types and parent time steps should be of the same length,\
+              got {0} and {1}'.format(len(action_types), len(parent_steps)))
+    return (action_types, action_values, parent_steps)
 
   def construct_new_fields(self, example: ExampleType) -> ExampleType:
     """Populate the example with the 'question', 'question_len', 'action_types',
@@ -340,22 +354,15 @@ if __name__ == '__main__':
                                           drop_remainder=False,
                                           shuffle=True)
 
-
-  # data_source = Seq2SeqCfqDataSource(seed=13467, fixed_output_len=True)
-  # train_batches = data_source.get_batches('train',
-  #                                         batch_size=5,
-  #                                         drop_remainder=False,
-  #                                         shuffle=True)
-
-  # # Print queries
-  # batch_no = 1
-  # for batch in tfds.as_numpy(train_batches):
-  #   queries = batch[constants.QUERY_KEY]
-  #   print('Batch no ',batch_no)
-  #   for query in queries:
-  #     print(data_source.indices_to_sequence_string(query))
-  #   print()
-  #   if batch_no == 30:
-  #     break
-  #   batch_no+=1
+  # Print queries
+  batch_no = 1
+  for batch in tfds.as_numpy(train_batches):
+    action_values_batch = batch[constants.ACTION_VALUES_KEY]
+    print('Batch no ',batch_no)
+    for action_values in action_values_batch:
+      print(action_values)
+    print()
+    if batch_no == 2:
+      break
+    batch_no+=1
     
