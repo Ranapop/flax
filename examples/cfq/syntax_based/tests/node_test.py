@@ -13,11 +13,13 @@
 # limitations under the License.
 
 # Lint as: python3
-"""Module with unit tests for node.py"""
+"""Module with unit tests for node.py
+Should be run from cfq with:
+python -m syntax_based.tests.node_test
+"""
 from absl.testing import absltest
 from absl.testing import parameterized
-import context
-from syntax_based.node import Node, get_parent_time_steps
+from ..node import Node, get_parent_time_steps
 
 def add_child_to_parent(parent: Node, child: Node):
     child.parent = parent
