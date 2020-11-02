@@ -16,7 +16,8 @@
 """Module with unit tests for node.py"""
 from absl.testing import absltest
 from absl.testing import parameterized
-from node import Node, get_parent_time_steps
+import context
+from syntax_based.node import Node, get_parent_time_steps
 
 def add_child_to_parent(parent: Node, child: Node):
     child.parent = parent

@@ -16,7 +16,8 @@
 """Module with unit tests for grammar.py"""
 from absl.testing import absltest
 from absl.testing import parameterized
-from grammar import Grammar, RuleBranch, Term, TermType
+import context
+from syntax_based.grammar import Grammar, RuleBranch, Term, TermType
 
 
 class GrammarTest(parameterized.TestCase):

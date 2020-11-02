@@ -16,8 +16,9 @@
 """Module for unit tests for asg.py."""
 from absl.testing import absltest
 from absl.testing import parameterized
-from asg import apply_rule_act, generate_act, generate_action_sequence
-from grammar import Grammar, GRAMMAR_STR
+import context
+from syntax_based.asg import apply_rule_act, generate_act, generate_action_sequence
+from syntax_based.grammar import Grammar, GRAMMAR_STR
 
 
 class AsgTest(parameterized.TestCase):
