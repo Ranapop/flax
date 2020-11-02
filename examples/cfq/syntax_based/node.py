@@ -89,9 +89,9 @@ def extract_query(root: Node, grammar: Grammar):
   When rule nodes are being visited, the grammar rule is traversed and the syntax
   tokens are added, besides visiting the children nodes in the AST.
   """
-  if root.rule_id is None:
+  if root.token is not None:
     # leaf/token node
-    return root.value
+    return root.token
   children_substrings = []
   rule_branch = grammar.branches[root.rule_id]
   child_idx = 0
