@@ -500,47 +500,6 @@ class SyntaxBasedDecoder(nn.Module):
 
     all_scores = jnp.array(all_scores)
     all_scores = jnp.swapaxes(all_scores, 0, 1)
-    # def decode_step_fn(carry, x):
-    #   rng, multilayer_lstm_output, last_prediction = carry
-    #   previous_states, h = multilayer_lstm_output
-    #   carry_rng, categorical_rng = jax.random.split(rng, 2)
-    #   if not train:
-    #     x = last_prediction
-    #   x = shared_embedding(x)
-    #   x = nn.dropout(x, rate=embed_dropout_rate, deterministic=train)
-    #   dec_prev_state = jnp.expand_dims(h, 1)
-    #   context, scores = mlp_attention(dec_prev_state, projected_keys,
-    #                                   encoder_hidden_states, attention_mask)
-    #   lstm_input = jnp.concatenate([x, context], axis=-1)
-    #   states, h = multilayer_lstm_cell(
-    #     horizontal_dropout_masks=h_dropout_masks,
-    #     vertical_dropout_rate=vertical_dropout_rate,
-    #     input=lstm_input,
-    #     previous_states=previous_states,
-    #     train=train)
-    #   logits = projection(h)
-    #   predicted_tokens = jax.random.categorical(categorical_rng, logits)
-    #   predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
-    #   new_carry = (carry_rng, (states, h), predicted_tokens_uint8)
-    #   new_x = (logits, predicted_tokens_uint8, scores)
-    #   return new_carry, new_x
-
-    # initialisig the LSTM states and final output with the
-    # encoder hidden states
-    # multilayer_lstm_output = (init_states, init_states[-1][1])
-    # init_carry = (nn.make_rng(), multilayer_lstm_output, inputs[:, 0])
-
-    # if self.is_initializing():
-    #   # initialize parameters before scan -- why?
-    #   decode_step_fn(init_carry, inputs[:, 0])
-
-    # _, (logits, predictions, scores) = jax_utils.scan_in_dim(
-    #     decode_step_fn,
-    #     init=init_carry,  # rng, lstm_state, last_pred
-    #     xs=inputs,
-    #     axis=1)
-    # The attention weights are only examined on the evaluation flow, so this
-    # if is used to avoid unnecesary operations.
     if not self.is_initializing() and not train:
       attention_weights = jnp.array(all_scores)
       # Going from [output_seq_len, batch_size, input_seq_len]
