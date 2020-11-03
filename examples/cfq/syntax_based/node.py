@@ -17,24 +17,29 @@
 
 import re
 from typing import List
-from grammar import Grammar, GRAMMAR_STR, TermType
-from asg import generate_action_sequence
+from syntax_based.grammar import Grammar, GRAMMAR_STR, TermType
+from syntax_based.asg import generate_action_sequence, Action, APPLY_RULE, GENERATE_TOKEN
 from collections import deque
-from asg import Action, APPLY_RULE, GENERATE_TOKEN
 class Node:
 
   def __init__(self, parent: 'Node', value: str):
     self.parent = parent
+    # rule head or regex term.
     self.value = value
     self.children = []
     # id of rule expanded at this node.
     self.rule_id = None
+    # token stored in the node
+    self.token = None
 
   def add_child(self, child: 'Node'):
     self.children.append(child)
 
   def set_rule_id(self, id: int):
     self.rule_id = id
+
+  def set_token(self, token: str):
+    self.token = token
 
   def __repr__(self):
     return self.value
@@ -46,18 +51,15 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
   current_node: Node = frontier_nodes_stack.pop()
   action_type, action_value = action
   if action_type == GENERATE_TOKEN:
-    # Generate leaf node with token stored in the action.
-    child = Node(current_node, action_value)
-    current_node.add_child(child)
-    # A terminal node has only one branch. Set the id of that.
-    rule_id = grammar.get_branch_id_by_head_and_index(current_node.value, 0)
-    current_node.set_rule_id(rule_id)
+    # Fill leaf node with token stored in the action.
+    current_node.set_token(action_value)
   else:
     current_node.set_rule_id(action_value)
     new_frontier_nodes = []
     rule_branch = grammar.branches[action_value]
     for term in rule_branch.body:
-      if term.term_type == TermType.RULE_TERM:
+      term_type = term.term_type
+      if term_type == TermType.RULE_TERM or term_type == TermType.REGEX_TERM:
         child = Node(current_node, term.value)
         new_frontier_nodes.append(child)
         current_node.add_child(child)
@@ -87,9 +89,9 @@ def extract_query(root: Node, grammar: Grammar):
   When rule nodes are being visited, the grammar rule is traversed and the syntax
   tokens are added, besides visiting the children nodes in the AST.
   """
-  if root.rule_id is None:
+  if root.token is not None:
     # leaf/token node
-    return root.value
+    return root.token
   children_substrings = []
   rule_branch = grammar.branches[root.rule_id]
   child_idx = 0
@@ -108,6 +110,28 @@ def extract_query(root: Node, grammar: Grammar):
   return delimiter.join(children_substrings)
 
 
+def pretty_print_tree(root: Node, depth: int = 0):
+  spaces = ''.join(['\t' for d in range(depth)])
+  if root.token is None:
+    print(spaces, root.value)
+  else:
+    print(spaces, root.token)
+  for child in root.children:
+    pretty_print_tree(child, depth+1)
+
+
+def get_parent_time_steps(root: Node,
+                          current_step: int = 0, parent_step: int = -1):
+  parent_time_steps = [parent_step]
+  parent_step = current_step
+  current_step += 1
+  for child in root.children:
+    child_parent_times = get_parent_time_steps(child, current_step, parent_step)
+    current_step += len(child_parent_times)
+    parent_time_steps += child_parent_times
+  return parent_time_steps
+
+
 if __name__ == "__main__":
   query = """SELECT DISTINCT ?x0 WHERE {
       ?x0 a people.person .
@@ -115,8 +139,11 @@ if __name__ == "__main__":
       ?x1 film.actor.filmnsfilm.performance.character M1 }"""
   grammar = Grammar(GRAMMAR_STR)
   generated_action_sequence = generate_action_sequence(query, grammar)
+  print(generated_action_sequence)
   root = apply_sequence_of_actions(generated_action_sequence, grammar)
-  query = extract_query(root, grammar)
-  print(query)
+  parent_time_steps = get_parent_time_steps(root)
+  print(parent_time_steps)
+  # query = extract_query(root, grammar)
+  # print(query)
 
 

@@ -13,11 +13,14 @@
 # limitations under the License.
 
 # Lint as: python3
-"""Module for unit tests for asg.py."""
+"""Module for unit tests for asg.py
+Should be run from cfq with:
+python -m syntax_based.tests.grammar_test
+"""
 from absl.testing import absltest
 from absl.testing import parameterized
-from asg import apply_rule_act, generate_act, generate_action_sequence
-from grammar import Grammar, GRAMMAR_STR
+from syntax_based.asg import apply_rule_act, generate_act, generate_action_sequence
+from syntax_based.grammar import Grammar, GRAMMAR_STR
 
 
 class AsgTest(parameterized.TestCase):
@@ -54,13 +57,16 @@ class AsgTest(parameterized.TestCase):
       (0, 7), # triples_block -> var_token TOKEN var_token
       (0, 8), # var_token -> VAR
       (0, 10), # VAR -> "?x0"
+      (0, 16), # TOKEN -> /[^\s]+/
       (1, 'a'),
       (0, 9), # var_token -> TOKEN
+      (0, 16), # TOKEN -> /[^\s]+/
       (1, 'people.person'),
       (0, 6), # where_entry -> triples_block
       (0, 7), # triples_block -> var_token TOKEN var_token
       (0, 8), # var_token -> VAR
       (0, 10), # VAR -> "?x0"
+      (0, 16), # TOKEN -> /[^\s]+/
       (1, 'influence.influencenode.influencedby'),
       (0, 8), # var_token -> VAR
       (0, 11), # VAR -> "?x1"
@@ -68,8 +74,10 @@ class AsgTest(parameterized.TestCase):
       (0, 7), # triples_block -> var_token TOKEN var_token
       (0, 8), # var_token -> VAR
       (0, 11), # VAR -> "?x1"
+      (0, 16), # TOKEN -> /[^\s]+/
       (1, 'film.actor.filmnsfilm.performance.character'),
       (0, 9), # var_token -> TOKEN
+      (0, 16), # TOKEN -> /[^\s]+/
       (1, 'M1')
     ]
     self.assertEqual(generated_action_sequence, expected_action_sequence)
@@ -112,13 +120,16 @@ class AsgTest(parameterized.TestCase):
       (0, 9), # triples_block -> var_token TOKEN var_token
       (0, 10), # var_token -> VAR
       (0, 12), # VAR -> "?x0"
+      (0, 18), # TOKEN -> /[^\s]+/
       (1, 'a'),
       (0, 11), # var_token -> TOKEN
+      (0, 18), # TOKEN -> /[^\s]+/
       (1, 'film.editor'),
       (0, 6), # where_entry -> triples_block
       (0, 9), # triples_block -> var_token TOKEN var_token
       (0, 10), # var_token -> VAR
       (0, 12), # VAR -> "?x0"
+      (0, 18), # TOKEN -> /[^\s]+/
       (1, 'influence.influence_node.influenced_by'),
       (0, 10), # var_token -> VAR
       (0, 13), # VAR -> "?x1"
@@ -126,14 +137,17 @@ class AsgTest(parameterized.TestCase):
       (0, 9), # triples_block -> var_token TOKEN var_token
       (0, 10), # var_token -> VAR
       (0, 13), # VAR -> "?x1"
+      (0, 18), # TOKEN -> /[^\s]+/
       (1, 'simplified_token'),
       (0, 11), # var_token -> TOKEN
+      (0, 18), # TOKEN -> /[^\s]+/
       (1, 'M1'),
       (0, 7), # where_entry -> filter_clause
       (0, 8), # filter_clause -> "FILTER" "(" var_token "!=" var_token ")"
       (0, 10), # var_token -> VAR
       (0, 13), # VAR -> "?x1"
       (0, 11), # var_token -> TOKEN
+      (0, 18), # TOKEN -> /[^\s]+/
       (1, 'M1')
     ]
     self.assertEqual(generated_action_sequence, expected_action_sequence)

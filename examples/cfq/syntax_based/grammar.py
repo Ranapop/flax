@@ -168,8 +168,34 @@ class Grammar:
     first_rule = sub_rules[0]
     self.grammar_entry = first_rule[0]
 
+  def collect_syntax_tokens(self):
+    syntax_tokens = set()
+    for branch in self.branches:
+       for term in branch.body:
+         if term.term_type == TermType.SYNTAX_TERM:
+           syntax_tokens.add(term.value)
+    return list(syntax_tokens)
+
   def get_branch_id_by_head_and_index(self, head: str, index: int):
     """Returns the branch id given the head and index."""
     head_rules = self.rules[head]
     return head_rules[index]
 
+  def get_head_for_branch(self, branch_id):
+    """Returns head for branch. Not optimal, but should only be needed for
+    debugging purposes."""
+    for head, branches in self.rules.items():
+      for branch in branches:
+        if branch == branch_id:
+          return head
+    return None
+
+  def print_grammar(self):
+    for head, branch_ids in self.rules.items():
+      for branch_id in branch_ids:
+        right_side = ''
+        branch = self.branches[branch_id]
+        for term in branch.body:
+          term_str = ' (' + term.value + ', ' + str(term.term_type) + ') '
+          right_side += term_str
+        print(head, ' -> ',term_str)
