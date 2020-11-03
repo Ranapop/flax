@@ -28,7 +28,7 @@ import preprocessing
 import constants
 from constants import QUESTION_KEY, QUESTION_LEN_KEY, QUERY_KEY, QUERY_LEN_KEY,\
   ACTION_TYPES_KEY, ACTION_VALUES_KEY, PARENT_STEPS_KEY, ACTION_SEQ_LEN_KEY
-import syntax_based.grammar as gr
+from syntax_based.grammar import Grammar, GRAMMAR_STR
 import syntax_based.node as node
 import syntax_based.asg as asg
 
@@ -38,7 +38,7 @@ ExampleType = Dict[Text, tf.Tensor]
 class CFQDataSource:
   """Provides the base functionality for the CFQ dataset (extracting the
   vocabulary, questions and queries preprocessing, batching). Some of the more
-  speciffic functionality is left to the class extending this one."""
+  specific functionality is left to the class extending this one."""
 
   # pylint: disable=too-few-public-methods
 
@@ -138,15 +138,15 @@ class CFQDataSource:
     return example
 
   def get_output_length(self, example: ExampleType) -> tf.Tensor:
-    """Function that takes a dataset entry and returns the query length"""
+    """Function that takes a dataset entry and returns the query length."""
     raise NotImplementedError()
 
   def get_example_length(self, example: ExampleType) -> tf.Tensor:
     """Returns the length of the example for the purpose of the bucketing
     If the output should be of fixed length (self.fixed_output_len=True),
     then the length of the example is given by the the input (question)
-    length, otherwise the example length is the maximum length of the 2
-    sequences (input and output)
+    length, otherwise the example length is the maximum length of the input and
+    output sequences.
     """
     input_len = example[QUESTION_LEN_KEY]
     output_len = self.get_output_length(example)
@@ -242,7 +242,7 @@ class Seq2SeqCfqDataSource(CFQDataSource):
     return example
 
   def get_output_length(self, example: ExampleType) -> tf.Tensor:
-    """Function that takes a dataset entry and returns the query length"""
+    """Function that takes a dataset entry and returns the query length."""
     return example[QUERY_LEN_KEY]
 
   def indices_to_sequence_string(self,
@@ -264,7 +264,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
                fixed_output_len: bool,
                tokenizer: text.Tokenizer = text.WhitespaceTokenizer(),
                cfq_split: Text = 'mcd1',
-               grammar: gr.Grammar = gr.Grammar(gr.GRAMMAR_STR),
+               grammar: Grammar = Grammar(GRAMMAR_STR),
                load_data: bool = True):
     self.grammar = grammar
     if load_data:
@@ -300,7 +300,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
 
   def construct_output_fields(self, query: str
                              ) -> Tuple[List[int],List[int],List[int]]:
-    """ Construct the output fields (action types, action values and parent
+    """Construct the output fields (action types, action values and parent
     steps) from the query.
     """
     query = query.numpy()
