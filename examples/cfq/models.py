@@ -42,7 +42,8 @@ class MlpAttention(nn.Module):
             projected_keys: jnp.ndarray,
             values: jnp.ndarray,
             mask: jnp.ndarray,
-            hidden_size: int = None) -> jnp.ndarray:
+            hidden_size: int = None,
+            batch_level: bool = True) -> jnp.ndarray:
     """Computes MLP-based attention based on keys and a query.
 
     Attention scores are computed by feeding the keys and query through an MLP.
@@ -65,6 +66,9 @@ class MlpAttention(nn.Module):
         Only values for which the mask is True will get non-zero attention
         scores. <bool>[batch_size, seq_length].
       hidden_size: The hidden size of the MLP that computes the attention score.
+      batch_level: When True the code is executed at batch level, otherwise at
+        example level (then the arguments don't have the batch_size dimensions,
+        for example query would be [1, query_size]).
 
     Returns:
       The weighted values (context vector) [batch_size, seq_len]
@@ -78,8 +82,13 @@ class MlpAttention(nn.Module):
     scores = jnp.where(mask, scores, -jnp.inf)  # Using exp(-inf) = 0 below.
     scores = nn.softmax(scores, axis=-1)
 
-    context = jnp.sum(jnp.expand_dims(scores, 2) * values, axis=1)
-    return context, scores  # Shape: <float32>[batch_size, seq_len]
+    if batch_level:
+      # Shape: <float32>[batch_size, seq_len]
+      context = jnp.sum(jnp.expand_dims(scores, 2) * values, axis=1)
+    else:
+      # Shape: <float32>[seq_len]
+      context = jnp.sum(jnp.expand_dims(scores, 1) * values, axis=0)
+    return context, scores  
 
 
 class MultilayerLSTM(nn.Module):
@@ -194,7 +203,7 @@ class Decoder(nn.Module):
     Args
       init_states: states to initialize the decoder hidden states (coming from
         the encoder). This assumes the encoder and decoder have the same number
-        of layers [num_layers, batch_size, hidden_size]
+        of layers. [num_layers, 2, batch_size, hidden_size]
       encoder_hidden_states: encoder hidden states
         [batch_size, input_seq_len, hidden_size]
       attention_mask: attention mask [batch_size, input_seq_len]
@@ -358,54 +367,6 @@ class Seq2seq(nn.Module):
 
 """Syntax based modules."""
 
-class SyntaxBasedDecoderStep(nn.Module):
-
-  def embed_action(self,
-                   action,
-                   rule_embedding_module,
-                   token_embedding_module):
-    action_type, action_value = action
-    negated_action_type = jnp.logical_not(action_type)
-    # Select only the rules, the rest is 0 (action_type==0) -> [batch_size].
-    rule = negated_action_type * action_value
-    # Select only the tokens, the rest is 0 (action_type==1) -> [batch_size].
-    token = jnp.action_types * action_value
-    rule_embedding = rule_embedding_module(rule)
-    token_embedding = token_embedding_module(token)
-    action_embedding = negated_action_type * rule_embedding + action_type * token_embedding
-    return action_embedding
-    # Is this ok?? Should I use jnp.where? will this affect the embeddings somehow??
-
-  def apply(self,
-            previous_lstm_output: jnp.array,
-            # what about batch level?? -- maybe Tuple[jnp.array, jnp.array]
-            # each array of size [batch_size]
-            previous_action: Tuple[int, int], 
-            parent_lstm_output: jnp.array,
-            parent_action,
-            rule_vocab_size: int,
-            token_vocab_size: int,
-            node_vocab_size: int):
-    dummy = 0
-    # How do I wite this code at batch level??
-    #maybe:
-    RULE_EMBEDDING_SIZE = 10
-    TOKEN_EMBEDDING_SIZE = 50
-    NODE_EMBEDDING_SIZE = 20
-    rule_embedding = nn.Embed.shared(
-        num_embeddings=rule_vocab_size,
-        features=RULE_EMBEDDING_SIZE,
-        embedding_init=nn.initializers.normal(stddev=1.0))
-    token_embedding = nn.Embed.shared(
-        num_embeddings=token_vocab_size,
-        features=TOKEN_EMBEDDING_SIZE,
-        embedding_init=nn.initializers.normal(stddev=1.0))
-    token_embedding = nn.Embed.shared(
-        num_embeddings=node_vocab_size,
-        features=NODE_EMBEDDING_SIZE,
-        embedding_init=nn.initializers.normal(stddev=1.0))
-    action_types, action_values = previous_action 
-
 class SyntaxBasedDecoder(nn.Module):
   """LSTM syntax-based decoder."""
 
@@ -425,9 +386,9 @@ class SyntaxBasedDecoder(nn.Module):
     return masks
 
   def apply(self,
-            init_states,
-            encoder_hidden_states,
-            attention_mask,
+            init_states: jnp.array,
+            encoder_hidden_states: jnp.array,
+            attention_mask: jnp.array,
             inputs: jnp.array,
             shared_embedding: nn.Module,
             vocab_size: int,
@@ -436,30 +397,36 @@ class SyntaxBasedDecoder(nn.Module):
             vertical_dropout_rate: float,
             embed_dropout_rate: float = EMBED_DROPOUT,
             train: bool = False):
-    """TODO
+    """
+    Args:
+      init_states: [num_layers, 2, hidden_size]
+      encoder_hidden_states: [input_seq_len, hidden_size]
+      attention_mask: [input_seq_len]
+      inputs: [output_seq_len]
     """
     multilayer_lstm_cell = MultilayerLSTM.partial(num_layers=num_layers).shared(
         name='multilayer_lstm')
     projection = nn.Dense.shared(features=vocab_size, name='projection')
-    mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE).shared(
-        name='attention')
+    mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE,
+                                         batch_level=False
+                                         ).shared(name='attention')
     # The keys projection can be calculated once for the whole sequence.
     projected_keys = nn.Dense(encoder_hidden_states,
                               ATTENTION_SIZE,
                               name='keys',
                               bias=False)
 
-    batch_size = encoder_hidden_states.shape[0]
     hidden_size = encoder_hidden_states.shape[-1]
     h_dropout_masks = Decoder.create_dropout_masks(
         num_masks=num_layers,
-        shape=(batch_size, hidden_size),
+        shape=(hidden_size),
         dropout_rate=horizontal_dropout_rate,
         train=train)
 
-    time_steps = inputs.shape[1]
-    multilayer_lstm_output = (init_states, init_states[-1][1])
-    carry = (nn.make_rng(), multilayer_lstm_output, inputs[:, 0])
+    time_steps = inputs.shape[0]
+    initial_h = init_states[-1,1,:]
+    multilayer_lstm_output = (init_states, initial_h)
+    carry = (nn.make_rng(), multilayer_lstm_output, inputs[0])
     all_logits = []
     all_predicted_tokens = []
     all_scores = []
@@ -467,12 +434,12 @@ class SyntaxBasedDecoder(nn.Module):
       rng, multilayer_lstm_output, last_prediction = carry
       previous_states, h = multilayer_lstm_output
       carry_rng, categorical_rng = jax.random.split(rng, 2)
-      x =  inputs[:, i]
+      x =  inputs[i]
       if not train:
         x = last_prediction
       x = shared_embedding(x)
       x = nn.dropout(x, rate=embed_dropout_rate, deterministic=train)
-      dec_prev_state = jnp.expand_dims(h, 1)
+      dec_prev_state = jnp.expand_dims(h, 0)
       context, scores = mlp_attention(dec_prev_state, projected_keys,
                                       encoder_hidden_states, attention_mask)
       lstm_input = jnp.concatenate([x, context], axis=-1)
@@ -491,20 +458,13 @@ class SyntaxBasedDecoder(nn.Module):
       all_scores.append(scores)
 
     all_logits = jnp.array(all_logits)
-    # [out_seq, batch_size, vocab_size] -> [batch_size, out_seq, vocab_size]
-    all_logits = jnp.swapaxes(all_logits, 0, 1)
-
     all_predicted_tokens = jnp.array(all_predicted_tokens)
-    # [out_seq, batch_size] -> [batch_size, out_seq]
-    all_predicted_tokens = jnp.swapaxes(all_predicted_tokens, 0, 1)
-
     all_scores = jnp.array(all_scores)
-    all_scores = jnp.swapaxes(all_scores, 0, 1)
+
     if not self.is_initializing() and not train:
       attention_weights = jnp.array(all_scores)
-      # Going from [output_seq_len, batch_size, input_seq_len]
-      # to [batch_size, output_seq_len, input_seq_len].
-      jnp.swapaxes(attention_weights, 1, 2)
+      # Going [input_seq_len, output_seq_len] -> [output_seq_len, input_seq_len].
+      jnp.swapaxes(attention_weights, 0, 1)
     else:
       attention_weights = None
     return all_logits, all_predicted_tokens, attention_weights
@@ -524,8 +484,6 @@ class Seq2tree(nn.Module):
             num_layers=NUM_LAYERS,
             horizontal_dropout_rate=HORIZONTAL_DROPOUT,
             vertical_dropout_rate=VERTICAL_DROPOUT):
-    """TODO
-    """
     shared_embedding = nn.Embed.shared(
         num_embeddings=vocab_size,
         features=emb_dim,
@@ -535,9 +493,14 @@ class Seq2tree(nn.Module):
                               num_layers=num_layers,
                               horizontal_dropout_rate=horizontal_dropout_rate,
                               vertical_dropout_rate=vertical_dropout_rate)
-    decoder = SyntaxBasedDecoder.partial(num_layers=num_layers,
-                                         horizontal_dropout_rate=horizontal_dropout_rate,
-                                         vertical_dropout_rate=vertical_dropout_rate)
+    decoder = SyntaxBasedDecoder.partial(
+                                   num_layers=num_layers,
+                                   horizontal_dropout_rate=horizontal_dropout_rate,
+                                   vertical_dropout_rate=vertical_dropout_rate,
+                                   train = train,
+                                   vocab_size = vocab_size,
+                                   shared_embedding = shared_embedding)
+    vmapped_decoder = jax.vmap(decoder)
     # compute attention masks
     mask = compute_attention_masks(encoder_inputs.shape, encoder_inputs_lengths)
 
@@ -545,14 +508,15 @@ class Seq2tree(nn.Module):
     hidden_states, init_decoder_states = encoder(encoder_inputs,
                                                  encoder_inputs_lengths,
                                                  shared_embedding, train)
+    # [no_layers, 2, batch, hidden_size] -> [batch, no_layers, 2, hidden_size]
+    init_decoder_states = jnp.array(init_decoder_states)
+    init_decoder_states = jnp.swapaxes(init_decoder_states, 0, 2)
+    inputs_no_bos = decoder_inputs[:, :-1]
     # Decode outputs.
-    logits, predictions, attention_weights = decoder(init_decoder_states,
-                                                     hidden_states,
-                                                     mask,
-                                                     decoder_inputs[:, :-1],
-                                                     shared_embedding,
-                                                     vocab_size,
-                                                     train=train)
+    logits, predictions, attention_weights = vmapped_decoder(init_decoder_states,
+                                                             hidden_states,
+                                                             mask,
+                                                             inputs_no_bos)
 
     return logits, predictions, attention_weights
 
