@@ -424,7 +424,7 @@ class SyntaxBasedDecoder(nn.Module):
         train=train)
 
     time_steps = inputs.shape[0]
-    initial_h = init_states[-1,1,:]
+    initial_h = init_states[-1, 1, :]
     multilayer_lstm_output = (init_states, initial_h)
     carry = (nn.make_rng(), multilayer_lstm_output, inputs[0])
     all_logits = []
