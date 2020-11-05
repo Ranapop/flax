@@ -43,7 +43,7 @@ class MlpAttention(nn.Module):
             values: jnp.ndarray,
             mask: jnp.ndarray,
             hidden_size: int = None,
-            batch_level: bool = True) -> jnp.ndarray:
+            use_batch_axis: bool = True) -> jnp.ndarray:
     """Computes MLP-based attention based on keys and a query.
 
     Attention scores are computed by feeding the keys and query through an MLP.
@@ -66,9 +66,9 @@ class MlpAttention(nn.Module):
         Only values for which the mask is True will get non-zero attention
         scores. <bool>[batch_size, seq_length].
       hidden_size: The hidden size of the MLP that computes the attention score.
-      batch_level: When True the code is executed at batch level, otherwise at
-        example level (then the arguments don't have the batch_size dimensions,
-        for example query would be [1, query_size]).
+      use_batch_axis: When True the code is executed at batch level, otherwise
+        at example level (in that case the arguments don't have the batch_size
+        dimensions, for example query would be [1, query_size]).
 
     Returns:
       The weighted values (context vector) [batch_size, seq_len]
@@ -82,7 +82,7 @@ class MlpAttention(nn.Module):
     scores = jnp.where(mask, scores, -jnp.inf)  # Using exp(-inf) = 0 below.
     scores = nn.softmax(scores, axis=-1)
 
-    if batch_level:
+    if use_batch_axis:
       # Shape: <float32>[batch_size, seq_len]
       context = jnp.sum(jnp.expand_dims(scores, 2) * values, axis=1)
     else:
@@ -408,7 +408,7 @@ class SyntaxBasedDecoder(nn.Module):
         name='multilayer_lstm')
     projection = nn.Dense.shared(features=vocab_size, name='projection')
     mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE,
-                                         batch_level=False
+                                         use_batch_axis=False
                                          ).shared(name='attention')
     # The keys projection can be calculated once for the whole sequence.
     projected_keys = nn.Dense(encoder_hidden_states,
