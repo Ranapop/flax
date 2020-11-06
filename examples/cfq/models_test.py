@@ -6,7 +6,8 @@ import jax.numpy as jnp
 from flax import nn
 
 import models
-from models import Encoder, MlpAttention, Decoder, Seq2seq, MultilayerLSTM
+from models import Encoder, MlpAttention, Decoder, Seq2seq, MultilayerLSTM,\
+  Seq2tree
 
 
 class ModelsTest(parameterized.TestCase):
@@ -208,6 +209,60 @@ class ModelsTest(parameterized.TestCase):
                               ((1, 2), jnp.uint8),
                               ((1,), jnp.uint8)])
       model = nn.Model(models.Seq2seq, initial_params)
+      logits, predictions, attention_weights = model(encoder_inputs=enc_inputs,
+                                                 decoder_inputs=dec_inputs,
+                                                 encoder_inputs_lengths=lengths,
+                                                 vocab_size=vocab_size,
+                                                 train=False)
+      self.assertEqual(logits.shape, (batch_size, max_len - 1, vocab_size))
+      self.assertEqual(predictions.shape, (batch_size, max_len - 1))
+      self.assertEqual(
+        attention_weights.shape, (batch_size, predicted_length, input_length))
+
+  
+  def test_seq_2_tree_train_apply(self):
+    vocab_size = 10
+    batch_size = 2
+    max_len = 5
+    enc_inputs = jnp.array([[1, 0, 2], [1, 4, 2]], dtype=jnp.uint8)
+    lengths = jnp.array([2, 3])
+    dec_inputs = jnp.array([[6, 7, 3, 5, 1], [1, 4, 2, 3, 2]], dtype=jnp.uint8)
+    input_length = 3
+    predicted_length = 4
+    seq2seq = Seq2tree.partial(vocab_size=vocab_size)
+    with nn.stochastic(jax.random.PRNGKey(0)):
+      _, initial_params = models.Seq2tree.partial(vocab_size=vocab_size
+                            ).init_by_shape(nn.make_rng(),
+                            [((1, 1), jnp.uint8),
+                              ((1, 2), jnp.uint8),
+                              ((1,), jnp.uint8)])
+      model = nn.Model(models.Seq2tree, initial_params)
+      logits, predictions, attention_weights = model(encoder_inputs=enc_inputs,
+                                                 decoder_inputs=dec_inputs,
+                                                 encoder_inputs_lengths=lengths,
+                                                 vocab_size=vocab_size,
+                                                 train=True)
+      self.assertEqual(logits.shape, (batch_size, max_len - 1, vocab_size))
+      self.assertEqual(predictions.shape, (batch_size, max_len - 1))
+      self.assertEqual(attention_weights, None)
+  
+  def test_seq_2_tree_inference_apply(self):
+    vocab_size = 10
+    batch_size = 2
+    max_len = 5
+    enc_inputs = jnp.array([[1, 0, 2], [1, 4, 2]], dtype=jnp.uint8)
+    lengths = jnp.array([2, 3])
+    dec_inputs = jnp.array([[6, 7, 3, 5, 1], [1, 4, 2, 3, 2]], dtype=jnp.uint8)
+    input_length = 3
+    predicted_length = 4
+    seq2seq = Seq2tree.partial(vocab_size=vocab_size)
+    with nn.stochastic(jax.random.PRNGKey(0)):
+      _, initial_params = models.Seq2tree.partial(vocab_size=vocab_size
+                            ).init_by_shape(nn.make_rng(),
+                            [((1, 1), jnp.uint8),
+                              ((1, 2), jnp.uint8),
+                              ((1,), jnp.uint8)])
+      model = nn.Model(models.Seq2tree, initial_params)
       logits, predictions, attention_weights = model(encoder_inputs=enc_inputs,
                                                  decoder_inputs=dec_inputs,
                                                  encoder_inputs_lengths=lengths,
