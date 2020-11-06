@@ -366,21 +366,18 @@ class Seq2seq(nn.Module):
 
 
 """Syntax based modules."""
-
+# Token / rule embedding size.
+ACTION_EMBEDDING_SIZE = 50
+NODE_EMBEDDING_SIZE = 20
 
 class ActionEmbed(nn.Module):
 
   def apply(self,
             action: jnp.array,
-            rule_vocab_size: int,
-            token_vocab_size: int):
-    ACTION_EMBEDDING_SIZE = 50
+            token_embedding: nn.Module,
+            rule_vocab_size: int):
     rule_embedding = nn.Embed.partial(
       num_embeddings=rule_vocab_size,
-      features=ACTION_EMBEDDING_SIZE,
-      embedding_init=nn.initializers.normal(stddev=1.0))
-    token_embedding = nn.Embed.partial(
-      num_embeddings=token_vocab_size,
       features=ACTION_EMBEDDING_SIZE,
       embedding_init=nn.initializers.normal(stddev=1.0))
 
@@ -403,18 +400,17 @@ class SyntaxDecoderLSTMInput(nn.Module):
             parent_state: jnp.array,
             parent_action: Tuple[int, int],
             context: jnp.array,
-            token_vocab_size: int,
+            token_embedding: nn.Module,
             rule_vocab_size: int,
             node_vocab_size: int):
-    NODE_EMBEDDING_SIZE = 20
     node_embedding = nn.Embed.partial(
         name='node_embedding',
         num_embeddings=node_vocab_size,
         features=NODE_EMBEDDING_SIZE,
         embedding_init=nn.initializers.normal(stddev=1.0))
     action_embedding = ActionEmbed.shared(name='action_embedding',
-                                          rule_vocab_size=rule_vocab_size,
-                                          token_vocab_size=token_vocab_size)
+                                          token_embedding=token_embedding,
+                                          rule_vocab_size=rule_vocab_size)
     prev_act_emb = action_embedding(previous_action)
     parent_act_emb = action_embedding(parent_action)
     parent_info = jnp.concatenate([parent_act_emb, parent_state])
@@ -447,8 +443,7 @@ class SyntaxBasedDecoder(nn.Module):
             encoder_hidden_states: jnp.array,
             attention_mask: jnp.array,
             inputs: jnp.array,
-            #TODO: use module for tokens.
-            shared_embedding: nn.Module,
+            token_embedding: nn.Module,
             token_vocab_size: int,
             rule_vocab_size: int,
             node_vocab_size: int,
@@ -464,7 +459,7 @@ class SyntaxBasedDecoder(nn.Module):
       attention_mask: attention mask [input_seq_len].
       inputs: decoder inputs comprising of 4 vectors: action_types, action_values,
         node_types, parent_steps [4, output_seq_len].
-      shared_embedding: token embedding module.
+      token_embedding: token embedding module.
       token_vocab_size: token vocab size.
       rule_vocab_size: rule vocab size.
       node_vocab_size: node vocab size.
@@ -474,7 +469,7 @@ class SyntaxBasedDecoder(nn.Module):
       train: flag distinguishing between train and test flow.
     """
     lstm_input_module = SyntaxDecoderLSTMInput.partial(
-      token_vocab_size = token_vocab_size,
+      token_embedding = token_embedding,
       rule_vocab_size = rule_vocab_size,
       node_vocab_size = node_vocab_size).shared(
         name = 'lstm_input_module')
@@ -582,30 +577,30 @@ class Seq2tree(nn.Module):
             token_vocab_size: int,
             rule_vocab_size: int,
             node_vocab_size: int,
-            emb_dim: int = EMBEDDING_DIM,
             train: bool = True,
             hidden_size: int = LSTM_HIDDEN_SIZE,
-            num_layers=NUM_LAYERS,
+            num_layers: int = NUM_LAYERS,
             horizontal_dropout_rate=HORIZONTAL_DROPOUT,
             vertical_dropout_rate=VERTICAL_DROPOUT):
-    shared_embedding = nn.Embed.shared(
+    token_embedding = nn.Embed.shared(
         num_embeddings=token_vocab_size,
-        features=emb_dim,
+        features=ACTION_EMBEDDING_SIZE,
         embedding_init=nn.initializers.normal(stddev=1.0))
 
-    encoder = Encoder.partial(hidden_size=hidden_size,
+    encoder = Encoder.partial(shared_embedding=token_embedding,
+                              hidden_size=hidden_size,
                               num_layers=num_layers,
                               horizontal_dropout_rate=horizontal_dropout_rate,
                               vertical_dropout_rate=vertical_dropout_rate)
     decoder = SyntaxBasedDecoder.partial(
+                                   token_embedding = token_embedding,
                                    num_layers=num_layers,
                                    horizontal_dropout_rate=horizontal_dropout_rate,
                                    vertical_dropout_rate=vertical_dropout_rate,
                                    train = train,
                                    token_vocab_size = token_vocab_size,
                                    rule_vocab_size = rule_vocab_size,
-                                   node_vocab_size = node_vocab_size,
-                                   shared_embedding = shared_embedding)
+                                   node_vocab_size = node_vocab_size)
     vmapped_decoder = jax.vmap(decoder)
     # compute attention masks
     mask = compute_attention_masks(encoder_inputs.shape, encoder_inputs_lengths)
@@ -613,7 +608,7 @@ class Seq2tree(nn.Module):
     # Encode inputs
     hidden_states, init_decoder_states = encoder(encoder_inputs,
                                                  encoder_inputs_lengths,
-                                                 shared_embedding, train)
+                                                 train=train)
     # [no_layers, 2, batch, hidden_size] -> [batch, no_layers, 2, hidden_size]
     init_decoder_states = jnp.array(init_decoder_states)
     init_decoder_states = jnp.swapaxes(init_decoder_states, 0, 2)
