@@ -192,7 +192,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(predictions.shape, (batch_size, max_len - 1))
       self.assertEqual(scores, None)
 
-  def test_seq_2_seq_inference_apply(self):
+  def seq_2_seq_inference_apply(self):
     vocab_size = 10
     batch_size = 2
     max_len = 5
@@ -221,32 +221,56 @@ class ModelsTest(parameterized.TestCase):
 
   
   def test_seq_2_tree_train_apply(self):
-    vocab_size = 10
+    token_vocab_size = 15
+    rule_vocab_size = 10
+    node_vocab_size = 7
     batch_size = 2
-    max_len = 5
     enc_inputs = jnp.array([[1, 0, 2], [1, 4, 2]], dtype=jnp.uint8)
     lengths = jnp.array([2, 3])
-    dec_inputs = jnp.array([[6, 7, 3, 5, 1], [1, 4, 2, 3, 2]], dtype=jnp.uint8)
+    dec_inputs = [
+      # example 1
+      [
+        [0, 0, 1, 0], # action types
+        [2, 3, 10, 0], # action_values
+        [3, 2, 1, 0], # node types
+        [-1, 0, 1, 0] # parent steps
+      ],
+      # example 2
+      [
+        [0, 1, 1, 0], # action types
+        [5, 7, 13, 0], # action_values
+        [4, 5, 6, 0], # node types
+        [-1, 0, 0, 0] # parent steps
+      ]
+    ]
+    dec_inputs = jnp.array(dec_inputs)
     input_length = 3
-    predicted_length = 4
-    seq2seq = Seq2tree.partial(vocab_size=vocab_size)
+    output_length = 4
+    seq2seq = Seq2tree.partial(token_vocab_size=token_vocab_size,
+                               rule_vocab_size=rule_vocab_size,
+                               node_vocab_size=node_vocab_size,
+                               train=True)
     with nn.stochastic(jax.random.PRNGKey(0)):
-      _, initial_params = models.Seq2tree.partial(vocab_size=vocab_size
-                            ).init_by_shape(nn.make_rng(),
+      _, initial_params = seq2seq.init_by_shape(nn.make_rng(),
                             [((1, 1), jnp.uint8),
-                              ((1, 2), jnp.uint8),
+                              # decoder inputs [batch_size, 4, seq_len]
+                              ((1, 4, 1), jnp.uint8),
                               ((1,), jnp.uint8)])
       model = nn.Model(models.Seq2tree, initial_params)
-      logits, predictions, attention_weights = model(encoder_inputs=enc_inputs,
-                                                 decoder_inputs=dec_inputs,
-                                                 encoder_inputs_lengths=lengths,
-                                                 vocab_size=vocab_size,
-                                                 train=True)
-      self.assertEqual(logits.shape, (batch_size, max_len - 1, vocab_size))
-      self.assertEqual(predictions.shape, (batch_size, max_len - 1))
+      scores, \
+        predictions, \
+        attention_weights = model(encoder_inputs=enc_inputs,
+                                  decoder_inputs=dec_inputs,
+                                  encoder_inputs_lengths=lengths,
+                                  token_vocab_size=token_vocab_size,
+                                  rule_vocab_size=rule_vocab_size,
+                                  node_vocab_size=node_vocab_size,
+                                  train=True)
+      self.assertEqual(scores.shape, (batch_size, output_length))
+      self.assertEqual(predictions.shape, (batch_size, output_length))
       self.assertEqual(attention_weights, None)
   
-  def test_seq_2_tree_inference_apply(self):
+  def seq_2_tree_inference_apply(self):
     vocab_size = 10
     batch_size = 2
     max_len = 5
