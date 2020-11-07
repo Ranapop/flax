@@ -268,7 +268,10 @@ class Seq2TreeCfqDataSource(CFQDataSource):
                grammar: Grammar = Grammar(GRAMMAR_STR),
                load_data: bool = True):
     self.grammar = grammar
-    self.nodes_vocab = self.construct_vocab(grammar.collect_node_types())
+    node_types = grammar.collect_node_types()
+    self.node_vocab = self.construct_vocab(node_types)
+    self.node_vocab_size = len(node_types)
+    self.rule_vocab_size = len(grammar.branches)
     if load_data:
       super().__init__(seed,
                        fixed_output_len,
@@ -319,7 +322,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     root: Node = apply_sequence_of_actions(act_sequence, self.grammar)
     parent_steps = root.get_parent_time_steps()
     node_types = root.get_node_types()
-    node_types = [self.nodes_vocab[node_type] for node_type in node_types]
+    node_types = [self.node_vocab[node_type] for node_type in node_types]
     action_types, action_values = self.extract_data_from_act_seq(act_sequence)
     if len(action_types) != len(parent_steps):
       raise Exception(
