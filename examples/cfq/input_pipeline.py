@@ -27,7 +27,8 @@ import input_pipeline_utils as inp_utils
 import preprocessing
 import constants
 from constants import QUESTION_KEY, QUESTION_LEN_KEY, QUERY_KEY, QUERY_LEN_KEY,\
-  ACTION_TYPES_KEY, ACTION_VALUES_KEY, PARENT_STEPS_KEY, ACTION_SEQ_LEN_KEY
+  ACTION_TYPES_KEY, ACTION_VALUES_KEY,\
+  NODE_TYPES_KEY, PARENT_STEPS_KEY, ACTION_SEQ_LEN_KEY
 from syntax_based.grammar import Grammar, GRAMMAR_STR
 from syntax_based.node import Node, apply_sequence_of_actions
 import syntax_based.asg as asg
@@ -332,11 +333,13 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     new_example = {}
     new_example[QUESTION_KEY] = self.prepare_sequence(example[QUESTION_KEY])
     new_example[QUESTION_LEN_KEY] = tf.size(new_example[QUESTION_KEY])
-    output_fields = tf.py_function(self.construct_output_fields,
-                                   [example[QUERY_KEY]],
-                                   Tout=(tf.int64, tf.int64, tf.int64))
+    output_fields = tf.py_function(
+      self.construct_output_fields,
+      [example[QUERY_KEY]],
+      Tout=(tf.int64, tf.int64, tf.int64, tf.int64))
     new_example[ACTION_TYPES_KEY],\
       new_example[ACTION_VALUES_KEY],\
+      new_example[NODE_TYPES_KEY],\
       new_example[PARENT_STEPS_KEY] = output_fields
     new_example[ACTION_SEQ_LEN_KEY] = tf.size(new_example[ACTION_TYPES_KEY])
     return new_example
@@ -352,6 +355,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
         QUESTION_LEN_KEY: [],
         ACTION_TYPES_KEY: [output_pad],
         ACTION_VALUES_KEY: [output_pad],
+        NODE_TYPES_KEY: [output_pad],
         PARENT_STEPS_KEY: [output_pad],
         ACTION_SEQ_LEN_KEY: []
     }
