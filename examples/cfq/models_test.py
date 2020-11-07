@@ -246,12 +246,12 @@ class ModelsTest(parameterized.TestCase):
     dec_inputs = jnp.array(dec_inputs)
     input_length = 3
     output_length = 4
-    seq2seq = Seq2tree.partial(token_vocab_size=token_vocab_size,
+    seq2tree = Seq2tree.partial(token_vocab_size=token_vocab_size,
                                rule_vocab_size=rule_vocab_size,
                                node_vocab_size=node_vocab_size,
                                train=True)
     with nn.stochastic(jax.random.PRNGKey(0)):
-      _, initial_params = seq2seq.init_by_shape(nn.make_rng(),
+      _, initial_params = seq2tree.init_by_shape(nn.make_rng(),
                             [((1, 1), jnp.uint8),
                               # decoder inputs [batch_size, 4, seq_len]
                               ((1, 4, 1), jnp.uint8),
