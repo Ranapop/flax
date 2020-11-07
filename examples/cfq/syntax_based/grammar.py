@@ -176,6 +176,17 @@ class Grammar:
            syntax_tokens.add(term.value)
     return list(syntax_tokens)
 
+  def collect_node_types(self):
+    """Collects the node types (the values that will be stored in the frontier
+    nodes. These can be RULE_TERMs or REGEX_TERMs."""
+    node_types = [self.grammar_entry]
+    for branch in self.branches:
+      for term in branch.body:
+        if term.term_type in [TermType.RULE_TERM, TermType.REGEX_TERM]:
+          if term.value not in node_types:
+            node_types.append(term.value)
+    return list(node_types)
+
   def get_branch_id_by_head_and_index(self, head: str, index: int):
     """Returns the branch id given the head and index."""
     head_rules = self.rules[head]

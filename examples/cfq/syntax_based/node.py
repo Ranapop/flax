@@ -44,6 +44,59 @@ class Node:
   def __repr__(self):
     return self.value
 
+  def pretty_print_tree(self, depth: int = 0):
+    spaces = ''.join(['\t' for d in range(depth)])
+    if self.token is None:
+      print(spaces, self.value)
+    else:
+      print(spaces, self.token)
+    for child in self.children:
+      child.pretty_print_tree(depth+1)
+
+  def get_parent_time_steps(self,
+                            current_step: int = 0, parent_step: int = -1):
+    parent_time_steps = [parent_step]
+    parent_step = current_step
+    current_step += 1
+    for child in self.children:
+      child_parent_times = child.get_parent_time_steps(current_step, parent_step)
+      current_step += len(child_parent_times)
+      parent_time_steps += child_parent_times
+    return parent_time_steps
+
+  def get_node_types(self):
+    node_types = [self.value]
+    for child in self.children:
+      node_types += child.get_node_types()
+    return node_types
+
+  def extract_query(self, grammar: Grammar):
+    """DFS traversal of tree. The result of the traversal should be the query. In
+    case the parent node is a terminal, the descendents will be simply
+    concatenated, e.g. VAR, otherwise the substrings are merged together by spaces.
+    When rule nodes are being visited, the grammar rule is traversed and the syntax
+    tokens are added, besides visiting the children nodes in the AST.
+    """
+    if self.token is not None:
+      # leaf/token node
+      return self.token
+    children_substrings = []
+    rule_branch = grammar.branches[self.rule_id]
+    child_idx = 0
+    for term in rule_branch.body:
+      if term.term_type == TermType.SYNTAX_TERM:
+        children_substrings.append(term.value)
+      else:
+        child_node = self.children[child_idx]
+        child_substr = child_node.extract_query(grammar)
+        children_substrings.append(child_substr)
+        child_idx += 1
+    if self.value.isupper():
+      delimiter = ''
+    else:
+      delimiter = ' '
+    return delimiter.join(children_substrings)
+
 def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
   """Applies an action (apply rule or generate token). The action extends an
   AST that is under construction by extending the stack of frontier nodes.
@@ -82,56 +135,6 @@ def apply_sequence_of_actions(action_sequence: List, grammar: Grammar):
   return root
 
 
-def extract_query(root: Node, grammar: Grammar):
-  """DFS traversal of tree. The result of the traversal should be the query. In
-  case the parent node is a terminal, the descendents will be simply
-  concatenated, e.g. VAR, otherwise the substrings are merged together by spaces.
-  When rule nodes are being visited, the grammar rule is traversed and the syntax
-  tokens are added, besides visiting the children nodes in the AST.
-  """
-  if root.token is not None:
-    # leaf/token node
-    return root.token
-  children_substrings = []
-  rule_branch = grammar.branches[root.rule_id]
-  child_idx = 0
-  for term in rule_branch.body:
-    if term.term_type == TermType.SYNTAX_TERM:
-      children_substrings.append(term.value)
-    else:
-      child_node = root.children[child_idx]
-      child_substr = extract_query(child_node, grammar)
-      children_substrings.append(child_substr)
-      child_idx += 1
-  if root.value.isupper():
-    delimiter = ''
-  else:
-    delimiter = ' '
-  return delimiter.join(children_substrings)
-
-
-def pretty_print_tree(root: Node, depth: int = 0):
-  spaces = ''.join(['\t' for d in range(depth)])
-  if root.token is None:
-    print(spaces, root.value)
-  else:
-    print(spaces, root.token)
-  for child in root.children:
-    pretty_print_tree(child, depth+1)
-
-
-def get_parent_time_steps(root: Node,
-                          current_step: int = 0, parent_step: int = -1):
-  parent_time_steps = [parent_step]
-  parent_step = current_step
-  current_step += 1
-  for child in root.children:
-    child_parent_times = get_parent_time_steps(child, current_step, parent_step)
-    current_step += len(child_parent_times)
-    parent_time_steps += child_parent_times
-  return parent_time_steps
-
-
 if __name__ == "__main__":
   query = """SELECT DISTINCT ?x0 WHERE {
       ?x0 a people.person .
@@ -141,7 +144,7 @@ if __name__ == "__main__":
   generated_action_sequence = generate_action_sequence(query, grammar)
   print(generated_action_sequence)
   root = apply_sequence_of_actions(generated_action_sequence, grammar)
-  parent_time_steps = get_parent_time_steps(root)
+  parent_time_steps = root.get_parent_time_steps()
   print(parent_time_steps)
   # query = extract_query(root, grammar)
   # print(query)
