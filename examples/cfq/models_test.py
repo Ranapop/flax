@@ -257,7 +257,8 @@ class ModelsTest(parameterized.TestCase):
                               ((1, 4, 1), jnp.uint8),
                               ((1,), jnp.uint8)])
       model = nn.Model(models.Seq2tree, initial_params)
-      scores, \
+      rules_logits, \
+        tokens_logits, \
         predictions, \
         attention_weights = model(encoder_inputs=enc_inputs,
                                   decoder_inputs=dec_inputs,
@@ -266,7 +267,8 @@ class ModelsTest(parameterized.TestCase):
                                   rule_vocab_size=rule_vocab_size,
                                   node_vocab_size=node_vocab_size,
                                   train=True)
-      self.assertEqual(scores.shape, (batch_size, output_length))
+      self.assertEqual(rules_logits.shape, (batch_size, output_length, rule_vocab_size))
+      self.assertEqual(tokens_logits.shape, (batch_size, output_length, token_vocab_size))
       self.assertEqual(predictions.shape, (batch_size, output_length))
       self.assertEqual(attention_weights, None)
   

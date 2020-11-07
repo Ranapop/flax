@@ -480,7 +480,7 @@ class SyntaxBasedDecoder(nn.Module):
                                          ).shared(name='attention')
     token_projection = nn.Dense.shared(features=token_vocab_size,
                                        name='token_projection')
-    rule_projection = nn.Dense.shared(features=token_vocab_size,
+    rule_projection = nn.Dense.shared(features=rule_vocab_size,
                                        name='rule_projection')
     # The keys projection can be calculated once for the whole sequence.
     projected_keys = nn.Dense(encoder_hidden_states,
@@ -506,7 +506,8 @@ class SyntaxBasedDecoder(nn.Module):
     multilayer_lstm_output = (init_states, initial_h)
     carry = (nn.make_rng(), multilayer_lstm_output)
     all_predictions = []
-    all_scores = []
+    all_rules_logits = []
+    all_tokens_logits = []
     all_attention_scores = []
     lstm_states = [initial_lstm_state]
     actions = [jnp.array([-1, -1])]
@@ -537,25 +538,26 @@ class SyntaxBasedDecoder(nn.Module):
         train=train)
 
       curr_action_type = action_types[i]
-      rules_distr = jax.nn.softmax(rule_projection(h))
-      token_distr = jax.nn.softmax(token_projection(h))
+      rules_logits = jax.nn.softmax(rule_projection(h))
+      rules_logits = jnp.equal(curr_action_type, jnp.array(0)) * rules_logits
+      tokens_logits = jax.nn.softmax(token_projection(h))
+      token_logits = jnp.equal(curr_action_type, jnp.array(1)) * tokens_logits
       prediction = \
-        jnp.equal(curr_action_type, jnp.array(0)) * jnp.argmax(rules_distr) + \
-        jnp.equal(curr_action_type, jnp.array(1)) * jnp.argmax(token_distr)
-      score = \
-        jnp.equal(curr_action_type, jnp.array(0)) * jnp.argmax(rules_distr) + \
-        jnp.equal(curr_action_type, jnp.array(1)) * jnp.argmax(token_distr)
+        jnp.equal(curr_action_type, jnp.array(0)) * jnp.argmax(rules_logits) + \
+        jnp.equal(curr_action_type, jnp.array(1)) * jnp.argmax(token_logits)
 
       carry = (carry_rng, (states, h))
       actions.append(jnp.array([action_types[i], action_values[i]]))
       lstm_states.append(h)
 
       all_predictions.append(prediction)
-      all_scores.append(score)
+      all_rules_logits.append(rules_logits)
+      all_tokens_logits.append(tokens_logits)
       all_attention_scores.append(att_scores)
 
-    all_scores = jnp.array(all_scores)
     all_predictions = jnp.array(all_predictions)
+    all_rules_logits = jnp.array(all_rules_logits)
+    all_token_logits = jnp.array(all_tokens_logits)
     all_attention_scores = jnp.array(all_attention_scores)
 
     if not self.is_initializing() and not train:
@@ -564,7 +566,7 @@ class SyntaxBasedDecoder(nn.Module):
       jnp.swapaxes(attention_weights, 0, 1)
     else:
       attention_weights = None
-    return all_scores, all_predictions, attention_weights
+    return all_rules_logits, all_token_logits, all_predictions, attention_weights
 
 
 class Seq2tree(nn.Module):
@@ -614,10 +616,11 @@ class Seq2tree(nn.Module):
     init_decoder_states = jnp.swapaxes(init_decoder_states, 0, 2)
     # inputs_no_bos = decoder_inputs[:, :-1]
     # Decode outputs.
-    logits, predictions, attention_weights = vmapped_decoder(init_decoder_states,
-                                                             hidden_states,
-                                                             mask,
-                                                             decoder_inputs)
+    rules_logits, tokens_logits, predictions, attention_weights = \
+      vmapped_decoder(init_decoder_states,
+                      hidden_states,
+                      mask,
+                      decoder_inputs)
 
-    return logits, predictions, attention_weights
+    return rules_logits, tokens_logits, predictions, attention_weights
 
