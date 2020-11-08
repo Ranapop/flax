@@ -82,11 +82,13 @@ def cross_entropy_loss(rules_logits: jnp.array,
   """Returns cross-entropy loss."""
   labels_rules = common_utils.onehot(labels, rule_vocab_size)
   labels_tokens = common_utils.onehot(labels, token_vocab_size)
-  scores = labels * rules_logits + labels * tokens_logits
-  log_scores = jnp.log(scores)
-  log_sum = jnp.sum(log_scores, axis=-1)
-  masked_log_sums = jnp.sum(mask_sequences(log_sum, lengths))
-  mean_losses = jnp.divide(masked_log_sums, lengths)
+  # [batch_size, seq_len, no_rules] -> [batch_size, seq_len]
+  scores_rules = jnp.sum(labels_rules * rules_logits, axis=-1)
+  # [batch_size, seq_len, no_tokens] -> [batch_size, seq_len]
+  scores_tokens = jnp.sum(labels_tokens * tokens_logits, axis=-1)
+  scores = scores_rules + scores_tokens
+  masked_logged_scores = jnp.sum(mask_sequences(jnp.log(scores), lengths))
+  mean_losses = jnp.divide(masked_logged_scores, lengths)
   mean_loss = jnp.mean(mean_losses)
   return -mean_loss
 
