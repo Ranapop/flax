@@ -19,7 +19,7 @@ python -m syntax_based.tests.node_test
 """
 from absl.testing import absltest
 from absl.testing import parameterized
-from ..node import Node, get_parent_time_steps
+from ..node import Node
 
 def add_child_to_parent(parent: Node, child: Node):
     child.parent = parent
@@ -28,18 +28,18 @@ def add_child_to_parent(parent: Node, child: Node):
 class GrammarTest(parameterized.TestCase):
 
   def test_get_parent_time_steps(self):
-    a = Node(None, 'a')
-    b = Node(None, 'b')
-    c = Node(None, 'c')
-    d = Node(None, 'd')
-    e = Node(None, 'e')
-    f = Node(None, 'f')
+    a = Node(None, 'a', 0)
+    b = Node(None, 'b', 1)
+    c = Node(None, 'c', 2)
+    d = Node(None, 'd', 3)
+    e = Node(None, 'e', 4)
+    f = Node(None, 'f', 5)
     add_child_to_parent(a, b)
     add_child_to_parent(b, c)
     add_child_to_parent(c, d)
     add_child_to_parent(c, f)
     add_child_to_parent(d, e)
-    generated_time_steps = get_parent_time_steps(a)
+    generated_time_steps = a.get_parent_time_steps()
     expected_time_steps = [-1, 0, 1, 2, 3, 2]
     self.assertEqual(generated_time_steps, expected_time_steps)
 

@@ -22,11 +22,12 @@ from syntax_based.asg import generate_action_sequence, Action, APPLY_RULE, GENER
 from collections import deque
 class Node:
 
-  def __init__(self, parent: 'Node', value: str):
+  def __init__(self, parent: 'Node', value: str, time_step: int):
     self.parent = parent
     # rule head or regex term.
     self.value = value
     self.children = []
+    self.time_step = time_step
     # id of rule expanded at this node.
     self.rule_id = None
     # token stored in the node
@@ -53,16 +54,15 @@ class Node:
     for child in self.children:
       child.pretty_print_tree(depth+1)
 
-  def get_parent_time_steps(self,
-                            current_step: int = 0, parent_step: int = -1):
-    parent_time_steps = [parent_step]
-    parent_step = current_step
-    current_step += 1
+  def get_parent_time_steps(self):
+    if self.parent is None:
+      parent_step = -1
+    else:
+      parent_step = self.parent.time_step
+    parent_steps = [parent_step]
     for child in self.children:
-      child_parent_times = child.get_parent_time_steps(current_step, parent_step)
-      current_step += len(child_parent_times)
-      parent_time_steps += child_parent_times
-    return parent_time_steps
+      parent_steps += child.get_parent_time_steps()
+    return parent_steps
 
   def get_node_types(self):
     node_types = [self.value]
@@ -97,7 +97,10 @@ class Node:
       delimiter = ' '
     return delimiter.join(children_substrings)
 
-def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
+def apply_action(frontier_nodes_stack: deque,
+                 action: Action,
+                 time_step: int,
+                 grammar: Grammar):
   """Applies an action (apply rule or generate token). The action extends an
   AST that is under construction by extending the stack of frontier nodes.
   The function returns the extended stack."""
@@ -113,7 +116,7 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
     for term in rule_branch.body:
       term_type = term.term_type
       if term_type == TermType.RULE_TERM or term_type == TermType.REGEX_TERM:
-        child = Node(current_node, term.value)
+        child = Node(current_node, term.value, time_step)
         new_frontier_nodes.append(child)
         current_node.add_child(child)
     new_frontier_nodes.reverse()
@@ -122,7 +125,7 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
 
 
 def construct_root(grammar: Grammar):
-  return Node(None, grammar.grammar_entry)
+  return Node(None, grammar.grammar_entry, 0)
 
 
 def apply_sequence_of_actions(action_sequence: List, grammar: Grammar):
@@ -130,8 +133,10 @@ def apply_sequence_of_actions(action_sequence: List, grammar: Grammar):
   root = construct_root(grammar)
   frontier_nodes = deque()
   frontier_nodes.append(root)
+  time_step = 1
   for action in action_sequence:
-    frontier_nodes = apply_action(frontier_nodes, action, grammar)
+    frontier_nodes = apply_action(frontier_nodes, action, time_step, grammar)
+    time_step += 1
   return root
 
 
