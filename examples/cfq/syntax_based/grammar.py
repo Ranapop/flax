@@ -201,6 +201,10 @@ class Grammar:
           return head
     return None
 
+  def is_rule_head(self, rule_head: str):
+    """Returns whether a string value is a head in a rule or not."""
+    return rule_head in self.head.keys()
+
   def print_grammar(self):
     for head, branch_ids in self.rules.items():
       for branch_id in branch_ids:

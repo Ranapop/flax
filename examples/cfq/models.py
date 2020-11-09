@@ -14,13 +14,15 @@
 
 # Lint as: python3
 """Flax modules composing the seq2seq LSTM architecture for CFQ"""
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 import numpy as np
 import jax
 from jax import random
 import jax.numpy as jnp
 from flax import jax_utils
 from flax import nn
+from syntax_based.node import Node, construct_root, apply_action
+from syntax_based.grammar import Grammar
 
 # hyperparams
 LSTM_HIDDEN_SIZE = 512
@@ -530,6 +532,99 @@ class SyntaxBasedDecoder(nn.Module):
 
     return all_rules_logits, all_token_logits, all_predictions, None
     
+  def decode_inference(self,
+                       init_states: jnp.array,
+                       encoder_hidden_states: jnp.array,
+                       attention_mask: jnp.array,
+                       lstm_input_module: nn.Module,
+                       multilayer_lstm_cell: nn.Module,
+                       mlp_attention: nn.Module,
+                       classifier: nn.Module,
+                       projected_keys: jnp.array,
+                       h_dropout_masks: jnp.array,
+                       vertical_dropout_rate: float,
+                       initial_lstm_state: jnp.array,
+                       node_vocab: Dict,
+                       tokens_list: List,
+                       grammar: Grammar):
+    
+    initial_h = init_states[-1, 1, :]
+    multilayer_lstm_output = (init_states, initial_h)
+    carry = (nn.make_rng(), multilayer_lstm_output)
+    all_predictions = []
+    all_rules_logits = []
+    all_tokens_logits = []
+    lstm_states = [initial_lstm_state]
+    actions = [jnp.array([-1, -1])]
+    frontier_nodes = []
+    time_step=0
+    while len(frontier_nodes)!= 0:
+      current_node: Node = frontier_nodes.pop()
+
+      rng, multilayer_lstm_output = carry
+      previous_states, h = multilayer_lstm_output
+      carry_rng, categorical_rng = jax.random.split(rng, 2)
+
+      dec_prev_state = jnp.expand_dims(h, 0)
+      context, _ = mlp_attention(dec_prev_state, projected_keys,
+                                 encoder_hidden_states, attention_mask)
+
+      parent_node = current_node.parent
+      if parent_node is None:
+        parent_idx = 0
+      else:
+        parent_idx = parent_node.time_step + 1
+      
+      lstm_states_arr = jnp.array(lstm_states)
+      actions_arr = jnp.array(actions)
+
+      node_type = current_node.value()
+      node_type_id = node_vocab[node_type]
+      lstm_input = lstm_input_module(
+        current_node_type=node_type_id,
+        previous_action=actions_arr[time_step],
+        parent_state=lstm_states_arr[parent_idx],
+        parent_action=actions_arr[parent_idx],
+        context=context)
+
+      states, h = multilayer_lstm_cell(
+        horizontal_dropout_masks=h_dropout_masks,
+        vertical_dropout_rate=vertical_dropout_rate,
+        input=lstm_input,
+        previous_states=previous_states,
+        train=True)
+      if grammar.is_rule_head(node_type):
+        curr_action_type = jnp.array(0)
+      else:
+        curr_action_type = jnp.array(1)
+      rules_logits, tokens_logits, prediction = classifier(curr_action_type, h)
+
+      # apply predicted action
+      if grammar.is_rule_head(node_type):
+        # Apply rule action
+        action = (0, prediction)
+      else:
+        # TODO: change generate action to take token id
+        token = tokens_list[prediction]
+        action = (1, token)
+      frontier_nodes = apply_action(frontier_nodes, action, time_step, grammar)
+
+      carry = (carry_rng, (states, h))
+      lstm_states.append(h)
+
+      all_predictions.append(prediction)
+      all_rules_logits.append(rules_logits)
+      all_tokens_logits.append(tokens_logits)
+      time_step+=1
+
+    all_predictions = jnp.array(all_predictions)
+    all_rules_logits = jnp.array(all_rules_logits)
+    all_token_logits = jnp.array(all_tokens_logits)
+
+    return all_rules_logits, all_token_logits, all_predictions, None
+      
+
+      
 
   def apply(self,
             init_states: jnp.array,
