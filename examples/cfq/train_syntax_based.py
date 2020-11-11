@@ -53,7 +53,8 @@ TEST_LOSSES = 'test loss'
 def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
   """Set positions beyond the length of each sequence to 0."""
   mask = (lengths[:, jnp.newaxis] > jnp.arange(sequence_batch.shape[1]))
-  return sequence_batch * mask
+  # Use where to zero out +/-inf if necessary.
+  return jnp.where(mask, sequence_batch, 0)
 
 
 def create_model(token_vocab_size: int,
@@ -85,7 +86,8 @@ def cross_entropy_loss(rules_logits: jnp.array,
   # [batch_size, seq_len, no_rules] -> [batch_size, seq_len]
   scores_rules = jnp.sum(labels_rules * rules_logits, axis=-1)
   # [batch_size, seq_len, no_tokens] -> [batch_size, seq_len]
-  scores_tokens = jnp.sum(labels_tokens * tokens_logits, axis=-1)
+  scores_tokens = labels_tokens * tokens_logits
+  scores_tokens = jnp.sum(scores_tokens, axis=-1)
   scores = scores_rules + scores_tokens
   masked_logged_scores = jnp.sum(mask_sequences(jnp.log(scores), lengths))
   mean_losses = jnp.divide(masked_logged_scores, lengths)
