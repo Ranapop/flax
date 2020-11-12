@@ -434,18 +434,10 @@ class SyntaxBasedDecoder(nn.Module):
         dropout_rate=horizontal_dropout_rate,
         train=train)
 
-    time_steps = inputs.shape[1]
-    initial_h = init_states[-1][1]
-    multilayer_lstm_output = (init_states, initial_h)
-    carry = (nn.make_rng(), multilayer_lstm_output, inputs[:, 0])
-    all_logits = []
-    all_predicted_tokens = []
-    all_scores = []
-    for i in range(time_steps):
+    def decode_step_fn(carry, x):
       rng, multilayer_lstm_output, last_prediction = carry
       previous_states, h = multilayer_lstm_output
       carry_rng, categorical_rng = jax.random.split(rng, 2)
-      x =  inputs[:, i]
       if not train:
         x = last_prediction
       x = shared_embedding(x)
@@ -463,28 +455,36 @@ class SyntaxBasedDecoder(nn.Module):
       logits = projection(h)
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
       predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
-      carry = (carry_rng, (states, h), predicted_tokens_uint8)
-      all_logits.append(logits)
-      all_predicted_tokens.append(predicted_tokens_uint8)
-      all_scores.append(scores)
+      new_carry = (carry_rng, (states, h), predicted_tokens_uint8)
+      new_x = (logits, predicted_tokens_uint8, scores)
+      return new_carry, new_x
 
-    all_logits = jnp.array(all_logits)
-    all_predicted_tokens = jnp.array(all_predicted_tokens)
-    all_scores = jnp.array(all_scores)
+    # initialisig the LSTM states and final output with the
+    # encoder hidden states
+    multilayer_lstm_output = (init_states, init_states[-1][1])
+    init_carry = (nn.make_rng(), multilayer_lstm_output, inputs[:, 0])
 
-    # Swap batch and output sequence dimensions.
-    all_logits = jnp.swapaxes(all_logits, 0, 1)
-    all_predicted_tokens = jnp.swapaxes(all_predicted_tokens, 0, 1)
-    all_scores = jnp.swapaxes(all_scores, 0, 1)
+    if self.is_initializing():
+      # initialize parameters before scan
+      decode_step_fn(init_carry, inputs[:, 0])
 
+    _, (logits, predictions, scores) = jax_utils.scan_in_dim(
+        decode_step_fn,
+        init=init_carry,  # rng, lstm_state, last_pred
+        xs=inputs,
+        axis=1)
+    # The attention weights are only examined on the evaluation flow, so this
+    # if is used to avoid unnecesary operations.
     if not self.is_initializing() and not train:
-      attention_weights = jnp.array(all_scores)
-      # Going [batch, input_seq_len, output_seq_len] -> 
-      #       [batch, output_seq_len, input_seq_len].
+      attention_weights = jnp.array(scores)
+      # Going from [batch_size, output_seq_len, input_seq_len]
+      # to [batch_size, input_seq_len, output_seq_len].
       jnp.swapaxes(attention_weights, 1, 2)
     else:
       attention_weights = None
-    return all_logits, all_predicted_tokens, attention_weights
+    return logits, predictions, attention_weights
+
+
 
 
 class Seq2tree(nn.Module):
