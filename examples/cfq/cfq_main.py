@@ -98,12 +98,10 @@ def main(_):
   if FLAGS.syntax_based:
     train_fn = train_syntax_based.train_model
     test_fn = train_syntax_based.test_model
-    #TODO: replace with Seq2Tree once model ready.
-    data_source = inp.Seq2SeqCfqDataSource(
+    data_source = inp.Seq2TreeCfqDataSource(
       seed=FLAGS.seed,
       fixed_output_len=False,
-      cfq_split=FLAGS.cfq_split,
-      replace_with_dummy=FLAGS.dummy_data)
+      cfq_split=FLAGS.cfq_split)
   else:
     train_fn = train.train_model
     test_fn = train.test_model
