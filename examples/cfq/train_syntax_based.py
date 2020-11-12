@@ -54,7 +54,7 @@ TEST_LOSSES = 'test loss'
 def indices_to_str(batch_inputs: jnp.ndarray, data_source: inp.CFQDataSource):
   """Decode a batch of one-hot encoding to strings."""
   return np.array(
-      [data_source.indices_to_sequence_string(seq) for seq in batch_inputs])
+      ['' for seq in batch_inputs])
 
 
 def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
@@ -207,9 +207,12 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
 
   inputs = batch[constants.QUESTION_KEY]
   input_lengths = batch[constants.QUESTION_LEN_KEY]
-  labels = batch[constants.QUERY_KEY]
+  # labels = batch[constants.QUERY_KEY]
+  # labels_no_bos = labels[:, 1:]
+  # queries_lengths = batch[constants.QUERY_LEN_KEY] - 1
+  labels = jnp.array(batch['action_values'], dtype=jnp.uint8)
   labels_no_bos = labels[:, 1:]
-  queries_lengths = batch[constants.QUERY_LEN_KEY] - 1
+  queries_lengths = batch['action_seq_len'] - 1
 
   def loss_fn(model):
     """Compute cross-entropy loss."""
@@ -291,9 +294,12 @@ def evaluate_model(model: nn.Module,
   avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
   logging_file = open(logging_file_name,'a')
   for batch in tfds.as_numpy(batches):
-    inputs = batch[constants.QUESTION_KEY]
+    inputs = jnp.array(batch[constants.QUESTION_KEY], dtype=jnp.uint8)
     input_lengths = batch[constants.QUESTION_LEN_KEY]
-    gold_outputs = batch[constants.QUERY_KEY][:, 1:]
+    # gold_outputs = batch[constants.QUERY_KEY][:, 1:]
+    # queries_lengths = batch[constants.QUERY_LEN_KEY] - 1
+    gold_outputs = batch['action_values'][:, 1:]
+    queries_lengths = batch['action_seq_len'] - 1
     logits, inferred_outputs, attention_weights = infer(model,
                                 inputs, input_lengths, nn.make_rng(),
                                 data_source.tokens_vocab_size,
@@ -303,7 +309,7 @@ def evaluate_model(model: nn.Module,
         logits,
         inferred_outputs,
         gold_outputs,
-        batch[constants.QUERY_LEN_KEY] - 1,
+        queries_lengths,
         data_source.tokens_vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
     if no_logged_examples is not None and no_batches == 0:
