@@ -352,8 +352,6 @@ def evaluate_model(model: nn.Module,
                      gold_outputs, inferred_outputs,
                      attention_weights,
                      data_source)
-    # if no_batches==0:
-    #   return avg_metrics
     no_batches += 1
   avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
   logging_file.close()
