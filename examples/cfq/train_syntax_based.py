@@ -83,26 +83,26 @@ def create_model(vocab_size: int) -> nn.Module:
   return model
 
 
-def cross_entropy_loss(tokens_logits: jnp.array,
-                       rules_logits: jnp.array,
+def cross_entropy_loss(rules_logits: jnp.array,
+                       tokens_logits: jnp.array,
                        action_types: jnp.array,
                        action_values: jnp.array,
                        lengths: jnp.array,
-                       token_vocab_size: int,
-                       rule_vocab_size: int):
+                       rule_vocab_size: int,
+                       token_vocab_size: int):
   """Returns cross-entropy loss."""
-  tokens_logits = jax.nn.softmax(tokens_logits)
   rules_logits = jax.nn.softmax(rules_logits)
+  tokens_logits = jax.nn.softmax(tokens_logits)
   action_types = jnp.expand_dims(action_types, -1)
   rules_logits = jnp.where(action_types, jnp.zeros(rule_vocab_size), rules_logits)
   tokens_logits = jnp.where(action_types, tokens_logits, jnp.zeros(token_vocab_size))
   labels_tokens = common_utils.onehot(action_values, token_vocab_size)
   labels_rules = common_utils.onehot(action_values, rule_vocab_size)
-  # [batch_size, seq_len, no_tokens] -> [batch_size, seq_len]
-  scores_tokens = jnp.sum(labels_tokens * tokens_logits, axis=-1)
   # [batch_size, seq_len, no_rules] -> [batch_size, seq_len]
   scores_rules = jnp.sum(labels_rules * rules_logits, axis=-1)
-  scores = scores_tokens + scores_rules
+  # [batch_size, seq_len, no_tokens] -> [batch_size, seq_len]
+  scores_tokens = jnp.sum(labels_tokens * tokens_logits, axis=-1)
+  scores = scores_rules + scores_tokens
   masked_logged_scores = jnp.sum(mask_sequences(jnp.log(scores), lengths),
                                  axis=-1)
   mean_losses = jnp.divide(masked_logged_scores, lengths)
