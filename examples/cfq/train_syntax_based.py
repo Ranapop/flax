@@ -103,10 +103,11 @@ def cross_entropy_loss(tokens_logits: jnp.array,
   # [batch_size, seq_len, no_rules] -> [batch_size, seq_len]
   scores_rules = jnp.sum(labels_rules * rules_logits, axis=-1)
   scores = scores_tokens + scores_rules
-  masked_logged_scores = jnp.sum(mask_sequences(jnp.log(scores), lengths), axis=-1)
+  masked_logged_scores = jnp.sum(mask_sequences(jnp.log(scores), lengths),
+                                 axis=-1)
   mean_losses = jnp.divide(masked_logged_scores, lengths)
   mean_loss = jnp.mean(mean_losses)
-  return -mean_loss, mean_losses, masked_logged_scores
+  return -mean_loss
 
 
 def pad_along_axis(array: jnp.array,
@@ -179,7 +180,7 @@ def compute_metrics(logits: jnp.array,
     logits = pad_along_axis(logits, padding_size, 1)
     predictions = pad_along_axis(predictions, padding_size, 1)
 
-  loss, _, _ = cross_entropy_loss(logits,
+  loss = cross_entropy_loss(logits,
                             logits,
                             action_types,
                             action_values,
@@ -240,22 +241,21 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
                                      decoder_inputs=action_values,
                                      encoder_inputs_lengths=input_lengths,
                                      vocab_size=vocab_size)
-    loss, m_l, sc = cross_entropy_loss(logits,
-                                   logits,
-                                   action_types,
-                                   action_values,
-                                   queries_lengths,
-                                   vocab_size,
-                                   vocab_size)
-    return loss, (logits, predictions, m_l, sc)
+    loss = cross_entropy_loss(logits,
+                              logits,
+                              action_types,
+                              action_values,
+                              queries_lengths,
+                              vocab_size,
+                              vocab_size)
+    return loss, (logits, predictions)
 
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
   (_, output), grad = grad_fn(optimizer.target)
-  logits, predictions, m_l, sc = output
-  debug_data = {'logits': logits, 'predictions': predictions, 'losses': m_l, 'logged_scores': sc}
+  logits, predictions = output
   grad = jax.lax.pmean(grad, axis_name='batch')
   grad = clip_grads(grad, max_norm=1.0)
-  # optimizer = optimizer.apply_gradient(grad)
+  optimizer = optimizer.apply_gradient(grad)
   metrics = {}
   metrics = compute_metrics(logits,
                             predictions,
@@ -264,7 +264,7 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
                             queries_lengths,
                             vocab_size)
   metrics = jax.lax.pmean(metrics, axis_name='batch')
-  return optimizer, metrics, debug_data
+  return optimizer, metrics
 
 
 @jax.partial(jax.jit, static_argnums=[4, 6])
@@ -415,7 +415,6 @@ def train_model(learning_rate: float = None,
 
     train_iter = iter(train_batches)
     train_metrics = []
-    f = open('temp/debug_file.txt', 'a')
     for step, batch in zip(range(num_train_steps), train_iter):
       if batch_size % jax.device_count() > 0:
         raise ValueError('Batch size must be divisible by the number of devices')
@@ -423,8 +422,8 @@ def train_model(learning_rate: float = None,
       step_key = nn.make_rng()
       # Shard the step PRNG key
       sharded_keys = common_utils.shard_prng_key(step_key)
-      optimizer, metrics, debug_data = train_step(optimizer, batch, sharded_keys,
-                                                  data_source.tokens_vocab_size)
+      optimizer, metrics = train_step(optimizer, batch, sharded_keys,
+                                      data_source.tokens_vocab_size)
       train_metrics.append(metrics)
       if (step + 1) % eval_freq == 0:
         train_metrics = common_utils.get_metrics(train_metrics)
@@ -438,33 +437,9 @@ def train_model(learning_rate: float = None,
                                     predicted_output_length=max_out_len,
                                     logging_file_name = logging_file_name,
                                     no_logged_examples=3)
-        f.write('Step {0}\n'.format(step))
-        f.write('Predictions\n')
-        batch_ex = 16
-        # print('predictions shape ', debug_data['predictions'].shape)
-        predictions = debug_data['predictions'][0]
-        np.savetxt(f, predictions[batch_ex], fmt='%0.2f')
-        losses = debug_data['losses']
-        f.write('\nLosses\n')
-        np.savetxt(f,losses, fmt='%0.2f')
-        logged_scores = debug_data['logged_scores']
-        f.write('\nLogged scores\n')
-        np.savetxt(f,logged_scores, fmt='%0.2f')
-        f.write('\naction types\n')
-        np.savetxt(f, batch['action_types'][0][batch_ex], fmt='%d')
-        f.write('\naction values\n')
-        np.savetxt(f, batch['action_values'][0][batch_ex], fmt='%d')
-        # f.write('\naction lengths\n')
-        # np.savetxt(f, batch['action_seq_len'][batch_ex], fmt='%d')
-        f.write('\nLogits for {0}\n'.format(batch_ex))
-        logits = debug_data['logits'][batch_ex]
-        # for i in range(logits.shape[0]):
-        np.savetxt(f,logits[0], fmt='%0.2f')
-        f.write('\n\n')
         log(step, train_summary, dev_metrics)
         save_to_tensorboard(train_summary_writer, train_summary, step)
         save_to_tensorboard(eval_summary_writer, dev_metrics, step)
-    f.close()
     logging.info('Done training')
 
   logging.info('Saving model at %s', model_dir)
