@@ -458,12 +458,14 @@ class SyntaxBasedDecoder(nn.Module):
 
     # initialisig the LSTM states and final output with the
     # encoder hidden states
+    #TODO: think of what the initial prediction should be.
+    initial_prediction = jnp.array(0, dtype=jnp.uint8)
     multilayer_lstm_output = (init_states, init_states[-1, 1, :])
-    init_carry = (nn.make_rng(), multilayer_lstm_output, inputs[0])
+    init_carry = (nn.make_rng(), multilayer_lstm_output, initial_prediction)
 
     if self.is_initializing():
       # initialize parameters before scan
-      decode_step_fn(init_carry, inputs[0])
+      decode_step_fn(init_carry, initial_prediction)
 
     _, (logits, predictions, scores) = jax_utils.scan_in_dim(
         decode_step_fn,
@@ -520,7 +522,6 @@ class Seq2tree(nn.Module):
     hidden_states, init_decoder_states = encoder(encoder_inputs,
                                                  encoder_inputs_lengths,
                                                  shared_embedding, train)
-    inputs_no_bos = decoder_inputs[:, :-1]
     # [no_layers, 2, batch, hidden_size] -> [batch, no_layers, 2, hidden_size]
     init_decoder_states = jnp.array(init_decoder_states)
     init_decoder_states = jnp.swapaxes(init_decoder_states, 0, 2)
@@ -528,7 +529,7 @@ class Seq2tree(nn.Module):
     logits, predictions, attention_weights = vmapped_decoder(init_decoder_states,
                                                              hidden_states,
                                                              mask,
-                                                             inputs_no_bos)
+                                                             decoder_inputs)
 
     return logits, predictions, attention_weights
 

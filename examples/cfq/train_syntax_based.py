@@ -60,7 +60,8 @@ def indices_to_str(batch_inputs: jnp.ndarray, data_source: inp.CFQDataSource):
 def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
   """Set positions beyond the length of each sequence to 0."""
   mask = (lengths[:, jnp.newaxis] > jnp.arange(sequence_batch.shape[1]))
-  return sequence_batch * mask
+  # Use where to zero out +/-inf if necessary.
+  return jnp.where(mask, sequence_batch, 0)
 
 
 def create_model(vocab_size: int) -> nn.Module:
@@ -82,16 +83,30 @@ def create_model(vocab_size: int) -> nn.Module:
   return model
 
 
-def cross_entropy_loss(logits: jnp.array, labels: jnp.array,
-                       lengths: jnp.array, vocab_size: int):
+def cross_entropy_loss(tokens_logits: jnp.array,
+                       rules_logits: jnp.array,
+                       action_types: jnp.array,
+                       action_values: jnp.array,
+                       lengths: jnp.array,
+                       token_vocab_size: int,
+                       rule_vocab_size: int):
   """Returns cross-entropy loss."""
-  labels = common_utils.onehot(labels, vocab_size)
-  log_soft = nn.log_softmax(logits)
-  log_sum = jnp.sum(log_soft * labels, axis=-1)
-  masked_log_sums = jnp.sum(mask_sequences(log_sum, lengths))
-  mean_losses = jnp.divide(masked_log_sums, lengths)
+  tokens_logits = jax.nn.softmax(tokens_logits)
+  rules_logits = jax.nn.softmax(rules_logits)
+  action_types = jnp.expand_dims(action_types, -1)
+  rules_logits = jnp.where(action_types, jnp.zeros(rule_vocab_size), rules_logits)
+  tokens_logits = jnp.where(action_types, tokens_logits, jnp.zeros(token_vocab_size))
+  labels_tokens = common_utils.onehot(action_values, token_vocab_size)
+  labels_rules = common_utils.onehot(action_values, rule_vocab_size)
+  # [batch_size, seq_len, no_tokens] -> [batch_size, seq_len]
+  scores_tokens = jnp.sum(labels_tokens * tokens_logits, axis=-1)
+  # [batch_size, seq_len, no_rules] -> [batch_size, seq_len]
+  scores_rules = jnp.sum(labels_rules * rules_logits, axis=-1)
+  scores = scores_tokens + scores_rules
+  masked_logged_scores = jnp.sum(mask_sequences(jnp.log(scores), lengths), axis=-1)
+  mean_losses = jnp.divide(masked_logged_scores, lengths)
   mean_loss = jnp.mean(mean_losses)
-  return -mean_loss
+  return -mean_loss, mean_losses, masked_logged_scores
 
 
 def pad_along_axis(array: jnp.array,
@@ -135,7 +150,8 @@ def compute_perfect_match_accuracy(predictions: jnp.array,
 
 def compute_metrics(logits: jnp.array,
                     predictions: jnp.array,
-                    labels: jnp.array,
+                    action_values: jnp.array,
+                    action_types: jnp.array,
                     queries_lengths: jnp.array,
                     vocab_size: int) -> Dict:
   """Computes metrics for a batch of logist & labels and returns those metrics
@@ -152,19 +168,26 @@ def compute_metrics(logits: jnp.array,
 
     """
   lengths = queries_lengths
-  labels_seq_len = labels.shape[1]
+  labels_seq_len = action_values.shape[1]
   logits_seq_len = logits.shape[1]
   max_seq_len = max(labels_seq_len, logits_seq_len)
   if labels_seq_len != max_seq_len:
-    labels = pad_along_axis(labels, max_seq_len - labels_seq_len, 1)
+    action_values = pad_along_axis(action_values, max_seq_len - labels_seq_len, 1)
+    action_types = pad_along_axis(action_types, max_seq_len - labels_seq_len, 1)
   elif logits_seq_len != max_seq_len:
     padding_size = max_seq_len - logits_seq_len
     logits = pad_along_axis(logits, padding_size, 1)
     predictions = pad_along_axis(predictions, padding_size, 1)
 
-  loss = cross_entropy_loss(logits, labels, lengths, vocab_size)
+  loss, _, _ = cross_entropy_loss(logits,
+                            logits,
+                            action_types,
+                            action_values,
+                            lengths,
+                            vocab_size,
+                            vocab_size)
   sequence_accuracy = compute_perfect_match_accuracy(
-    predictions, labels, lengths)
+    predictions, action_values, lengths)
   accuracy = jnp.mean(sequence_accuracy)
   metrics = {
       'loss': loss,
@@ -200,47 +223,48 @@ def write_examples(file: TextIO, no_logged_examples: int,
     file.write('Attention weights\n')
     np.savetxt(file, attention_weights[i], fmt='%0.2f')
 
-
 @functools.partial(jax.pmap, axis_name='batch', static_broadcasted_argnums=(3))
 def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   """Train one step."""
 
   inputs = batch[constants.QUESTION_KEY]
   input_lengths = batch[constants.QUESTION_LEN_KEY]
-  # labels = batch[constants.QUERY_KEY]
-  # labels_no_bos = labels[:, 1:]
-  # queries_lengths = batch[constants.QUERY_LEN_KEY] - 1
-  labels = jnp.array(batch['action_values'], dtype=jnp.uint8)
-  labels_no_bos = labels[:, 1:]
-  queries_lengths = batch['action_seq_len'] - 1
+  action_values = jnp.array(batch['action_values'], dtype=jnp.uint8)
+  action_types = jnp.array(batch['action_types'])
+  queries_lengths = batch['action_seq_len']
 
   def loss_fn(model):
     """Compute cross-entropy loss."""
     with nn.stochastic(rng):
       logits, predictions, _ = model(encoder_inputs=inputs,
-                                     decoder_inputs=labels,
+                                     decoder_inputs=action_values,
                                      encoder_inputs_lengths=input_lengths,
                                      vocab_size=vocab_size)
-    loss = cross_entropy_loss(logits,
-                              labels_no_bos,
-                              queries_lengths,
-                              vocab_size)
-    return loss, (logits, predictions)
+    loss, m_l, sc = cross_entropy_loss(logits,
+                                   logits,
+                                   action_types,
+                                   action_values,
+                                   queries_lengths,
+                                   vocab_size,
+                                   vocab_size)
+    return loss, (logits, predictions, m_l, sc)
 
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
   (_, output), grad = grad_fn(optimizer.target)
-  logits, predictions = output
+  logits, predictions, m_l, sc = output
+  debug_data = {'logits': logits, 'predictions': predictions, 'losses': m_l, 'logged_scores': sc}
   grad = jax.lax.pmean(grad, axis_name='batch')
   grad = clip_grads(grad, max_norm=1.0)
-  optimizer = optimizer.apply_gradient(grad)
+  # optimizer = optimizer.apply_gradient(grad)
   metrics = {}
   metrics = compute_metrics(logits,
                             predictions,
-                            labels_no_bos,
+                            action_values,
+                            action_types,
                             queries_lengths,
                             vocab_size)
   metrics = jax.lax.pmean(metrics, axis_name='batch')
-  return optimizer, metrics
+  return optimizer, metrics, debug_data
 
 
 @jax.partial(jax.jit, static_argnums=[4, 6])
@@ -296,9 +320,8 @@ def evaluate_model(model: nn.Module,
   for batch in tfds.as_numpy(batches):
     inputs = jnp.array(batch[constants.QUESTION_KEY], dtype=jnp.uint8)
     input_lengths = batch[constants.QUESTION_LEN_KEY]
-    # gold_outputs = batch[constants.QUERY_KEY][:, 1:]
-    # queries_lengths = batch[constants.QUERY_LEN_KEY] - 1
-    gold_outputs = batch['action_values'][:, 1:]
+    gold_outputs = batch['action_values']
+    action_types = batch['action_types']
     queries_lengths = batch['action_seq_len'] - 1
     logits, inferred_outputs, attention_weights = infer(model,
                                 inputs, input_lengths, nn.make_rng(),
@@ -309,6 +332,7 @@ def evaluate_model(model: nn.Module,
         logits,
         inferred_outputs,
         gold_outputs,
+        action_types,
         queries_lengths,
         data_source.tokens_vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
@@ -317,6 +341,8 @@ def evaluate_model(model: nn.Module,
                      gold_outputs, inferred_outputs,
                      attention_weights,
                      data_source)
+    # if no_batches==0:
+    #   return avg_metrics
     no_batches += 1
   avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
   logging_file.close()
@@ -389,6 +415,7 @@ def train_model(learning_rate: float = None,
 
     train_iter = iter(train_batches)
     train_metrics = []
+    f = open('temp/debug_file.txt', 'a')
     for step, batch in zip(range(num_train_steps), train_iter):
       if batch_size % jax.device_count() > 0:
         raise ValueError('Batch size must be divisible by the number of devices')
@@ -396,8 +423,8 @@ def train_model(learning_rate: float = None,
       step_key = nn.make_rng()
       # Shard the step PRNG key
       sharded_keys = common_utils.shard_prng_key(step_key)
-      optimizer, metrics = train_step(optimizer, batch, sharded_keys,
-                                      data_source.tokens_vocab_size)
+      optimizer, metrics, debug_data = train_step(optimizer, batch, sharded_keys,
+                                                  data_source.tokens_vocab_size)
       train_metrics.append(metrics)
       if (step + 1) % eval_freq == 0:
         train_metrics = common_utils.get_metrics(train_metrics)
@@ -411,10 +438,33 @@ def train_model(learning_rate: float = None,
                                     predicted_output_length=max_out_len,
                                     logging_file_name = logging_file_name,
                                     no_logged_examples=3)
+        f.write('Step {0}\n'.format(step))
+        f.write('Predictions\n')
+        batch_ex = 16
+        # print('predictions shape ', debug_data['predictions'].shape)
+        predictions = debug_data['predictions'][0]
+        np.savetxt(f, predictions[batch_ex], fmt='%0.2f')
+        losses = debug_data['losses']
+        f.write('\nLosses\n')
+        np.savetxt(f,losses, fmt='%0.2f')
+        logged_scores = debug_data['logged_scores']
+        f.write('\nLogged scores\n')
+        np.savetxt(f,logged_scores, fmt='%0.2f')
+        f.write('\naction types\n')
+        np.savetxt(f, batch['action_types'][0][batch_ex], fmt='%d')
+        f.write('\naction values\n')
+        np.savetxt(f, batch['action_values'][0][batch_ex], fmt='%d')
+        # f.write('\naction lengths\n')
+        # np.savetxt(f, batch['action_seq_len'][batch_ex], fmt='%d')
+        f.write('\nLogits for {0}\n'.format(batch_ex))
+        logits = debug_data['logits'][batch_ex]
+        # for i in range(logits.shape[0]):
+        np.savetxt(f,logits[0], fmt='%0.2f')
+        f.write('\n\n')
         log(step, train_summary, dev_metrics)
         save_to_tensorboard(train_summary_writer, train_summary, step)
         save_to_tensorboard(eval_summary_writer, dev_metrics, step)
-
+    f.close()
     logging.info('Done training')
 
   logging.info('Saving model at %s', model_dir)

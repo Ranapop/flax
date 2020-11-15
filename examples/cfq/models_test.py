@@ -12,7 +12,7 @@ from models import Encoder, MlpAttention, Decoder, Seq2seq, MultilayerLSTM,\
 
 class ModelsTest(parameterized.TestCase):
 
-  def test_encoder(self):
+  def encoder(self):
     seq1 = [1, 0, 3]
     seq2 = [1, 0, 3]
     batch_size = 2
@@ -43,7 +43,7 @@ class ModelsTest(parameterized.TestCase):
         self.assertEqual(c.shape, (batch_size, hidden_size))
         self.assertEqual(h.shape, (batch_size, hidden_size))
 
-  def test_mlp_attenntion(self):
+  def mlp_attenntion(self):
     batch_size = 2
     seq_len = 4
     values_size = 3
@@ -65,7 +65,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(context.shape, (batch_size, values_size))
       self.assertEqual(scores.shape, (batch_size, seq_len))
 
-  def test_multilayer_LSTM(self):
+  def multilayer_LSTM(self):
     num_layers = 3
     batch_size = 2
     input_size = 5
@@ -92,7 +92,7 @@ class ModelsTest(parameterized.TestCase):
                                     previous_states=previous_states,
                                     train=False)
 
-  def test_compute_attention_masks(self):
+  def compute_attention_masks(self):
     shape = (2, 7)
     lengths = jnp.array([5, 7])
     mask = models.compute_attention_masks(shape, lengths)
@@ -100,7 +100,7 @@ class ModelsTest(parameterized.TestCase):
                                [True, True, True, True, True, True, True]])
     self.assertEqual(True, jnp.array_equal(mask, expected_mask))
 
-  def test_decoder_train(self):
+  def decoder_train(self):
     seq1 = [1, 0, 2, 4]
     seq2 = [1, 4, 2, 3]
     inputs = jnp.array([seq1, seq2], dtype=jnp.uint8)
@@ -137,7 +137,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(predictions.shape, (batch_size, seq_len))
       self.assertEqual(scores, None)
 
-  def test_decoder_inference(self):
+  def decoder_inference(self):
     max_len = 4
     input_seq_len = 5
     seq1 = [1, 1, 1, 1]
@@ -175,7 +175,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(scores, None)
 
 
-  def test_seq_2_seq(self):
+  def seq_2_seq(self):
     vocab_size = 10
     batch_size = 2
     max_len = 5
@@ -192,7 +192,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(predictions.shape, (batch_size, max_len - 1))
       self.assertEqual(scores, None)
 
-  def test_seq_2_seq_inference_apply(self):
+  def seq_2_seq_inference_apply(self):
     vocab_size = 10
     batch_size = 2
     max_len = 5
@@ -228,7 +228,7 @@ class ModelsTest(parameterized.TestCase):
     lengths = jnp.array([2, 3])
     dec_inputs = jnp.array([[6, 7, 3, 5, 1], [1, 4, 2, 3, 2]], dtype=jnp.uint8)
     input_length = 3
-    predicted_length = 4
+    predicted_length = 5
     seq2seq = Seq2tree.partial(vocab_size=vocab_size)
     with nn.stochastic(jax.random.PRNGKey(0)):
       _, initial_params = models.Seq2tree.partial(vocab_size=vocab_size
@@ -242,8 +242,8 @@ class ModelsTest(parameterized.TestCase):
                                                  encoder_inputs_lengths=lengths,
                                                  vocab_size=vocab_size,
                                                  train=True)
-      self.assertEqual(logits.shape, (batch_size, max_len - 1, vocab_size))
-      self.assertEqual(predictions.shape, (batch_size, max_len - 1))
+      self.assertEqual(logits.shape, (batch_size, max_len, vocab_size))
+      self.assertEqual(predictions.shape, (batch_size, max_len))
       self.assertEqual(attention_weights, None)
   
   def test_seq_2_tree_inference_apply(self):
@@ -254,7 +254,7 @@ class ModelsTest(parameterized.TestCase):
     lengths = jnp.array([2, 3])
     dec_inputs = jnp.array([[6, 7, 3, 5, 1], [1, 4, 2, 3, 2]], dtype=jnp.uint8)
     input_length = 3
-    predicted_length = 4
+    predicted_length = 5
     seq2seq = Seq2tree.partial(vocab_size=vocab_size)
     with nn.stochastic(jax.random.PRNGKey(0)):
       _, initial_params = models.Seq2tree.partial(vocab_size=vocab_size
@@ -268,8 +268,8 @@ class ModelsTest(parameterized.TestCase):
                                                  encoder_inputs_lengths=lengths,
                                                  vocab_size=vocab_size,
                                                  train=False)
-      self.assertEqual(logits.shape, (batch_size, max_len - 1, vocab_size))
-      self.assertEqual(predictions.shape, (batch_size, max_len - 1))
+      self.assertEqual(logits.shape, (batch_size, max_len, vocab_size))
+      self.assertEqual(predictions.shape, (batch_size, max_len))
       self.assertEqual(
         attention_weights.shape, (batch_size, predicted_length, input_length))
 
