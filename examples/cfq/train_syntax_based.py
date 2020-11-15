@@ -92,8 +92,10 @@ def cross_entropy_loss(rules_logits: jnp.array,
   rules_logits = jax.nn.softmax(rules_logits)
   tokens_logits = jax.nn.softmax(tokens_logits)
   action_types = jnp.expand_dims(action_types, -1)
-  rules_logits = jnp.where(action_types, jnp.zeros(rule_vocab_size), rules_logits)
-  tokens_logits = jnp.where(action_types, tokens_logits, jnp.zeros(token_vocab_size))
+  rules_logits = jnp.where(action_types,
+                           jnp.zeros(rule_vocab_size), rules_logits)
+  tokens_logits = jnp.where(action_types,
+                            tokens_logits, jnp.zeros(token_vocab_size))
   labels_tokens = common_utils.onehot(action_values, token_vocab_size)
   labels_rules = common_utils.onehot(action_values, rule_vocab_size)
   # [batch_size, seq_len, no_rules] -> [batch_size, seq_len]
@@ -167,14 +169,14 @@ def compute_metrics(logits: jnp.array,
 
     """
   lengths = queries_lengths
-  labels_seq_len = action_values.shape[1]
-  logits_seq_len = logits.shape[1]
-  max_seq_len = max(labels_seq_len, logits_seq_len)
-  if labels_seq_len != max_seq_len:
-    action_values = pad_along_axis(action_values, max_seq_len - labels_seq_len, 1)
-    action_types = pad_along_axis(action_types, max_seq_len - labels_seq_len, 1)
-  elif logits_seq_len != max_seq_len:
-    padding_size = max_seq_len - logits_seq_len
+  gold_seq_len = action_values.shape[1]
+  predicted_seq_len = logits.shape[1]
+  max_seq_len = max(gold_seq_len, predicted_seq_len)
+  if gold_seq_len != max_seq_len:
+    action_values = pad_along_axis(action_values, max_seq_len - gold_seq_len, 1)
+    action_types = pad_along_axis(action_types, max_seq_len - gold_seq_len, 1)
+  elif predicted_seq_len != max_seq_len:
+    padding_size = max_seq_len - predicted_seq_len
     logits = pad_along_axis(logits, padding_size, 1)
     predictions = pad_along_axis(predictions, padding_size, 1)
 
@@ -329,10 +331,10 @@ def evaluate_model(model: nn.Module,
   avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
   logging_file = open(logging_file_name,'a')
   for batch in tfds.as_numpy(batches):
-    inputs = jnp.array(batch[constants.QUESTION_KEY], dtype=jnp.uint8)
+    inputs = batch[constants.QUESTION_KEY]
     input_lengths = batch[constants.QUESTION_LEN_KEY]
     gold_outputs = batch['action_values']
-    action_types = batch['action_types']
+    gold_action_types = batch['action_types']
     queries_lengths = batch['action_seq_len'] - 1
     logits, inferred_outputs, attention_weights = infer(model,
                                 inputs, input_lengths, nn.make_rng(),
@@ -343,7 +345,7 @@ def evaluate_model(model: nn.Module,
         logits,
         inferred_outputs,
         gold_outputs,
-        action_types,
+        gold_action_types,
         queries_lengths,
         data_source.tokens_vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
