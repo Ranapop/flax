@@ -12,7 +12,7 @@ from models import Encoder, MlpAttention, Decoder, Seq2seq, MultilayerLSTM,\
 
 class ModelsTest(parameterized.TestCase):
 
-  def encoder(self):
+  def test_encoder(self):
     seq1 = [1, 0, 3]
     seq2 = [1, 0, 3]
     batch_size = 2
@@ -43,7 +43,7 @@ class ModelsTest(parameterized.TestCase):
         self.assertEqual(c.shape, (batch_size, hidden_size))
         self.assertEqual(h.shape, (batch_size, hidden_size))
 
-  def mlp_attenntion(self):
+  def test_mlp_attenntion(self):
     batch_size = 2
     seq_len = 4
     values_size = 3
@@ -65,7 +65,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(context.shape, (batch_size, values_size))
       self.assertEqual(scores.shape, (batch_size, seq_len))
 
-  def multilayer_LSTM(self):
+  def test_multilayer_LSTM(self):
     num_layers = 3
     batch_size = 2
     input_size = 5
@@ -92,7 +92,7 @@ class ModelsTest(parameterized.TestCase):
                                     previous_states=previous_states,
                                     train=False)
 
-  def compute_attention_masks(self):
+  def test_compute_attention_masks(self):
     shape = (2, 7)
     lengths = jnp.array([5, 7])
     mask = models.compute_attention_masks(shape, lengths)
@@ -100,7 +100,7 @@ class ModelsTest(parameterized.TestCase):
                                [True, True, True, True, True, True, True]])
     self.assertEqual(True, jnp.array_equal(mask, expected_mask))
 
-  def decoder_train(self):
+  def test_decoder_train(self):
     seq1 = [1, 0, 2, 4]
     seq2 = [1, 4, 2, 3]
     inputs = jnp.array([seq1, seq2], dtype=jnp.uint8)
@@ -137,7 +137,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(predictions.shape, (batch_size, seq_len))
       self.assertEqual(scores, None)
 
-  def decoder_inference(self):
+  def test_decoder_inference(self):
     max_len = 4
     input_seq_len = 5
     seq1 = [1, 1, 1, 1]
@@ -175,7 +175,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(scores, None)
 
 
-  def seq_2_seq(self):
+  def test_seq_2_seq(self):
     vocab_size = 10
     batch_size = 2
     max_len = 5
@@ -192,7 +192,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(predictions.shape, (batch_size, max_len - 1))
       self.assertEqual(scores, None)
 
-  def seq_2_seq_inference_apply(self):
+  def test_seq_2_seq_inference_apply(self):
     vocab_size = 10
     batch_size = 2
     max_len = 5
