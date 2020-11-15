@@ -73,10 +73,8 @@ def create_model(vocab_size: int) -> nn.Module:
       #encoder_inputs
       [
           ((1, 1), jnp.uint8),
-          #decoder_inputs
-          # need to pass 2 for decoder length
-          # as the first token is cut off
-          ((1, 2), jnp.uint8),
+          # Decoder inputs [batch_size, 2, seq_len].
+          ((1, 2, 1), jnp.uint8),
           ((1,), jnp.uint8)
       ])
   model = nn.Model(models.Seq2tree, initial_params)
@@ -224,21 +222,31 @@ def write_examples(file: TextIO, no_logged_examples: int,
     file.write('Attention weights\n')
     np.savetxt(file, attention_weights[i], fmt='%0.2f')
 
+
+def get_decoder_inputs(batch: BatchType):
+  action_types = batch[constants.ACTION_TYPES_KEY]
+  action_values = batch[constants.ACTION_VALUES_KEY]
+  output = jnp.array([action_types, action_values])
+  output = jnp.swapaxes(output, 0, 1)
+  return output
+
+
 @functools.partial(jax.pmap, axis_name='batch', static_broadcasted_argnums=(3))
 def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   """Train one step."""
 
   inputs = batch[constants.QUESTION_KEY]
   input_lengths = batch[constants.QUESTION_LEN_KEY]
-  action_values = jnp.array(batch['action_values'], dtype=jnp.uint8)
-  action_types = jnp.array(batch['action_types'])
-  queries_lengths = batch['action_seq_len']
+  action_types = batch[constants.ACTION_TYPES_KEY]
+  action_values = batch[constants.ACTION_VALUES_KEY]
+  decoder_inputs = get_decoder_inputs(batch)
+  queries_lengths = batch[constants.ACTION_SEQ_LEN_KEY]
 
   def loss_fn(model):
     """Compute cross-entropy loss."""
     with nn.stochastic(rng):
       logits, predictions, _ = model(encoder_inputs=inputs,
-                                     decoder_inputs=action_values,
+                                     decoder_inputs=decoder_inputs,
                                      encoder_inputs_lengths=input_lengths,
                                      vocab_size=vocab_size)
     loss = cross_entropy_loss(logits,
@@ -282,14 +290,17 @@ def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
         predicted_output_length: what length should predict for the output
                                  (should be a static argnum)
     """
-  # This simply creates a batch (batch size = inputs.shape[0])
-  # filled with sequences of max_output_len of only the bos encoding. The length
-  # is the desired output length + 2 (bos and eos tokens).
-  initial_dec_inputs = jnp.tile(bos_encoding,
-                                (inputs.shape[0], predicted_output_length + 2))
+  #TODO: figure out initial decoder input when implementing inference flow.
+  batch_size = inputs.shape[0]
+  action_types = jnp.zeros((batch_size, predicted_output_length))
+  action_values = jnp.zeros((batch_size, predicted_output_length),
+                            dtype=jnp.uint8)
+  decoder_inputs = jnp.array([action_types, action_values])
+  # Go from [2, batch_size, seq_len] -> [batch_size, 2, seq_len].
+  decoder_inputs = jnp.swapaxes(decoder_inputs, 0, 1)
   with nn.stochastic(rng):
     logits, predictions, attention_weights = model(encoder_inputs=inputs,
-      decoder_inputs=initial_dec_inputs,
+      decoder_inputs=decoder_inputs,
       encoder_inputs_lengths=inputs_lengths,
       vocab_size=vocab_size,
       train=False)
