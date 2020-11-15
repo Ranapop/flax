@@ -391,7 +391,8 @@ class SyntaxBasedDecoder(nn.Module):
             attention_mask: jnp.array,
             inputs: jnp.array,
             shared_embedding: nn.Module,
-            vocab_size: int,
+            rule_vocab_size: int,
+            token_vocab_size: int,
             num_layers: int,
             horizontal_dropout_rate: float,
             vertical_dropout_rate: float,
@@ -406,7 +407,8 @@ class SyntaxBasedDecoder(nn.Module):
       attention_mask: attention mask [input_seq_len].
       inputs: decoder inputs [output_seq_len].
       shared_embedding: token embedding module.
-      vocab_size: token vocab size.
+      rule_vocab_size: rule vocab size.
+      token_vocab_size: token vocab size.
       num_layers: number of LSTM layers.
       horizontal_dropout_rate: LSTM horizontal dropout rate.
       horizontal_dropout_rate: LSTM vertical dropout rate.
@@ -415,7 +417,10 @@ class SyntaxBasedDecoder(nn.Module):
     """
     multilayer_lstm_cell = MultilayerLSTM.partial(num_layers=num_layers).shared(
         name='multilayer_lstm')
-    projection = nn.Dense.shared(features=vocab_size, name='projection')
+    rule_projection = nn.Dense.shared(features=rule_vocab_size,
+                                      name='rule_projection')
+    token_projection = nn.Dense.shared(features=token_vocab_size,
+                                       name='token_projection')
     mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE,
                                          use_batch_axis=False).shared(name='attention')
     # The keys projection can be calculated once for the whole sequence.
@@ -453,11 +458,14 @@ class SyntaxBasedDecoder(nn.Module):
         input=lstm_input,
         previous_states=previous_states,
         train=train)
-      logits = projection(h)
-      predicted_tokens = jax.random.categorical(categorical_rng, logits)
-      predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
-      new_carry = (carry_rng, (jnp.array(states), h), predicted_tokens_uint8)
-      accumulator = (logits, predicted_tokens_uint8, scores)
+      rule_logits = rule_projection(h)
+      token_logits = token_projection(h)
+      predicted_rules = jax.random.categorical(categorical_rng, rule_logits)
+      predicted_tokens = jax.random.categorical(categorical_rng, token_logits)
+      prediction = jnp.where(action_type, predicted_tokens, predicted_rules)
+      prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
+      new_carry = (carry_rng, (jnp.array(states), h), prediction_uint8)
+      accumulator = (rule_logits, token_logits, prediction_uint8, scores)
       return new_carry, accumulator
 
     # initialisig the LSTM states and final output with the
@@ -475,7 +483,7 @@ class SyntaxBasedDecoder(nn.Module):
     # Go from [2, out_seq_len] -> [out_seq_len, 2].
     scan_inputs = jnp.swapaxes(inputs, 0, 1)
 
-    _, (logits, predictions, scores) = jax_utils.scan_in_dim(
+    _, (rule_logits, token_logits, predictions, scores) = jax_utils.scan_in_dim(
         decode_step_fn,
         init=init_carry,  # rng, lstm_state, last_pred
         xs=scan_inputs,
@@ -489,7 +497,7 @@ class SyntaxBasedDecoder(nn.Module):
       jnp.swapaxes(attention_weights, 0, 1)
     else:
       attention_weights = None
-    return logits, predictions, attention_weights
+    return rule_logits, token_logits, predictions, attention_weights
 
 
 class Seq2tree(nn.Module):
@@ -499,7 +507,8 @@ class Seq2tree(nn.Module):
             encoder_inputs: jnp.array,
             decoder_inputs: jnp.array,
             encoder_inputs_lengths: jnp.array,
-            vocab_size: int,
+            rule_vocab_size: int,
+            token_vocab_size: int,
             emb_dim: int = EMBEDDING_DIM,
             train: bool = True,
             hidden_size: int = LSTM_HIDDEN_SIZE,
@@ -507,7 +516,7 @@ class Seq2tree(nn.Module):
             horizontal_dropout_rate=HORIZONTAL_DROPOUT,
             vertical_dropout_rate=VERTICAL_DROPOUT):
     shared_embedding = nn.Embed.shared(
-        num_embeddings=vocab_size,
+        num_embeddings=token_vocab_size,
         features=emb_dim,
         embedding_init=nn.initializers.normal(stddev=1.0))
 
@@ -519,9 +528,10 @@ class Seq2tree(nn.Module):
                                    num_layers=num_layers,
                                    horizontal_dropout_rate=horizontal_dropout_rate,
                                    vertical_dropout_rate=vertical_dropout_rate,
-                                   train = train,
-                                   vocab_size = vocab_size,
-                                   shared_embedding = shared_embedding)
+                                   train=train,
+                                   rule_vocab_size=rule_vocab_size,
+                                   token_vocab_size=token_vocab_size,
+                                   shared_embedding=shared_embedding)
     vmapped_decoder = jax.vmap(decoder)
     # compute attention masks
     mask = compute_attention_masks(encoder_inputs.shape, encoder_inputs_lengths)
@@ -534,10 +544,13 @@ class Seq2tree(nn.Module):
     init_decoder_states = jnp.array(init_decoder_states)
     init_decoder_states = jnp.swapaxes(init_decoder_states, 0, 2)
     # Decode outputs.
-    logits, predictions, attention_weights = vmapped_decoder(init_decoder_states,
-                                                             hidden_states,
-                                                             mask,
-                                                             decoder_inputs)
+    rule_logits,\
+    token_logits,\
+    predictions,\
+    attention_weights = vmapped_decoder(init_decoder_states,
+                                        hidden_states,
+                                        mask,
+                                        decoder_inputs)
 
-    return logits, predictions, attention_weights
+    return rule_logits, token_logits, predictions, attention_weights
 

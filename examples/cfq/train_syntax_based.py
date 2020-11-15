@@ -65,10 +65,11 @@ def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
   return jnp.where(mask, sequence_batch, 0)
 
 
-def create_model(vocab_size: int) -> nn.Module:
+def create_model(rule_vocab_size: int, token_vocab_size: int) -> nn.Module:
   """Creates a seq2seq model."""
   _, initial_params = models.Seq2tree.partial(
-      vocab_size=vocab_size
+      rule_vocab_size=rule_vocab_size,
+      token_vocab_size=token_vocab_size
   ).init_by_shape(
       nn.make_rng(),
       #encoder_inputs
@@ -82,27 +83,27 @@ def create_model(vocab_size: int) -> nn.Module:
   return model
 
 
-def cross_entropy_loss(rules_logits: jnp.array,
-                       tokens_logits: jnp.array,
+def cross_entropy_loss(rule_logits: jnp.array,
+                       token_logits: jnp.array,
                        action_types: jnp.array,
                        action_values: jnp.array,
                        lengths: jnp.array,
                        rule_vocab_size: int,
                        token_vocab_size: int):
   """Returns cross-entropy loss."""
-  rules_logits = jax.nn.softmax(rules_logits)
-  tokens_logits = jax.nn.softmax(tokens_logits)
+  rule_logits = jax.nn.softmax(rule_logits)
+  token_logits = jax.nn.softmax(token_logits)
   action_types = jnp.expand_dims(action_types, -1)
-  rules_logits = jnp.where(action_types,
-                           jnp.zeros(rule_vocab_size), rules_logits)
-  tokens_logits = jnp.where(action_types,
-                            tokens_logits, jnp.zeros(token_vocab_size))
+  rule_logits = jnp.where(action_types,
+                          jnp.zeros(rule_vocab_size), rule_logits)
+  token_logits = jnp.where(action_types,
+                           token_logits, jnp.zeros(token_vocab_size))
   labels_tokens = common_utils.onehot(action_values, token_vocab_size)
   labels_rules = common_utils.onehot(action_values, rule_vocab_size)
   # [batch_size, seq_len, no_rules] -> [batch_size, seq_len]
-  scores_rules = jnp.sum(labels_rules * rules_logits, axis=-1)
+  scores_rules = jnp.sum(labels_rules * rule_logits, axis=-1)
   # [batch_size, seq_len, no_tokens] -> [batch_size, seq_len]
-  scores_tokens = jnp.sum(labels_tokens * tokens_logits, axis=-1)
+  scores_tokens = jnp.sum(labels_tokens * token_logits, axis=-1)
   scores = scores_rules + scores_tokens
   masked_logged_scores = jnp.sum(mask_sequences(jnp.log(scores), lengths),
                                  axis=-1)
@@ -150,44 +151,49 @@ def compute_perfect_match_accuracy(predictions: jnp.array,
     return accuracy                  
 
 
-def compute_metrics(logits: jnp.array,
+def compute_metrics(rule_logits: jnp.array,
+                    token_logits: jnp.array,
                     predictions: jnp.array,
                     action_values: jnp.array,
                     action_types: jnp.array,
                     queries_lengths: jnp.array,
-                    vocab_size: int) -> Dict:
+                    rule_vocab_size: int,
+                    token_vocab_size: int) -> Dict:
   """Computes metrics for a batch of logist & labels and returns those metrics
 
     The metrics computed are cross entropy loss and mean batch accuracy. The
     accuracy at sequence level needs perfect matching of the compared sequences
     Args:
-      logits: logits (train time) or ohe predictions (test time)
-              [batch_size, logits seq_len, vocab_size]
-      predictions: predictions [batch_size, predicted seq len]
-      labels: ohe gold labels, shape [batch_size, labels seq_len]
-      queries_lengths: lengths of gold queries (until eos) [batch_size]
-      vocab_size: vocabulary size
-
+      rule_logits: Rule logits [batch_size, predicted seq_len, rule_vocab_size].
+      token_logits: Token logits
+        [batch_size, predicted seq_len, token_vocab_size].
+      predictions: Predictions [batch_size, predicted seq len].
+      action_values: Gold action values, shape [batch_size, gold seq_len].
+      action_types: Gold action types, shape [batch_size, gold seq_len].
+      queries_lengths: lengths of gold queries (until eos) [batch_size].
+      rule_vocab_size: rule vocabulary size.
+      token_vocab_size: token vocabulary size.
     """
   lengths = queries_lengths
   gold_seq_len = action_values.shape[1]
-  predicted_seq_len = logits.shape[1]
+  predicted_seq_len = rule_logits.shape[1]
   max_seq_len = max(gold_seq_len, predicted_seq_len)
   if gold_seq_len != max_seq_len:
     action_values = pad_along_axis(action_values, max_seq_len - gold_seq_len, 1)
     action_types = pad_along_axis(action_types, max_seq_len - gold_seq_len, 1)
   elif predicted_seq_len != max_seq_len:
     padding_size = max_seq_len - predicted_seq_len
-    logits = pad_along_axis(logits, padding_size, 1)
+    rule_logits = pad_along_axis(rule_logits, padding_size, 1)
+    token_logits = pad_along_axis(token_logits, padding_size, 1)
     predictions = pad_along_axis(predictions, padding_size, 1)
 
-  loss = cross_entropy_loss(logits,
-                            logits,
+  loss = cross_entropy_loss(rule_logits,
+                            token_logits,
                             action_types,
                             action_values,
                             lengths,
-                            vocab_size,
-                            vocab_size)
+                            rule_vocab_size,
+                            token_vocab_size)
   sequence_accuracy = compute_perfect_match_accuracy(
     predictions, action_values, lengths)
   accuracy = jnp.mean(sequence_accuracy)
@@ -234,8 +240,12 @@ def get_decoder_inputs(batch: BatchType):
   return output
 
 
-@functools.partial(jax.pmap, axis_name='batch', static_broadcasted_argnums=(3))
-def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
+@functools.partial(jax.pmap, axis_name='batch',
+                   static_broadcasted_argnums=(3, 4))
+def train_step(optimizer: Any,
+               batch: BatchType,
+               rng: Any,
+               rule_vocab_size: int, token_vocab_size: int):
   """Train one step."""
 
   inputs = batch[constants.QUESTION_KEY]
@@ -248,39 +258,45 @@ def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   def loss_fn(model):
     """Compute cross-entropy loss."""
     with nn.stochastic(rng):
-      logits, predictions, _ = model(encoder_inputs=inputs,
-                                     decoder_inputs=decoder_inputs,
-                                     encoder_inputs_lengths=input_lengths,
-                                     vocab_size=vocab_size)
-    loss = cross_entropy_loss(logits,
-                              logits,
+      rule_logits, token_logits, predictions, _ = \
+        model(encoder_inputs=inputs,
+              decoder_inputs=decoder_inputs,
+              encoder_inputs_lengths=input_lengths,
+              rule_vocab_size=rule_vocab_size,
+              token_vocab_size=token_vocab_size)
+    loss = cross_entropy_loss(rule_logits,
+                              token_logits,
                               action_types,
                               action_values,
                               queries_lengths,
-                              vocab_size,
-                              vocab_size)
-    return loss, (logits, predictions)
+                              rule_vocab_size,
+                              token_vocab_size)
+    return loss, (rule_logits, token_logits, predictions)
 
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
   (_, output), grad = grad_fn(optimizer.target)
-  logits, predictions = output
+  rule_logits, token_logits, predictions = output
   grad = jax.lax.pmean(grad, axis_name='batch')
   grad = clip_grads(grad, max_norm=1.0)
   optimizer = optimizer.apply_gradient(grad)
   metrics = {}
-  metrics = compute_metrics(logits,
+  metrics = compute_metrics(rule_logits,
+                            token_logits,
                             predictions,
                             action_values,
                             action_types,
                             queries_lengths,
-                            vocab_size)
+                            rule_vocab_size,
+                            token_vocab_size)
   metrics = jax.lax.pmean(metrics, axis_name='batch')
   return optimizer, metrics
 
 
-@jax.partial(jax.jit, static_argnums=[4, 6])
+@jax.partial(jax.jit, static_argnums=[4, 5, 7])
 def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
-          rng: Any, vocab_size: int, bos_encoding: jnp.array,
+          rng: Any,
+          rule_vocab_size: int, token_vocab_size: int,
+          bos_encoding: jnp.array,
           predicted_output_length: int):
   """Apply model on inference flow and return predictions.
 
@@ -302,12 +318,14 @@ def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
   # Go from [2, batch_size, seq_len] -> [batch_size, 2, seq_len].
   decoder_inputs = jnp.swapaxes(decoder_inputs, 0, 1)
   with nn.stochastic(rng):
-    logits, predictions, attention_weights = model(encoder_inputs=inputs,
-      decoder_inputs=decoder_inputs,
-      encoder_inputs_lengths=inputs_lengths,
-      vocab_size=vocab_size,
-      train=False)
-  return logits, predictions, attention_weights
+    rule_logits, token_logits, predictions, attention_weights = \
+      model(encoder_inputs=inputs,
+            decoder_inputs=decoder_inputs,
+            encoder_inputs_lengths=inputs_lengths,
+            rule_vocab_size=rule_vocab_size,
+            token_vocab_size=token_vocab_size,
+            train=False)
+  return rule_logits, token_logits, predictions, attention_weights
 
 
 def evaluate_model(model: nn.Module,
@@ -337,18 +355,22 @@ def evaluate_model(model: nn.Module,
     gold_outputs = batch['action_values']
     gold_action_types = batch['action_types']
     queries_lengths = batch['action_seq_len'] - 1
-    logits, inferred_outputs, attention_weights = infer(model,
-                                inputs, input_lengths, nn.make_rng(),
-                                data_source.tokens_vocab_size,
-                                data_source.bos_idx,
-                                predicted_output_length)
+    rule_logits, token_logits, inferred_outputs, attention_weights = \
+      infer(model,
+            inputs, input_lengths, nn.make_rng(),
+            data_source.rule_vocab_size,
+            data_source.tokens_vocab_size,
+            data_source.bos_idx,
+            predicted_output_length)
     metrics = compute_metrics(
-        logits,
-        inferred_outputs,
-        gold_outputs,
-        gold_action_types,
-        queries_lengths,
-        data_source.tokens_vocab_size)
+      rule_logits,
+      token_logits,
+      inferred_outputs,
+      gold_outputs,
+      gold_action_types,
+      queries_lengths,
+      data_source.rule_vocab_size,
+      data_source.tokens_vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
     if no_logged_examples is not None and no_batches == 0:
       write_examples(logging_file, no_logged_examples,
@@ -403,7 +425,8 @@ def train_model(learning_rate: float = None,
         os.path.join(model_dir, 'eval'))
 
   with nn.stochastic(jax.random.PRNGKey(seed)):
-    model = create_model(data_source.tokens_vocab_size)
+    model = create_model(data_source.rule_vocab_size,
+                         data_source.tokens_vocab_size)
     optimizer = flax.optim.Adam(learning_rate=learning_rate).create(model)
     optimizer = jax_utils.replicate(optimizer)
 
@@ -435,6 +458,7 @@ def train_model(learning_rate: float = None,
       # Shard the step PRNG key
       sharded_keys = common_utils.shard_prng_key(step_key)
       optimizer, metrics = train_step(optimizer, batch, sharded_keys,
+                                      data_source.rule_vocab_size,
                                       data_source.tokens_vocab_size)
       train_metrics.append(metrics)
       if (step + 1) % eval_freq == 0:
