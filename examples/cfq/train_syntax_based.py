@@ -53,6 +53,7 @@ TEST_LOSSES = 'test loss'
 # vmap?
 def indices_to_str(batch_inputs: jnp.ndarray, data_source: inp.CFQDataSource):
   """Decode a batch of one-hot encoding to strings."""
+  #TODO: implement when implementing inference flow.
   return np.array(
       ['' for seq in batch_inputs])
 
