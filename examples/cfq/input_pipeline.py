@@ -281,6 +281,12 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     syntax_tokens_list = self.grammar.collect_syntax_tokens()
     for syntax_token in syntax_tokens_list:
       byte_token = syntax_token.encode()
+      # Update indices in vocab.
+      removed_index = vocab[byte_token]
+      for word, index in vocab.items():
+        if index > removed_index:
+          vocab[word] -= 1
+      # Delete token from vocab.
       del vocab[byte_token]
     return vocab
 
@@ -356,6 +362,9 @@ if __name__ == '__main__':
 
   # Print queries
   batch_no = 1
+  print('vocab size is ', data_source.tokens_vocab_size)
+  print('vocab')
+  print(data_source.tokens_vocab)
   for batch in tfds.as_numpy(train_batches):
     action_values_batch = batch[constants.ACTION_VALUES_KEY]
     print('Batch no ',batch_no)
