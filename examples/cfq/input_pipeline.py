@@ -267,6 +267,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
                grammar: Grammar = Grammar(GRAMMAR_STR),
                load_data: bool = True):
     self.grammar = grammar
+    self.rule_vocab_size = len(grammar.branches)
     if load_data:
       super().__init__(seed,
                        fixed_output_len,
