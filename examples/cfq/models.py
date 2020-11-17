@@ -438,13 +438,11 @@ class SyntaxBasedDecoder(nn.Module):
 
     def decode_step_fn(carry, x):
       action_type = x[0]
-      action_value = x[1]
-      rng, multilayer_lstm_output, last_prediction = carry
+      action_value = jnp.asarray(x[1], dtype=jnp.uint8)
+      rng, multilayer_lstm_output, previous_action_value = carry
       previous_states, h = multilayer_lstm_output
       carry_rng, categorical_rng = jax.random.split(rng, 2)
-      if not train:
-        action_value = last_prediction
-      prev_action_emb = shared_embedding(action_value)
+      prev_action_emb = shared_embedding(previous_action_value)
       prev_action_emb = nn.dropout(prev_action_emb,
                                    rate=embed_dropout_rate,
                                    deterministic=train)
@@ -464,7 +462,9 @@ class SyntaxBasedDecoder(nn.Module):
       predicted_tokens = jax.random.categorical(categorical_rng, token_logits)
       prediction = jnp.where(action_type, predicted_tokens, predicted_rules)
       prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
-      new_carry = (carry_rng, (jnp.array(states), h), prediction_uint8)
+      if not train:
+        action_value = prediction_uint8
+      new_carry = (carry_rng, (jnp.array(states), h), action_value)
       accumulator = (rule_logits, token_logits, prediction_uint8, scores)
       return new_carry, accumulator
 
