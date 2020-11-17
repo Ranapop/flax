@@ -65,18 +65,21 @@ def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
   return jnp.where(mask, sequence_batch, 0)
 
 
-def create_model(rule_vocab_size: int, token_vocab_size: int) -> nn.Module:
+def create_model(rule_vocab_size: int,
+                 token_vocab_size: int,
+                 node_vocab_size: int) -> nn.Module:
   """Creates a seq2seq model."""
   _, initial_params = models.Seq2tree.partial(
       rule_vocab_size=rule_vocab_size,
-      token_vocab_size=token_vocab_size
+      token_vocab_size=token_vocab_size,
+      node_vocab_size=node_vocab_size
   ).init_by_shape(
       nn.make_rng(),
       #encoder_inputs
       [
           ((1, 1), jnp.uint8),
-          # Decoder inputs [batch_size, 2, seq_len].
-          ((1, 2, 1), jnp.uint8),
+          # Decoder inputs [batch_size, 3, seq_len].
+          ((1, 3, 1), jnp.uint8),
           ((1,), jnp.uint8)
       ])
   model = nn.Model(models.Seq2tree, initial_params)
@@ -235,17 +238,18 @@ def write_examples(file: TextIO, no_logged_examples: int,
 def get_decoder_inputs(batch: BatchType):
   action_types = batch[constants.ACTION_TYPES_KEY]
   action_values = batch[constants.ACTION_VALUES_KEY]
-  output = jnp.array([action_types, action_values])
+  node_types = batch[constants.NODE_TYPES_KEY]
+  output = jnp.array([action_types, action_values, node_types])
   output = jnp.swapaxes(output, 0, 1)
   return output
 
 
 @functools.partial(jax.pmap, axis_name='batch',
-                   static_broadcasted_argnums=(3, 4))
+                   static_broadcasted_argnums=(3, 4, 5))
 def train_step(optimizer: Any,
                batch: BatchType,
                rng: Any,
-               rule_vocab_size: int, token_vocab_size: int):
+               rule_vocab_size: int, token_vocab_size: int, node_vocab_size: int):
   """Train one step."""
 
   inputs = batch[constants.QUESTION_KEY]
@@ -263,7 +267,8 @@ def train_step(optimizer: Any,
               decoder_inputs=decoder_inputs,
               encoder_inputs_lengths=input_lengths,
               rule_vocab_size=rule_vocab_size,
-              token_vocab_size=token_vocab_size)
+              token_vocab_size=token_vocab_size,
+              node_vocab_size=node_vocab_size)
     loss = cross_entropy_loss(rule_logits,
                               token_logits,
                               action_types,
@@ -292,10 +297,10 @@ def train_step(optimizer: Any,
   return optimizer, metrics
 
 
-@jax.partial(jax.jit, static_argnums=[4, 5, 7])
+@jax.partial(jax.jit, static_argnums=[4, 5, 6, 8])
 def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
           rng: Any,
-          rule_vocab_size: int, token_vocab_size: int,
+          rule_vocab_size: int, token_vocab_size: int, node_vocab_size: int,
           bos_encoding: jnp.array,
           predicted_output_length: int):
   """Apply model on inference flow and return predictions.
@@ -314,7 +319,8 @@ def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
   action_types = jnp.zeros((batch_size, predicted_output_length))
   action_values = jnp.zeros((batch_size, predicted_output_length),
                             dtype=jnp.uint8)
-  decoder_inputs = jnp.array([action_types, action_values])
+  node_types = jnp.zeros((batch_size, predicted_output_length))
+  decoder_inputs = jnp.array([action_types, action_values, node_types])
   # Go from [2, batch_size, seq_len] -> [batch_size, 2, seq_len].
   decoder_inputs = jnp.swapaxes(decoder_inputs, 0, 1)
   with nn.stochastic(rng):
@@ -324,6 +330,7 @@ def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
             encoder_inputs_lengths=inputs_lengths,
             rule_vocab_size=rule_vocab_size,
             token_vocab_size=token_vocab_size,
+            node_vocab_size=node_vocab_size,
             train=False)
   return rule_logits, token_logits, predictions, attention_weights
 
@@ -360,6 +367,7 @@ def evaluate_model(model: nn.Module,
             inputs, input_lengths, nn.make_rng(),
             data_source.rule_vocab_size,
             data_source.tokens_vocab_size,
+            data_source.node_vocab_size,
             data_source.bos_idx,
             predicted_output_length)
     metrics = compute_metrics(
@@ -426,7 +434,8 @@ def train_model(learning_rate: float = None,
 
   with nn.stochastic(jax.random.PRNGKey(seed)):
     model = create_model(data_source.rule_vocab_size,
-                         data_source.tokens_vocab_size)
+                         data_source.tokens_vocab_size,
+                         data_source.node_vocab_size)
     optimizer = flax.optim.Adam(learning_rate=learning_rate).create(model)
     optimizer = jax_utils.replicate(optimizer)
 
@@ -459,7 +468,8 @@ def train_model(learning_rate: float = None,
       sharded_keys = common_utils.shard_prng_key(step_key)
       optimizer, metrics = train_step(optimizer, batch, sharded_keys,
                                       data_source.rule_vocab_size,
-                                      data_source.tokens_vocab_size)
+                                      data_source.tokens_vocab_size,
+                                      data_source.node_vocab_size)
       train_metrics.append(metrics)
       if (step + 1) % eval_freq == 0:
         train_metrics = common_utils.get_metrics(train_metrics)

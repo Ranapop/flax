@@ -368,6 +368,7 @@ class Seq2seq(nn.Module):
 """Syntax based modules."""
 
 ACTION_EMBEDDING_SIZE = 128
+NODE_EMBEDDING_SIZE = 32
 
 class ActionEmbed(nn.Module):
 
@@ -414,6 +415,7 @@ class SyntaxBasedDecoder(nn.Module):
             shared_embedding: nn.Module,
             rule_vocab_size: int,
             token_vocab_size: int,
+            node_vocab_size: int,
             num_layers: int,
             horizontal_dropout_rate: float,
             vertical_dropout_rate: float,
@@ -448,6 +450,11 @@ class SyntaxBasedDecoder(nn.Module):
     action_embedding = ActionEmbed.shared(rule_vocab_size=rule_vocab_size,
                                           token_embedding=shared_embedding,
                                           name='action_embedding')
+    node_embedding = nn.Embed.shared(
+        name='node_embedding',
+        num_embeddings=node_vocab_size,
+        features=NODE_EMBEDDING_SIZE,
+        embedding_init=nn.initializers.normal(stddev=1.0))
     # The keys projection can be calculated once for the whole sequence.
     projected_keys = nn.Dense(encoder_hidden_states,
                               ATTENTION_SIZE,
@@ -464,6 +471,7 @@ class SyntaxBasedDecoder(nn.Module):
     def decode_step_fn(carry, x):
       action_type = jnp.asarray(x[0], dtype=jnp.uint8)
       action_value = jnp.asarray(x[1], dtype=jnp.uint8)
+      node_type = jnp.asarray(x[2], dtype=jnp.uint8)
       rng, multilayer_lstm_output, previous_action = carry
       previous_states, h = multilayer_lstm_output
       carry_rng, categorical_rng = jax.random.split(rng, 2)
@@ -475,7 +483,8 @@ class SyntaxBasedDecoder(nn.Module):
       dec_prev_state = jnp.expand_dims(h, 0)
       context, scores = mlp_attention(dec_prev_state, projected_keys,
                                       encoder_hidden_states, attention_mask)
-      lstm_input = jnp.concatenate([prev_action_emb, context], axis=-1)
+      node_emb = node_embedding(node_type)
+      lstm_input = jnp.concatenate([prev_action_emb, node_emb, context], axis=-1)
       states, h = multilayer_lstm_cell(
         horizontal_dropout_masks=h_dropout_masks,
         vertical_dropout_rate=vertical_dropout_rate,
@@ -504,7 +513,7 @@ class SyntaxBasedDecoder(nn.Module):
 
     if self.is_initializing():
       # initialize parameters before scan
-      initial_x = jnp.zeros((2,), dtype=jnp.uint8)
+      initial_x = jnp.zeros((3,), dtype=jnp.uint8)
       decode_step_fn(init_carry, initial_x)
 
     # Go from [2, out_seq_len] -> [out_seq_len, 2].
@@ -536,6 +545,7 @@ class Seq2tree(nn.Module):
             encoder_inputs_lengths: jnp.array,
             rule_vocab_size: int,
             token_vocab_size: int,
+            node_vocab_size: int,
             emb_dim: int = ACTION_EMBEDDING_SIZE,
             train: bool = True,
             hidden_size: int = LSTM_HIDDEN_SIZE,
@@ -558,6 +568,7 @@ class Seq2tree(nn.Module):
                                    train=train,
                                    rule_vocab_size=rule_vocab_size,
                                    token_vocab_size=token_vocab_size,
+                                   node_vocab_size=node_vocab_size,
                                    shared_embedding=shared_embedding)
     vmapped_decoder = jax.vmap(decoder)
     # compute attention masks
