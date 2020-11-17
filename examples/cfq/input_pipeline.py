@@ -27,9 +27,10 @@ import input_pipeline_utils as inp_utils
 import preprocessing
 import constants
 from constants import QUESTION_KEY, QUESTION_LEN_KEY, QUERY_KEY, QUERY_LEN_KEY,\
-  ACTION_TYPES_KEY, ACTION_VALUES_KEY, PARENT_STEPS_KEY, ACTION_SEQ_LEN_KEY
+  ACTION_TYPES_KEY, ACTION_VALUES_KEY, NODE_TYPES_KEY, PARENT_STEPS_KEY,\
+  ACTION_SEQ_LEN_KEY
 from syntax_based.grammar import Grammar, GRAMMAR_STR
-import syntax_based.node as node
+import syntax_based.node as node 
 import syntax_based.asg as asg
 
 ExampleType = Dict[Text, tf.Tensor]
@@ -267,12 +268,23 @@ class Seq2TreeCfqDataSource(CFQDataSource):
                grammar: Grammar = Grammar(GRAMMAR_STR),
                load_data: bool = True):
     self.grammar = grammar
+    node_types = grammar.collect_node_types()
+    self.node_vocab = self.construct_vocab(node_types)
+    self.node_vocab_size = len(node_types)
     self.rule_vocab_size = len(grammar.branches)
     if load_data:
       super().__init__(seed,
                        fixed_output_len,
                        tokenizer,
                        cfq_split)
+
+  def construct_vocab(self, items_list: List[str]):
+    """Constructs vocabulary from list (word -> index). Assumes list contains no
+    duplicates."""
+    vocab = {}
+    for i in range(len(items_list)):
+      vocab[items_list[i]] = i
+    return vocab
 
   def build_tokens_vocab(self, vocab_file, tokenizer, dataset, dummy):
     """Build tokens vocabulary by extracting the tokens from the questions and
@@ -315,12 +327,14 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     act_sequence = asg.generate_action_sequence(query, self.grammar)
     root = node.apply_sequence_of_actions(act_sequence, self.grammar)
     parent_steps = node.get_parent_time_steps(root)
+    node_types = node.get_node_types(root)
+    node_types = [self.node_vocab[node_type] for node_type in node_types]
     action_types, action_values = self.extract_data_from_act_seq(act_sequence)
     if len(action_types) != len(parent_steps):
       raise Exception(
               'action types and parent time steps should be of the same length,\
               got {0} and {1}'.format(len(action_types), len(parent_steps)))
-    return (action_types, action_values, parent_steps)
+    return (action_types, action_values, node_types, parent_steps)
 
   def construct_new_fields(self, example: ExampleType) -> ExampleType:
     """Populate the example with the 'question', 'question_len', 'action_types',
@@ -330,9 +344,10 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     new_example[QUESTION_LEN_KEY] = tf.size(new_example[QUESTION_KEY])
     output_fields = tf.py_function(self.construct_output_fields,
                                    [example[QUERY_KEY]],
-                                   Tout=(tf.int64, tf.int64, tf.int64))
+                                   Tout=(tf.int64, tf.int64, tf.int64, tf.int64))
     new_example[ACTION_TYPES_KEY],\
       new_example[ACTION_VALUES_KEY],\
+      new_example[NODE_TYPES_KEY],\
       new_example[PARENT_STEPS_KEY] = output_fields
     new_example[ACTION_SEQ_LEN_KEY] = tf.size(new_example[ACTION_TYPES_KEY])
     return new_example
@@ -348,6 +363,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
         QUESTION_LEN_KEY: [],
         ACTION_TYPES_KEY: [output_pad],
         ACTION_VALUES_KEY: [output_pad],
+        NODE_TYPES_KEY: [output_pad],
         PARENT_STEPS_KEY: [output_pad],
         ACTION_SEQ_LEN_KEY: []
     }

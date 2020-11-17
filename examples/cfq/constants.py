@@ -28,5 +28,6 @@ QUERY_LEN_KEY = 'query_len'
 # Constants for Seq2Tree
 ACTION_TYPES_KEY = 'action_types'
 ACTION_VALUES_KEY = 'action_values'
+NODE_TYPES_KEY = 'node_types'
 PARENT_STEPS_KEY = 'parent_steps'
 ACTION_SEQ_LEN_KEY = 'action_seq_len'

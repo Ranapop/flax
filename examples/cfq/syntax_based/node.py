@@ -132,6 +132,13 @@ def get_parent_time_steps(root: Node,
   return parent_time_steps
 
 
+def get_node_types(root: Node):
+    node_types = [root.value]
+    for child in root.children:
+      node_types += get_node_types(child)
+    return node_types
+
+
 if __name__ == "__main__":
   query = """SELECT DISTINCT ?x0 WHERE {
       ?x0 a people.person .
