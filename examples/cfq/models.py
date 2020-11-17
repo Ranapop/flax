@@ -367,6 +367,27 @@ class Seq2seq(nn.Module):
 
 """Syntax based modules."""
 
+ACTION_EMBEDDING_SIZE = 128
+
+class ActionEmbed(nn.Module):
+
+  def apply(self,
+            action_type: jnp.array,
+            action_value: jnp.array,
+            rule_vocab_size,
+            token_embedding: nn.Module):
+    rule_embedding = nn.Embed.partial(
+      num_embeddings=rule_vocab_size,
+      features=ACTION_EMBEDDING_SIZE,
+      embedding_init=nn.initializers.normal(stddev=1.0))
+
+    rule_emb = rule_embedding(action_value)
+    token_emb = token_embedding(action_value)
+    # Return the rule_emb in case the action_type is 0, token_emb in case the
+    # action type is 1 and a zero-valued vector otherwise.
+    action_emb = jnp.equal(action_type, jnp.array(0)) * rule_emb + \
+     jnp.equal(action_type, jnp.array(1)) * token_emb
+    return action_emb
 class SyntaxBasedDecoder(nn.Module):
   """LSTM syntax-based decoder."""
 
@@ -422,7 +443,11 @@ class SyntaxBasedDecoder(nn.Module):
     token_projection = nn.Dense.shared(features=token_vocab_size,
                                        name='token_projection')
     mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE,
-                                         use_batch_axis=False).shared(name='attention')
+                                         use_batch_axis=False
+                                        ).shared(name='attention')
+    action_embedding = ActionEmbed.shared(rule_vocab_size=rule_vocab_size,
+                                          token_embedding=shared_embedding,
+                                          name='action_embedding')
     # The keys projection can be calculated once for the whole sequence.
     projected_keys = nn.Dense(encoder_hidden_states,
                               ATTENTION_SIZE,
@@ -437,12 +462,13 @@ class SyntaxBasedDecoder(nn.Module):
         train=train)
 
     def decode_step_fn(carry, x):
-      action_type = x[0]
+      action_type = jnp.asarray(x[0], dtype=jnp.uint8)
       action_value = jnp.asarray(x[1], dtype=jnp.uint8)
-      rng, multilayer_lstm_output, previous_action_value = carry
+      rng, multilayer_lstm_output, previous_action = carry
       previous_states, h = multilayer_lstm_output
       carry_rng, categorical_rng = jax.random.split(rng, 2)
-      prev_action_emb = shared_embedding(previous_action_value)
+      prev_action_emb = action_embedding(action_type=previous_action[0],
+                                         action_value=previous_action[1])
       prev_action_emb = nn.dropout(prev_action_emb,
                                    rate=embed_dropout_rate,
                                    deterministic=train)
@@ -464,16 +490,17 @@ class SyntaxBasedDecoder(nn.Module):
       prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
       if not train:
         action_value = prediction_uint8
-      new_carry = (carry_rng, (jnp.array(states), h), action_value)
+      current_action = (action_type, action_value)
+      new_carry = (carry_rng, (jnp.array(states), h), current_action)
       accumulator = (rule_logits, token_logits, prediction_uint8, scores)
       return new_carry, accumulator
 
     # initialisig the LSTM states and final output with the
     # encoder hidden states
-    #TODO: think of what the initial prediction should be.
-    initial_prediction = jnp.array(0, dtype=jnp.uint8)
+    # Convention: initial action has type 2.
+    initial_action = (jnp.array(2, dtype=jnp.uint8), jnp.array(0, dtype=jnp.uint8))
     multilayer_lstm_output = (init_states, init_states[-1, 1, :])
-    init_carry = (nn.make_rng(), multilayer_lstm_output, initial_prediction)
+    init_carry = (nn.make_rng(), multilayer_lstm_output, initial_action)
 
     if self.is_initializing():
       # initialize parameters before scan
@@ -509,7 +536,7 @@ class Seq2tree(nn.Module):
             encoder_inputs_lengths: jnp.array,
             rule_vocab_size: int,
             token_vocab_size: int,
-            emb_dim: int = EMBEDDING_DIM,
+            emb_dim: int = ACTION_EMBEDDING_SIZE,
             train: bool = True,
             hidden_size: int = LSTM_HIDDEN_SIZE,
             num_layers=NUM_LAYERS,
