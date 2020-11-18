@@ -201,6 +201,32 @@ class Grammar:
           return head
     return None
 
+  def get_branch_to_nodes(self, node_vocab):
+    """Return dictionary of branch_id -> [node_id], where node_id is the id
+    of the term in the vocab."""
+    branch_to_nodes = {}
+    for branch in self.branches:
+      branch_to_nodes[branch.branch_id] = []
+      for term in branch.body:
+        if term.term_type in [TermType.RULE_TERM, TermType.REGEX_TERM]:
+          branch_to_nodes[branch.branch_id].append(node_vocab[term.value])
+    return branch_to_nodes
+
+  def get_valid_branches(self, node_vocab):
+    """For each node_id (as given by node_vocab), get valid branch ids."""
+    return dict((node_vocab[key], value) for (key, value) in self.rules.items())
+
+  def get_node_action_types(self, node_vocab, syntax_tokens):
+    """A dictionary of node_id -> action type. The action type will be 0 for
+    nodes/terms that are not syntax tokens, and 1 otherwise."""
+    node_action_types = {}
+    for node, index in node_vocab.items():
+      if node in syntax_tokens:
+        node_action_types[index] = 1
+      else:
+        node_action_types[index] = 0
+    return node_action_types
+
   def print_grammar(self):
     for head, branch_ids in self.rules.items():
       for branch_id in branch_ids:

@@ -31,3 +31,7 @@ ACTION_VALUES_KEY = 'action_values'
 NODE_TYPES_KEY = 'node_types'
 PARENT_STEPS_KEY = 'parent_steps'
 ACTION_SEQ_LEN_KEY = 'action_seq_len'
+# Constants for grammar info
+BRANCH_TO_NODES = 'branch_to_nodes'
+VALID_BRANCHES = 'valid_branches'
+NODE_ACTION_TYPES = 'node_action_types'

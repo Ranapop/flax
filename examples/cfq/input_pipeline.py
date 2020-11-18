@@ -278,6 +278,11 @@ class Seq2TreeCfqDataSource(CFQDataSource):
                        tokenizer,
                        cfq_split)
 
+  def construct_grammar_info(self, grammar: Grammar):
+    # Construct rules to nodes dict.
+    rules_to_nodes = {}
+
+
   def construct_vocab(self, items_list: List[str]):
     """Constructs vocabulary from list (word -> index). Assumes list contains no
     duplicates."""

@@ -370,6 +370,7 @@ class Seq2seq(nn.Module):
 ACTION_EMBEDDING_SIZE = 128
 NODE_EMBEDDING_SIZE = 32
 
+
 class ActionEmbed(nn.Module):
 
   def apply(self,
