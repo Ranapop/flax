@@ -37,7 +37,7 @@ from flax.training import common_utils
 from flax.metrics import tensorboard
 
 import input_pipeline as inp
-import constants
+import input_pipeline_constants as inp_constants
 import models
 
 BatchType = Dict[Text, jnp.array]
@@ -205,11 +205,11 @@ def write_examples(file: TextIO, no_logged_examples: int,
 def train_step(optimizer: Any, batch: BatchType, rng: Any, vocab_size: int):
   """Train one step."""
 
-  inputs = batch[constants.QUESTION_KEY]
-  input_lengths = batch[constants.QUESTION_LEN_KEY]
-  labels = batch[constants.QUERY_KEY]
+  inputs = batch[inp_constants.QUESTION_KEY]
+  input_lengths = batch[inp_constants.QUESTION_LEN_KEY]
+  labels = batch[inp_constants.QUERY_KEY]
   labels_no_bos = labels[:, 1:]
-  queries_lengths = batch[constants.QUERY_LEN_KEY] - 1
+  queries_lengths = batch[inp_constants.QUERY_LEN_KEY] - 1
 
   def loss_fn(model):
     """Compute cross-entropy loss."""
@@ -291,9 +291,9 @@ def evaluate_model(model: nn.Module,
   avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
   logging_file = open(logging_file_name,'a')
   for batch in tfds.as_numpy(batches):
-    inputs = batch[constants.QUESTION_KEY]
-    input_lengths = batch[constants.QUESTION_LEN_KEY]
-    gold_outputs = batch[constants.QUERY_KEY][:, 1:]
+    inputs = batch[inp_constants.QUESTION_KEY]
+    input_lengths = batch[inp_constants.QUESTION_LEN_KEY]
+    gold_outputs = batch[inp_constants.QUERY_KEY][:, 1:]
     logits, inferred_outputs, attention_weights = infer(model,
                                 inputs, input_lengths, nn.make_rng(),
                                 data_source.tokens_vocab_size,
@@ -303,7 +303,7 @@ def evaluate_model(model: nn.Module,
         logits,
         inferred_outputs,
         gold_outputs,
-        batch[constants.QUERY_LEN_KEY] - 1,
+        batch[inp_constants.QUERY_LEN_KEY] - 1,
         data_source.tokens_vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
     if no_logged_examples is not None and no_batches == 0:

@@ -25,8 +25,8 @@ import numpy as np
 
 import input_pipeline_utils as inp_utils
 import preprocessing
-import constants
-from constants import QUESTION_KEY, QUESTION_LEN_KEY, QUERY_KEY, QUERY_LEN_KEY,\
+import input_pipeline_constants as inp_constants
+from input_pipeline_constants import QUESTION_KEY, QUESTION_LEN_KEY, QUERY_KEY, QUERY_LEN_KEY,\
   ACTION_TYPES_KEY, ACTION_VALUES_KEY, NODE_TYPES_KEY, PARENT_STEPS_KEY,\
   ACTION_SEQ_LEN_KEY
 from syntax_based.grammar import Grammar, GRAMMAR_STR
@@ -73,9 +73,9 @@ class CFQDataSource:
                           train_raw,
                           replace_with_dummy)
 
-    self.unk_idx = self.tokens_vocab[constants.UNK]
-    self.bos_idx = np.dtype('uint8').type(self.tokens_vocab[constants.BOS])
-    self.eos_idx = self.tokens_vocab[constants.EOS]
+    self.unk_idx = self.tokens_vocab[inp_constants.UNK]
+    self.bos_idx = np.dtype('uint8').type(self.tokens_vocab[inp_constants.BOS])
+    self.eos_idx = self.tokens_vocab[inp_constants.EOS]
     self.tf_tokens_vocab = inp_utils.build_tf_hashtable(
                              self.tokens_vocab, self.unk_idx)
     self.tokens_vocab_size = len(self.tokens_vocab)
@@ -87,11 +87,11 @@ class CFQDataSource:
 
     self.splits = {
       'train': train_raw.map(
-        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache(),
+        self.prepare_example, num_parallel_calls=inp_constants.AUTOTUNE).cache(),
       'dev': dev_raw.map(
-        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache(),
+        self.prepare_example, num_parallel_calls=inp_constants.AUTOTUNE).cache(),
       'test': test_raw.map(
-        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache()
+        self.prepare_example, num_parallel_calls=inp_constants.AUTOTUNE).cache()
     }
 
   def build_tokens_vocab(self, vocab_file, tokenizer, dataset, dummy):
@@ -182,7 +182,7 @@ class CFQDataSource:
                                    drop_remainder=drop_remainder)
     if split=='train':
       dataset = dataset.repeat()
-    return dataset.prefetch(constants.AUTOTUNE)
+    return dataset.prefetch(inp_constants.AUTOTUNE)
 
   def get_bucketed_batches(self,
                            split: Text,
@@ -383,7 +383,7 @@ if __name__ == '__main__':
   print('vocab')
   print(data_source.tokens_vocab)
   for batch in tfds.as_numpy(train_batches):
-    action_values_batch = batch[constants.ACTION_VALUES_KEY]
+    action_values_batch = batch[inp_constants.ACTION_VALUES_KEY]
     print('Batch no ',batch_no)
     for action_values in action_values_batch:
       print(action_values)

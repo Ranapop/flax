@@ -37,7 +37,7 @@ from flax.training import common_utils
 from flax.metrics import tensorboard
 
 import input_pipeline as inp
-import constants
+import input_pipeline_constants as inp_constants
 import models
 
 BatchType = Dict[Text, jnp.array]
@@ -236,9 +236,9 @@ def write_examples(file: TextIO, no_logged_examples: int,
 
 
 def get_decoder_inputs(batch: BatchType):
-  action_types = batch[constants.ACTION_TYPES_KEY]
-  action_values = batch[constants.ACTION_VALUES_KEY]
-  node_types = batch[constants.NODE_TYPES_KEY]
+  action_types = batch[inp_constants.ACTION_TYPES_KEY]
+  action_values = batch[inp_constants.ACTION_VALUES_KEY]
+  node_types = batch[inp_constants.NODE_TYPES_KEY]
   output = jnp.array([action_types, action_values, node_types])
   output = jnp.swapaxes(output, 0, 1)
   return output
@@ -252,12 +252,12 @@ def train_step(optimizer: Any,
                rule_vocab_size: int, token_vocab_size: int, node_vocab_size: int):
   """Train one step."""
 
-  inputs = batch[constants.QUESTION_KEY]
-  input_lengths = batch[constants.QUESTION_LEN_KEY]
-  action_types = batch[constants.ACTION_TYPES_KEY]
-  action_values = batch[constants.ACTION_VALUES_KEY]
+  inputs = batch[inp_constants.QUESTION_KEY]
+  input_lengths = batch[inp_constants.QUESTION_LEN_KEY]
+  action_types = batch[inp_constants.ACTION_TYPES_KEY]
+  action_values = batch[inp_constants.ACTION_VALUES_KEY]
   decoder_inputs = get_decoder_inputs(batch)
-  queries_lengths = batch[constants.ACTION_SEQ_LEN_KEY]
+  queries_lengths = batch[inp_constants.ACTION_SEQ_LEN_KEY]
 
   def loss_fn(model):
     """Compute cross-entropy loss."""
@@ -357,8 +357,8 @@ def evaluate_model(model: nn.Module,
   avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
   logging_file = open(logging_file_name,'a')
   for batch in tfds.as_numpy(batches):
-    inputs = batch[constants.QUESTION_KEY]
-    input_lengths = batch[constants.QUESTION_LEN_KEY]
+    inputs = batch[inp_constants.QUESTION_KEY]
+    input_lengths = batch[inp_constants.QUESTION_LEN_KEY]
     gold_outputs = batch['action_values']
     gold_action_types = batch['action_types']
     queries_lengths = batch['action_seq_len'] - 1
