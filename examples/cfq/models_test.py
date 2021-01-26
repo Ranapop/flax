@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from flax import nn
 
 import models
-from models import Encoder, MlpAttention, Decoder, Seq2seq, MultilayerLSTM,\
+from models import Encoder, MlpAttention, Decoder, Seq2seq, MultilayerLSTMCell,\
   Seq2tree
 
 
@@ -82,7 +82,7 @@ class ModelsTest(parameterized.TestCase):
     prev_state_1 = jnp.zeros((batch_size, hidden_size))
     prev_state_2 = jnp.zeros((batch_size, hidden_size))
     previous_states = [prev_state_0, prev_state_1, prev_state_2]
-    multilayer_lstm = MultilayerLSTM.partial(num_layers=num_layers)
+    multilayer_lstm = MultilayerLSTMCell.partial(num_layers=num_layers)
     with nn.stochastic(jax.random.PRNGKey(0)):
       (states,
        y), _ = multilayer_lstm.init(nn.make_rng(),

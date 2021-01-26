@@ -34,6 +34,7 @@ EMBED_DROPOUT = 0
 ATTENTION_DROPOUT = 0
 
 """Common modules"""
+
 class MlpAttention(nn.Module):
   """MLP attention module that returns a scalar score for each key."""
 
@@ -91,7 +92,22 @@ class MlpAttention(nn.Module):
     return context, scores  
 
 
-class MultilayerLSTM(nn.Module):
+def create_dropout_masks(num_masks: int, shape: Tuple,
+                          dropout_rate: float, train: bool):
+  if not train or dropout_rate == 0:
+    return [None] * num_masks
+  masks = []
+  for i in range(0, num_masks):
+    dropout_mask = random.bernoulli(nn.make_rng(),
+                                    p=1 - dropout_rate,
+                                    shape=shape)
+    # Convert array of boolean values to probabilty distribution.
+    dropout_mask = dropout_mask / (1.0 - dropout_rate)
+    masks.append(dropout_mask)
+  return masks
+
+
+class MultilayerLSTMCell(nn.Module):
   "LSTM cell with multiple layers"
 
   def apply(self,
@@ -136,6 +152,59 @@ class MultilayerLSTM(nn.Module):
     return states, final_output
 
 
+class MultilayerLSTM(nn.Module):
+  """"Multilayer LSTM."""
+
+  def apply(self,
+            inputs, lengths,
+            hidden_size, num_layers,
+            dropout_rate, recurrent_dropout_rate,
+            train):
+
+    multilayer_lstm_cell = MultilayerLSTMCell.partial(
+      num_layers=num_layers).shared(name='multilayer_lstm')
+    
+    batch_size = inputs.shape[0]
+    h_dropout_masks = create_dropout_masks(
+        num_masks=num_layers,
+        shape=(batch_size, hidden_size),
+        dropout_rate=recurrent_dropout_rate,
+        train=train)
+
+    def step_fn(carry, x):
+      previous_states, step = carry
+      states, h = multilayer_lstm_cell(
+        horizontal_dropout_masks=h_dropout_masks,
+        vertical_dropout_rate=dropout_rate,
+        input=x,
+        previous_states=previous_states,
+        train=train)
+
+      def get_carried_state(old_state, new_state):
+        (old_c,old_h) = old_state
+        (new_c, new_h) = new_state
+        c = jnp.where(step < jnp.expand_dims(lengths, 1), new_c, old_c)
+        h = jnp.where(step < jnp.expand_dims(lengths, 1), new_h, old_h)
+        return (c,h)
+
+      carried_states = [get_carried_state(*layer_states)\
+                          for layer_states in zip(previous_states, states)]
+      new_carry = carried_states, step+1
+      return new_carry, h
+
+    initial_states = [
+          nn.LSTMCell.initialize_carry(
+            jax.random.PRNGKey(0), (batch_size,), hidden_size)
+          for _ in range(num_layers)]
+
+    (final_states,_), outputs = jax_utils.scan_in_dim(
+      step_fn,
+      init=(initial_states, jnp.array(0)),
+      xs=inputs,
+      axis=1)
+    return outputs, final_states
+
+
 class Encoder(nn.Module):
   """LSTM encoder, returning state after EOS is input."""
 
@@ -147,7 +216,7 @@ class Encoder(nn.Module):
 
     inputs = shared_embedding(inputs)
     inputs = nn.dropout(inputs, rate=embed_dropout_rate, deterministic=train)
-    lstm = nn.LSTM.partial(
+    lstm = MultilayerLSTM.partial(
         hidden_size=hidden_size,
         num_layers=num_layers,
         dropout_rate=vertical_dropout_rate,
@@ -165,21 +234,6 @@ def compute_attention_masks(mask_shape: Tuple, lengths: jnp.array):
 """Baseline modules."""
 class Decoder(nn.Module):
   """LSTM decoder."""
-
-  @staticmethod
-  def create_dropout_masks(num_masks: int, shape: Tuple,
-                           dropout_rate: float, train: bool):
-    if not train or dropout_rate == 0:
-      return [None] * num_masks
-    masks = []
-    for i in range(0, num_masks):
-      dropout_mask = random.bernoulli(nn.make_rng(),
-                                      p=1 - dropout_rate,
-                                      shape=shape)
-      # Convert array of boolean values to probabilty distribution.
-      dropout_mask = dropout_mask / (1.0 - dropout_rate)
-      masks.append(dropout_mask)
-    return masks
 
   def apply(self,
             init_states,
@@ -222,7 +276,7 @@ class Decoder(nn.Module):
         the concatenation of current state and context vector)
       train: boolean choosing from train and inference flow
     """
-    multilayer_lstm_cell = MultilayerLSTM.partial(num_layers=num_layers).shared(
+    multilayer_lstm_cell = MultilayerLSTMCell.partial(num_layers=num_layers).shared(
         name='multilayer_lstm')
     attention_layer = nn.Dense.shared(features=ATTENTION_LAYER_SIZE,
                                       name='attention_layer')
@@ -237,7 +291,7 @@ class Decoder(nn.Module):
 
     batch_size = encoder_hidden_states.shape[0]
     hidden_size = encoder_hidden_states.shape[-1]
-    h_dropout_masks = Decoder.create_dropout_masks(
+    h_dropout_masks = create_dropout_masks(
         num_masks=num_layers,
         shape=(batch_size, hidden_size),
         dropout_rate=horizontal_dropout_rate,
@@ -392,21 +446,6 @@ class ActionEmbed(nn.Module):
 class SyntaxBasedDecoder(nn.Module):
   """LSTM syntax-based decoder."""
 
-  @staticmethod
-  def create_dropout_masks(num_masks: int, shape: Tuple,
-                           dropout_rate: float, train: bool):
-    if not train or dropout_rate == 0:
-      return [None] * num_masks
-    masks = []
-    for i in range(0, num_masks):
-      dropout_mask = random.bernoulli(nn.make_rng(),
-                                      p=1 - dropout_rate,
-                                      shape=shape)
-      # Convert array of boolean values to probabilty distribution.
-      dropout_mask = dropout_mask / (1.0 - dropout_rate)
-      masks.append(dropout_mask)
-    return masks
-
   def apply(self,
             init_states: jnp.array,
             encoder_hidden_states: jnp.array,
@@ -438,7 +477,7 @@ class SyntaxBasedDecoder(nn.Module):
       embed_dropout_rate: embedding dropout rate.
       train: flag distinguishing between train and test flow.
     """
-    multilayer_lstm_cell = MultilayerLSTM.partial(num_layers=num_layers).shared(
+    multilayer_lstm_cell = MultilayerLSTMCell.partial(num_layers=num_layers).shared(
         name='multilayer_lstm')
     rule_projection = nn.Dense.shared(features=rule_vocab_size,
                                       name='rule_projection')
@@ -462,7 +501,7 @@ class SyntaxBasedDecoder(nn.Module):
                               bias=False)
     
     hidden_size = encoder_hidden_states.shape[-1]
-    h_dropout_masks = Decoder.create_dropout_masks(
+    h_dropout_masks = create_dropout_masks(
         num_masks=num_layers,
         shape=(hidden_size),
         dropout_rate=horizontal_dropout_rate,
