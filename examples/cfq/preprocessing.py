@@ -21,17 +21,17 @@ to ensure comparable results with the CFQ paper
 from typing import Dict, Text, Callable
 import string
 import tensorflow.compat.v2 as tf
-import constants
+import input_pipeline_constants as inp_constants
 
 ExampleType = Dict[Text, tf.Tensor]
 
 
 def preprocess_example(example: ExampleType) -> ExampleType:
   """Preprocess question and query"""
-  example[constants.QUESTION_KEY] = tf_wrap_seq_fun(
-      preprocess_question, example[constants.QUESTION_KEY])
-  example[constants.QUERY_KEY] = tf_wrap_seq_fun(preprocess_sparql,
-                                                 example[constants.QUERY_KEY])
+  example[inp_constants.QUESTION_KEY] = tf_wrap_seq_fun(
+      preprocess_question, example[inp_constants.QUESTION_KEY])
+  example[inp_constants.QUERY_KEY] = tf_wrap_seq_fun(preprocess_sparql,
+                                                 example[inp_constants.QUERY_KEY])
   return example
 
 

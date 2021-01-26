@@ -63,7 +63,7 @@ class CFQDataSource:
     test_raw = data['test']
 
     # Print an example.
-    logging.info('Data sample: %s', next(tfds.as_numpy(train_raw.skip(4))))
+    logging.info('Data sample: %s', next(iter(tfds.as_numpy(train_raw.skip(4)))))
 
     self.tokenizer = tokenizer
     self.seed = seed
