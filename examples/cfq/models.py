@@ -38,7 +38,7 @@ ATTENTION_DROPOUT = 0
 
 class MlpAttention(linen.Module):
   """MLP attention module that returns a scalar score for each key.
-  
+
   Args:
     hidden_size: The hidden size of the MLP that computes the attention score.
     use_batch_axis: When True the code is executed at batch level, otherwise
@@ -112,18 +112,22 @@ def create_dropout_masks(num_masks: int, shape: Tuple,
   return masks
 
 
-class MultilayerLSTMCell(nn.Module):
-  "LSTM cell with multiple layers"
+class MultilayerLSTMCell(linen.Module):
+  """LSTM cell with multiple layers
+  
+  Args:
+    num_layers: number of layers
+  """
+  num_layers: int
 
-  def apply(self,
-            num_layers: int,
-            horizontal_dropout_masks: jnp.array,
-            vertical_dropout_rate: float,
-            input: jnp.array, previous_states: List,
-            train: bool):
+  @linen.compact
+  def __call__(self,
+    horizontal_dropout_masks: jnp.array,
+    vertical_dropout_rate: float,
+    input: jnp.array, previous_states: List,
+    train: bool):
     """
     Args
-      num_layers: number of layers
       horizontal_dropout_masks: dropout masks for each layer (the same dropout
         mask is used at each time step and applied on the hidden state that is
         fed into the cell to the right). This is the recurrent dropout used in
@@ -138,18 +142,17 @@ class MultilayerLSTMCell(nn.Module):
     """
     states = []
     final_output = None
-    for layer_idx in range(num_layers):
+    for layer_idx in range(self.num_layers):
       lstm_name = 'lstm_layer' + str(layer_idx)
-      cell = nn.LSTMCell.partial(name=lstm_name)
+      cell = linen.LSTMCell(name=lstm_name)
       c, h = previous_states[layer_idx]
       # Apply dropout to h.
       if horizontal_dropout_masks[layer_idx] is not None:
         h = h * horizontal_dropout_masks[layer_idx]
       # Apply dropout to the hidden state from lower layer.
       if train and layer_idx != 0 and vertical_dropout_rate > 0:
-        input = nn.dropout(input,
-                           rate=vertical_dropout_rate,
-                           deterministic=train)
+        dropout = linen.Dropout(rate=vertical_dropout_rate)
+        input = dropout(input, deterministic=train)
       state, output = cell((c, h), input)
       states.append(state)
       input = output
