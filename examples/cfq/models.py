@@ -37,7 +37,14 @@ ATTENTION_DROPOUT = 0
 """Common modules"""
 
 class MlpAttention(linen.Module):
-  """MLP attention module that returns a scalar score for each key."""
+  """MLP attention module that returns a scalar score for each key.
+  
+  Args:
+    hidden_size: The hidden size of the MLP that computes the attention score.
+    use_batch_axis: When True the code is executed at batch level, otherwise
+      at example level (in that case the arguments don't have the batch_size
+      dimensions, for example query would be [1, query_size]).
+  """
   hidden_size: int = None
   use_batch_axis: bool = True
 
@@ -68,10 +75,6 @@ class MlpAttention(linen.Module):
       mask: A mask that determines which values in `projected_keys` are valid.
         Only values for which the mask is True will get non-zero attention
         scores. <bool>[batch_size, seq_length].
-      hidden_size: The hidden size of the MLP that computes the attention score.
-      use_batch_axis: When True the code is executed at batch level, otherwise
-        at example level (in that case the arguments don't have the batch_size
-        dimensions, for example query would be [1, query_size]).
 
     Returns:
       The weighted values (context vector) [batch_size, seq_len]
