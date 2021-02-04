@@ -88,9 +88,8 @@ def cross_entropy_loss(logits: jnp.array, labels: jnp.array,
   labels = common_utils.onehot(labels, vocab_size)
   log_soft = nn.log_softmax(logits)
   log_sum = jnp.sum(log_soft * labels, axis=-1)
-  masked_log_sums = jnp.sum(mask_sequences(log_sum, lengths))
-  mean_losses = jnp.divide(masked_log_sums, lengths)
-  mean_loss = jnp.mean(mean_losses)
+  masked_log_sums = jnp.sum(mask_sequences(log_sum, lengths), axis=-1)
+  mean_loss = jnp.mean(masked_log_sums)
   return -mean_loss
 
 
