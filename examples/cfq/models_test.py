@@ -2,6 +2,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 
 import jax
+from jax import random
 import jax.numpy as jnp
 from flax import nn
 
@@ -44,6 +45,8 @@ class ModelsTest(parameterized.TestCase):
         self.assertEqual(h.shape, (batch_size, hidden_size))
 
   def test_mlp_attenntion(self):
+    rng = dict(params=random.PRNGKey(0))
+
     batch_size = 2
     seq_len = 4
     values_size = 3
@@ -55,15 +58,15 @@ class ModelsTest(parameterized.TestCase):
     values = jnp.array([[[1, 1, 1], [2, 2, 2], [3, 3, 3], [4, 4, 4]],
                         [[5, 5, 5], [6, 6, 6], [7, 7, 7], [8, 8, 8]]])
     mask = jnp.array([[True, True, False, False], [True, True, True, False]])
-    mlp_attention = MlpAttention.partial(hidden_size=attention_size)
-    with nn.stochastic(jax.random.PRNGKey(0)):
-      (context, scores), _ = mlp_attention.init(nn.make_rng(),
-                                                query=query,
-                                                projected_keys=projected_keys,
-                                                values=values,
-                                                mask=mask)
-      self.assertEqual(context.shape, (batch_size, values_size))
-      self.assertEqual(scores.shape, (batch_size, seq_len))
+    mlp_attention = MlpAttention(hidden_size=attention_size)
+
+    (context, scores), _ = mlp_attention.init_with_output(rng,
+      query=query,
+      projected_keys=projected_keys,
+      values=values,
+      mask=mask)
+    self.assertEqual(context.shape, (batch_size, values_size))
+    self.assertEqual(scores.shape, (batch_size, seq_len))
 
   def test_multilayer_LSTM(self):
     num_layers = 3
