@@ -21,6 +21,7 @@ from jax import random
 import jax.numpy as jnp
 from flax import jax_utils
 from flax import nn
+from flax import linen
 
 # hyperparams
 LSTM_HIDDEN_SIZE = 512
@@ -35,16 +36,17 @@ ATTENTION_DROPOUT = 0
 
 """Common modules"""
 
-class MlpAttention(nn.Module):
+class MlpAttention(linen.Module):
   """MLP attention module that returns a scalar score for each key."""
+  hidden_size: int = None
+  use_batch_axis: bool = True
 
-  def apply(self,
+  @linen.compact
+  def __call__(self,
             query: jnp.ndarray,
             projected_keys: jnp.ndarray,
             values: jnp.ndarray,
-            mask: jnp.ndarray,
-            hidden_size: int = None,
-            use_batch_axis: bool = True) -> jnp.ndarray:
+            mask: jnp.ndarray) -> jnp.ndarray:
     """Computes MLP-based attention based on keys and a query.
 
     Attention scores are computed by feeding the keys and query through an MLP.
@@ -74,16 +76,16 @@ class MlpAttention(nn.Module):
     Returns:
       The weighted values (context vector) [batch_size, seq_len]
     """
-    projected_query = nn.Dense(query, hidden_size, name='query', bias=False)
+    projected_query = linen.Dense(self.hidden_size, name='query', use_bias=False)(query)
     # Query broadcasts in the sum below along the time (seq_length) dimension.
-    energy = nn.tanh(projected_keys + projected_query)
-    scores = nn.Dense(energy, 1, name='energy', bias=False)
+    energy = linen.tanh(projected_keys + projected_query)
+    scores = linen.Dense(1, name='energy', use_bias=False)(energy)
     scores = scores.squeeze(-1)  # New shape: <float32>[batch_size, seq_len].
     # TODO: see if I can rewrite this to not have the squeezing and unsqueezing
     scores = jnp.where(mask, scores, -jnp.inf)  # Using exp(-inf) = 0 below.
-    scores = nn.softmax(scores, axis=-1)
+    scores = linen.softmax(scores, axis=-1)
 
-    if use_batch_axis:
+    if self.use_batch_axis:
       # Shape: <float32>[batch_size, seq_len]
       context = jnp.sum(jnp.expand_dims(scores, 2) * values, axis=1)
     else:
@@ -483,9 +485,10 @@ class SyntaxBasedDecoder(nn.Module):
                                       name='rule_projection')
     token_projection = nn.Dense.shared(features=token_vocab_size,
                                        name='token_projection')
-    mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE,
-                                         use_batch_axis=False
-                                        ).shared(name='attention')
+    mlp_attention = MlpAttention(
+      hidden_size=ATTENTION_SIZE,
+      use_batch_axis=False,
+      name='attention')
     action_embedding = ActionEmbed.shared(rule_vocab_size=rule_vocab_size,
                                           token_embedding=shared_embedding,
                                           name='action_embedding')
