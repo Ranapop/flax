@@ -105,6 +105,12 @@ class ModelsTest(parameterized.TestCase):
       input=input,
       previous_states=previous_states,
       train=False)
+    self.assertEqual(len(states), num_layers)
+    for state in states:
+      c, h = state
+      self.assertEqual(c.shape, (batch_size, hidden_size))
+      self.assertEqual(h.shape, (batch_size, hidden_size))
+    self.assertEqual(y.shape, (batch_size, hidden_size))
 
   def test_multilayer_LSTM(self):
     rng = dict(params=random.PRNGKey(0))
