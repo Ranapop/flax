@@ -206,10 +206,6 @@ class MultilayerLSTMScan(linen.Module):
     
     carried_states = [get_carried_state(*layer_states)\
                         for layer_states in zip(previous_states, states)]
-    # print('Carried states')
-    # print('Layer 0')
-    # print('c ', carried_states[0][0].shape)
-    # print('h ', carried_states[0][1].shape)
     new_carry = carried_states, lengths, step+1
     return new_carry, h
 
@@ -231,6 +227,13 @@ class MultilayerLSTM(linen.Module):
   def __call__(self,
                inputs, lengths,
                train):
+    """
+    Returns:
+      (outputs, final_states)
+      outputs: array of shape (batch_size, seq_len, hidden_size).
+      final_states: list of length num_layers, where each element is an array
+        of shape (batch_size, hidden_size)
+    """
     batch_size = inputs.shape[0]
     dropout_masks = RecurrentDropoutMasks(self.num_layers,
                                           self.recurrent_dropout_rate)
