@@ -8,7 +8,7 @@ from flax import nn
 
 import models
 from models import Encoder, MlpAttention, RecurrentDropoutMasks, Decoder,\
-  Seq2seq, MultilayerLSTMCell, Seq2tree
+  Seq2seq, MultilayerLSTMCell, MultilayerLSTM, Seq2tree
 
 
 class ModelsTest(parameterized.TestCase):
@@ -80,7 +80,7 @@ class ModelsTest(parameterized.TestCase):
   def test_multilayer_LSTM_cell(self):
     rng = dict(params=random.PRNGKey(0))
     num_layers = 3
-    batch_size = 2
+    batch_size = 7
     input_size = 5
     hidden_size = 20
     dropout_mask_0 = jnp.zeros((batch_size, hidden_size))
@@ -102,6 +102,33 @@ class ModelsTest(parameterized.TestCase):
       input=input,
       previous_states=previous_states,
       train=False)
+
+  def test_multilayer_LSTM(self):
+    rng = dict(params=random.PRNGKey(0))
+    num_layers = 5
+    batch_size = 2
+    input_size = 5
+    seq_len = 7
+    hidden_size = 20
+    dropout_rate = 0.2
+    recurrent_dropout_rate = 0.3
+    inputs = jnp.zeros((batch_size, seq_len, input_size))
+    lengths = jnp.array([5, 6])
+    multilayer_lstm = MultilayerLSTM(
+      hidden_size, num_layers, dropout_rate, recurrent_dropout_rate)
+    (states, y), _ = multilayer_lstm.init_with_output(rng,
+      inputs, lengths, False)
+    print(len(states))
+    for state in states:
+      print(state.shape)
+    print(len(y))
+    print('Layer 0')
+    print(len(y[0]))
+    print(len(y[0][0]))
+    print(y[0][0][0].shape)
+    print(y[0][0][1].shape)
+    print(y[0][1][0].shape)
+    print(y[0][1][1].shape)
 
   def est_compute_attention_masks(self):
     shape = (2, 7)
