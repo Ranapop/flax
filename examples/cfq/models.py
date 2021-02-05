@@ -22,6 +22,7 @@ import jax.numpy as jnp
 from flax import jax_utils
 from flax import nn
 from flax import linen
+import functools
 
 # hyperparams
 LSTM_HIDDEN_SIZE = 512
@@ -98,13 +99,19 @@ class MlpAttention(linen.Module):
 
 
 class RecurrentDropoutMasks(linen.Module):
+  """ Module for creating dropout masks for the recurrent cells.
+
+  Attributes:
+    num_masks: Number of masks.
+    dropout_rate: Dropput rate.
+  """
   num_masks: int
   dropout_rate: float
 
   @linen.compact
   def __call__(self, shape: Tuple, train: bool):
     if not train or self.dropout_rate == 0:
-      return [None] * num_masks
+      return [None] * self.num_masks
     masks = []
     for i in range(0, self.num_masks):
       dropout_mask = random.bernoulli(self.make_rng('dropout'),
@@ -163,57 +170,87 @@ class MultilayerLSTMCell(linen.Module):
       final_output = output
     return states, final_output
 
+class MultilayerLSTMScan(linen.Module):
+  num_layers: int
+  h_dropout_masks: List
+  dropout_rate: float
+  train: bool
 
-class MultilayerLSTM(nn.Module):
-  """"Multilayer LSTM."""
-
-  def apply(self,
-            inputs, lengths,
-            hidden_size, num_layers,
-            dropout_rate, recurrent_dropout_rate,
-            train):
-
-    multilayer_lstm_cell = MultilayerLSTMCell.partial(
-      num_layers=num_layers).shared(name='multilayer_lstm')
+  @functools.partial(
+      linen.transforms.scan,
+      variable_broadcast='params',
+      split_rngs={'params': False},
+      in_axes = 1,
+      out_axes = 1,
+      )
+  @linen.compact
+  def __call__(self, carry, x):
+    multilayer_lstm_cell = MultilayerLSTMCell(
+      num_layers=self.num_layers,
+      name='multilayer_lstm')
     
+    previous_states, lengths, step = carry
+    states, h = multilayer_lstm_cell(
+      horizontal_dropout_masks=self.h_dropout_masks,
+      vertical_dropout_rate=self.dropout_rate,
+      input=x,
+      previous_states=previous_states,
+      train=self.train)
+
+    def get_carried_state(old_state, new_state):
+      (old_c,old_h) = old_state
+      (new_c, new_h) = new_state
+      c = jnp.where(step < jnp.expand_dims(lengths, 1), new_c, old_c)
+      h = jnp.where(step < jnp.expand_dims(lengths, 1), new_h, old_h)
+      return (c,h)
+    
+    carried_states = [get_carried_state(*layer_states)\
+                        for layer_states in zip(previous_states, states)]
+    new_carry = carried_states, lengths, step+1
+    return new_carry, h
+
+class MultilayerLSTM(linen.Module):
+  """"Multilayer LSTM.
+
+  Attributes:
+    hiden_size: LSTM cell hidden size.
+    num_layers: Number of LSTMs stacked.
+    dropout_rate: Dropout rate (between layers).
+    recurrent_dropout_rate: Recurrent dropout rate.
+  """
+  hidden_size: int
+  num_layers: int
+  dropout_rate: float
+  recurrent_dropout_rate: float
+
+  @linen.compact
+  def __call__(self,
+               inputs, lengths,
+               train):
+    """
+    Returns:
+      (outputs, final_states)
+      outputs: array of shape (batch_size, seq_len, hidden_size).
+      final_states: list of length num_layers, where each element is an array
+        of shape (batch_size, hidden_size)
+    """
     batch_size = inputs.shape[0]
-    h_dropout_masks = create_dropout_masks(
-        num_masks=num_layers,
-        shape=(batch_size, hidden_size),
-        dropout_rate=recurrent_dropout_rate,
-        train=train)
-
-    def step_fn(carry, x):
-      previous_states, step = carry
-      states, h = multilayer_lstm_cell(
-        horizontal_dropout_masks=h_dropout_masks,
-        vertical_dropout_rate=dropout_rate,
-        input=x,
-        previous_states=previous_states,
-        train=train)
-
-      def get_carried_state(old_state, new_state):
-        (old_c,old_h) = old_state
-        (new_c, new_h) = new_state
-        c = jnp.where(step < jnp.expand_dims(lengths, 1), new_c, old_c)
-        h = jnp.where(step < jnp.expand_dims(lengths, 1), new_h, old_h)
-        return (c,h)
-
-      carried_states = [get_carried_state(*layer_states)\
-                          for layer_states in zip(previous_states, states)]
-      new_carry = carried_states, step+1
-      return new_carry, h
-
+    dropout_masks = RecurrentDropoutMasks(self.num_layers,
+                                          self.recurrent_dropout_rate)
+    h_dropout_masks = dropout_masks(
+      shape=(batch_size, self.hidden_size),
+      train=train)
+    lstm_scan = MultilayerLSTMScan(self.num_layers,
+                                   h_dropout_masks,
+                                   self.dropout_rate,
+                                   train)
     initial_states = [
-          nn.LSTMCell.initialize_carry(
-            jax.random.PRNGKey(0), (batch_size,), hidden_size)
-          for _ in range(num_layers)]
-
-    (final_states,_), outputs = jax_utils.scan_in_dim(
-      step_fn,
-      init=(initial_states, jnp.array(0)),
-      xs=inputs,
-      axis=1)
+          linen.LSTMCell.initialize_carry(
+            jax.random.PRNGKey(0), (batch_size,), self.hidden_size)
+          for _ in range(self.num_layers)]
+    init_carry = init=(initial_states, lengths, jnp.array(0))
+    scan_output = lstm_scan(init_carry, inputs)
+    (final_states,_, _), outputs = scan_output
     return outputs, final_states
 
 
