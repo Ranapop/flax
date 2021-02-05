@@ -91,9 +91,12 @@ class ModelsTest(parameterized.TestCase):
     h_dropout_masks = [dropout_mask_0, dropout_mask_1, dropout_mask_2]
     dropout_rate = 0.2
     input = jnp.zeros((batch_size, input_size))
-    prev_state_0 = jnp.zeros((batch_size, hidden_size))
-    prev_state_1 = jnp.zeros((batch_size, hidden_size))
-    prev_state_2 = jnp.zeros((batch_size, hidden_size))
+    prev_state_0 = (jnp.zeros((batch_size, hidden_size)),
+      jnp.zeros((batch_size, hidden_size)))
+    prev_state_1 = (jnp.zeros((batch_size, hidden_size)),
+      jnp.zeros((batch_size, hidden_size)))
+    prev_state_2 = (jnp.zeros((batch_size, hidden_size)),
+      jnp.zeros((batch_size, hidden_size)))
     previous_states = [prev_state_0, prev_state_1, prev_state_2]
     multilayer_lstm = MultilayerLSTMCell(num_layers=num_layers)
     (states, y), _ = multilayer_lstm.init_with_output(rng,
