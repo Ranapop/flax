@@ -7,8 +7,8 @@ import jax.numpy as jnp
 from flax import nn
 
 import models
-from models import Encoder, MlpAttention, Decoder, Seq2seq, MultilayerLSTMCell,\
-  Seq2tree
+from models import Encoder, MlpAttention, RecurrentDropoutMasks, Decoder,\
+  Seq2seq, MultilayerLSTMCell, Seq2tree
 
 
 class ModelsTest(parameterized.TestCase):
@@ -67,6 +67,15 @@ class ModelsTest(parameterized.TestCase):
       mask=mask)
     self.assertEqual(context.shape, (batch_size, values_size))
     self.assertEqual(scores.shape, (batch_size, seq_len))
+
+  def test_recurrent_dropout_masks(self):
+    rng1, rng2 = random.split(random.PRNGKey(0))
+    rngs = {'params': rng1, 'dropout': rng2}
+    dropout = RecurrentDropoutMasks(3, 0.3)
+    masks, _ = dropout.init_with_output(rngs, (2, 10), True)
+    self.assertEqual(len(masks), 3)
+    for mask in masks:
+      self.assertEqual(mask.shape, (2, 10))
 
   def test_multilayer_LSTM(self):
     rng = dict(params=random.PRNGKey(0))
