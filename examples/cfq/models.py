@@ -97,19 +97,23 @@ class MlpAttention(linen.Module):
     return context, scores  
 
 
-def create_dropout_masks(num_masks: int, shape: Tuple,
-                          dropout_rate: float, train: bool):
-  if not train or dropout_rate == 0:
-    return [None] * num_masks
-  masks = []
-  for i in range(0, num_masks):
-    dropout_mask = random.bernoulli(nn.make_rng(),
-                                    p=1 - dropout_rate,
-                                    shape=shape)
-    # Convert array of boolean values to probabilty distribution.
-    dropout_mask = dropout_mask / (1.0 - dropout_rate)
-    masks.append(dropout_mask)
-  return masks
+class RecurrentDropoutMasks(linen.Module):
+  num_masks: int
+  dropout_rate: float
+
+  @linen.compact
+  def __call__(self, shape: Tuple, train: bool):
+    if not train or self.dropout_rate == 0:
+      return [None] * num_masks
+    masks = []
+    for i in range(0, self.num_masks):
+      dropout_mask = random.bernoulli(self.make_rng('dropout'),
+                                      p=1 - self.dropout_rate,
+                                      shape=shape)
+      # Convert array of boolean values to probabilty distribution.
+      dropout_mask = dropout_mask / (1.0 - self.dropout_rate)
+      masks.append(dropout_mask)
+    return masks
 
 
 class MultilayerLSTMCell(linen.Module):
