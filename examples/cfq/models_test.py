@@ -77,7 +77,7 @@ class ModelsTest(parameterized.TestCase):
     for mask in masks:
       self.assertEqual(mask.shape, (2, 10))
 
-  def test_multilayer_LSTM(self):
+  def test_multilayer_LSTM_cell(self):
     rng = dict(params=random.PRNGKey(0))
     num_layers = 3
     batch_size = 2
