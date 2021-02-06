@@ -397,7 +397,7 @@ class Decoder(linen.Module):
     encoder_hidden_states: jnp.array,
     attention_mask: jnp.array,
     inputs: jnp.array,
-    train: bool = False):
+    train: bool):
     """
     The decoder follows Luong's decoder in how attention is used (the current
     decoder state is used for attention computation, and the attention vector is
@@ -458,25 +458,35 @@ class Decoder(linen.Module):
     return logits, predictions, attention_weights
 
 
-class Seq2seq(nn.Module):
-  """Sequence-to-sequence class using encoder/decoder architecture."""
+class Seq2seq(linen.Module):
+  """Sequence-to-sequence class using encoder/decoder architecture.
+  
+  Attributes:
+    vocab_size: vocabulary size.
+    emb_dim: embeddings dimension.
+    hidden_size: LSTM hidden size.
+    num_layers: number of LSTM layers.
+    horizontal_dropout_rate: LSTM horizontal dropout rate.
+    vertical_dropout_rate: LSTM vertical dropout rate.
+  """
+  vocab_size: int
+  emb_dim: int = EMBEDDING_DIM
+  hidden_size: int = LSTM_HIDDEN_SIZE
+  num_layers: int = NUM_LAYERS
+  horizontal_dropout_rate: float = HORIZONTAL_DROPOUT
+  vertical_dropout_rate: float = VERTICAL_DROPOUT
 
-  def apply(self,
-            encoder_inputs: jnp.array,
-            decoder_inputs: jnp.array,
-            encoder_inputs_lengths: jnp.array,
-            vocab_size: int,
-            emb_dim: int = EMBEDDING_DIM,
-            train: bool = True,
-            hidden_size: int = LSTM_HIDDEN_SIZE,
-            num_layers=NUM_LAYERS,
-            horizontal_dropout_rate=HORIZONTAL_DROPOUT,
-            vertical_dropout_rate=VERTICAL_DROPOUT):
+  @linen.compact
+  def __call__(self,
+    encoder_inputs: jnp.array,
+    decoder_inputs: jnp.array,
+    encoder_inputs_lengths: jnp.array,
+    train: bool):
     """Run the seq2seq model.
 
     Args:
       encoder_inputs: padded batch of input sequences to encode (as vocab 
-      indices), shaped `[batch_size, question length]`.
+        indices), shaped `[batch_size, question length]`.
       decoder_inputs: padded batch of expected decoded sequences on the train
         flow, shaped `[batch_size, query len]` on the train flow and shaped
         `[batch_size, max query len]` on the inference flow.
@@ -484,43 +494,40 @@ class Seq2seq(nn.Module):
         is forced into the model and samples are used for the following inputs.
         The second dimension of this tensor determines how many steps will be
         decoded, regardless of the value of `teacher_force`.
-      encoder_inputs_lengths: input sequences lengths [batch_size]
-      vocab_size: size of vocabulary
-      emb_dim: embedding dimension
+      encoder_inputs_lengths: input sequences lengths [batch_size].
       train: bool, differentiating between train and inference flow. This is
         needed for the dropout on both the encoder and decoder, and on the
         decoder it also activates teacher forcing (the gold sequence used).
-      hidden_size: int, the number of hidden dimensions in the encoder and
-        decoder LSTMs.
       Returns:
         Array of decoded logits.
-      """
-    shared_embedding = nn.Embed.shared(
-        num_embeddings=vocab_size,
-        features=emb_dim,
+    """
+    shared_embedding = linen.Embed(
+        num_embeddings=self.vocab_size,
+        features=self.emb_dim,
         embedding_init=nn.initializers.normal(stddev=1.0))
 
-    encoder = Encoder.partial(hidden_size=hidden_size,
-                              num_layers=num_layers,
-                              horizontal_dropout_rate=horizontal_dropout_rate,
-                              vertical_dropout_rate=vertical_dropout_rate)
-    decoder = Decoder.partial(num_layers=num_layers,
-                              horizontal_dropout_rate=horizontal_dropout_rate,
-                              vertical_dropout_rate=vertical_dropout_rate)
+    encoder = Encoder(shared_embedding=shared_embedding, 
+                      hidden_size=self.hidden_size,
+                      num_layers=self.num_layers,
+                      horizontal_dropout_rate=self.horizontal_dropout_rate,
+                      vertical_dropout_rate=self.vertical_dropout_rate)
+    decoder = Decoder(shared_embedding=shared_embedding, 
+                      vocab_size=self.vocab_size,
+                      num_layers=self.num_layers,
+                      horizontal_dropout_rate=self.horizontal_dropout_rate,
+                      vertical_dropout_rate=self.vertical_dropout_rate)
     # compute attention masks
     mask = compute_attention_masks(encoder_inputs.shape, encoder_inputs_lengths)
 
     # Encode inputs
     hidden_states, init_decoder_states = encoder(encoder_inputs,
                                                  encoder_inputs_lengths,
-                                                 shared_embedding, train)
+                                                 train)
     # Decode outputs.
     logits, predictions, attention_weights = decoder(init_decoder_states,
                                                      hidden_states,
                                                      mask,
                                                      decoder_inputs[:, :-1],
-                                                     shared_embedding,
-                                                     vocab_size,
                                                      train=train)
 
     return logits, predictions, attention_weights
