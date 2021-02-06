@@ -249,8 +249,7 @@ class MultilayerLSTM(linen.Module):
             jax.random.PRNGKey(0), (batch_size,), self.hidden_size)
           for _ in range(self.num_layers)]
     init_carry = init=(initial_states, lengths, jnp.array(0))
-    scan_output = lstm_scan(init_carry, inputs)
-    (final_states,_, _), outputs = scan_output
+    (final_states,_, _), outputs = lstm_scan(init_carry, inputs)
     return outputs, final_states
 
 
@@ -299,23 +298,106 @@ def compute_attention_masks(mask_shape: Tuple, lengths: jnp.array):
   return mask
 
 
-"""Baseline modules."""
-class Decoder(nn.Module):
-  """LSTM decoder."""
+class DecoderLSTM(linen.Module):
+  """
+  Attributes:
+    shared_embedding: Embedding module shared between encoder & decoder.
+    encoder_hidden_states: Encoder hidden states.
+    projected_keys: Keys (enc states) passed through a dense layer.
+    attention_mask: Attention mask.
+    train: Train flag.
+    vocab_size: Vocabulary size.
+    num_layers: Number of LSTM layers.
+    h_dropout_masks: Dropout masks.
+    vertical_dropout_rate: Dropout rate.
+    embed_dropout_rate: Embedding dropout rate.
+    attention_layer_dropout: Attention dropout rate.
+  """
+  shared_embedding: linen.Module
+  encoder_hidden_states: jnp.array
+  projected_keys: jnp.array
+  attention_mask: jnp.array
+  train: bool
+  vocab_size: int
+  num_layers: int
+  h_dropout_masks: List
+  vertical_dropout_rate: float
+  embed_dropout_rate: float = EMBED_DROPOUT
+  attention_layer_dropout: float = ATTENTION_DROPOUT
 
-  def apply(self,
-            init_states,
-            encoder_hidden_states,
-            attention_mask,
-            inputs: jnp.array,
-            shared_embedding: nn.Module,
-            vocab_size: int,
-            num_layers: int,
-            horizontal_dropout_rate: float,
-            vertical_dropout_rate: float,
-            embed_dropout_rate: float = EMBED_DROPOUT,
-            attention_layer_dropout: float = ATTENTION_DROPOUT,
-            train: bool = False):
+  def setup(self):
+    self.multilayer_lstm_cell = MultilayerLSTMCell(num_layers=self.num_layers)
+    self.attention_layer = linen.Dense(features=ATTENTION_LAYER_SIZE)
+    self.projection = linen.Dense(features=self.vocab_size)
+    self.mlp_attention = MlpAttention(hidden_size=ATTENTION_SIZE)
+    self.embed_dropout = linen.Dropout(self.embed_dropout_rate)
+    self.attention_dropout = linen.Dropout(self.attention_layer_dropout)
+
+  @functools.partial(
+      linen.transforms.scan,
+      variable_broadcast='params',
+      split_rngs={'params': False},
+      in_axes = 1,
+      out_axes = 1)
+  def __call__(self, carry, x):
+    rng, previous_states, last_prediction, prev_attention = carry
+    carry_rng, categorical_rng = jax.random.split(rng, 2)
+    if not self.train:
+      x = last_prediction
+    x = self.shared_embedding(x)
+    x = self.embed_dropout(x, deterministic=self.train)
+    lstm_input = jnp.concatenate([x, prev_attention], axis=-1)
+    states, h = self.multilayer_lstm_cell(
+      horizontal_dropout_masks=self.h_dropout_masks,
+      vertical_dropout_rate=self.vertical_dropout_rate,
+      input=lstm_input,
+      previous_states=previous_states,
+      train=self.train)
+    context, scores = self.mlp_attention(jnp.expand_dims(h, 1), 
+      self.projected_keys, self.encoder_hidden_states, self.attention_mask)
+    context_and_state = jnp.concatenate([context, h], axis=-1)
+    context_and_state = self.attention_dropout(
+      context_and_state, deterministic=self.train)
+    attention = jnp.tanh(self.attention_layer(context_and_state))
+    logits = self.projection(attention)
+    predicted_tokens = jax.random.categorical(categorical_rng, logits)
+    predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
+    new_carry = (carry_rng, states, predicted_tokens_uint8, attention)
+    new_x = (logits, predicted_tokens_uint8, scores)
+    return new_carry, new_x
+
+
+"""Baseline modules."""
+class Decoder(linen.Module):
+  """LSTM decoder.
+  
+  Attributes:
+    shared_embedding: module for computing the embeddings (shared with
+      the encoder)
+    vocab_size: vocabulary size
+    num_layers: number of layers in the LSTM
+    horizontal_dropout_rate: dropout applied at the same layer (same mask
+      across time steps).
+    vertical_dropout_rate: dropout applied between layers.
+    embed_dropout_rate: dropout applied on the embeddings.
+    attention_layer_dropout: dropout applied on the attention layer input (on
+      the concatenation of current state and context vector)
+  """
+  shared_embedding: linen.Module
+  vocab_size: int
+  num_layers: int
+  horizontal_dropout_rate: float
+  vertical_dropout_rate: float
+  embed_dropout_rate: float = EMBED_DROPOUT
+  attention_layer_dropout: float = ATTENTION_DROPOUT
+
+  @linen.compact
+  def __call__(self,
+    init_states: jnp.array,
+    encoder_hidden_states: jnp.array,
+    attention_mask: jnp.array,
+    inputs: jnp.array,
+    train: bool = False):
     """
     The decoder follows Luong's decoder in how attention is used (the current
     decoder state is used for attention computation, and the attention vector is
@@ -332,84 +414,41 @@ class Decoder(nn.Module):
       inputs: on the train flow (train=True) the gold decoded sequence (as
         teacher forcing is used), on the inference flow an array of desired
         output length where the first token is the BOS token
-      shared_embedding: module for computing the embeddings (shared with
-        the encoder)
-      vocab_size: vocabulary size
-      num_layers: number of layers in the LSTM
-      horizontal_dropout_rate: dropout applied at the same layer (same mask
-        across time steps).
-      vertical_dropout_rate: dropout applied between layers.
-      embed_dropout_rate: dropout applied on the embeddings.
-      attention_layer_dropout: dropout applied on the attention layer input (on
-        the concatenation of current state and context vector)
       train: boolean choosing from train and inference flow
     """
-    multilayer_lstm_cell = MultilayerLSTMCell.partial(num_layers=num_layers).shared(
-        name='multilayer_lstm')
-    attention_layer = nn.Dense.shared(features=ATTENTION_LAYER_SIZE,
-                                      name='attention_layer')
-    projection = nn.Dense.shared(features=vocab_size, name='projection')
-    mlp_attention = MlpAttention.partial(hidden_size=ATTENTION_SIZE).shared(
-        name='attention')
-    # The keys projection can be calculated once for the whole sequence.
-    projected_keys = nn.Dense(encoder_hidden_states,
-                              ATTENTION_SIZE,
-                              name='keys',
-                              bias=False)
-
     batch_size = encoder_hidden_states.shape[0]
     hidden_size = encoder_hidden_states.shape[-1]
-    h_dropout_masks = create_dropout_masks(
-        num_masks=num_layers,
-        shape=(batch_size, hidden_size),
-        dropout_rate=horizontal_dropout_rate,
-        train=train)
-
-    def decode_step_fn(carry, x):
-      rng, previous_states, last_prediction, prev_attention = carry
-      carry_rng, categorical_rng = jax.random.split(rng, 2)
-      if not train:
-        x = last_prediction
-      x = shared_embedding(x)
-      x = nn.dropout(x, rate=embed_dropout_rate, deterministic=train)
-      lstm_input = jnp.concatenate([x, prev_attention], axis=-1)
-      states, h = multilayer_lstm_cell(
-        horizontal_dropout_masks=h_dropout_masks,
-        vertical_dropout_rate=vertical_dropout_rate,
-        input=lstm_input,
-        previous_states=previous_states,
-        train=train)
-      context, scores = mlp_attention(jnp.expand_dims(h, 1), projected_keys,
-                                      encoder_hidden_states, attention_mask)
-      context_and_state = jnp.concatenate([context, h], axis=-1)
-      context_and_state = nn.dropout(context_and_state,
-                                     rate=attention_layer_dropout,
-                                     deterministic=train)
-      attention = jnp.tanh(attention_layer(context_and_state))
-      logits = projection(attention)
-      predicted_tokens = jax.random.categorical(categorical_rng, logits)
-      predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
-      new_carry = (carry_rng, states, predicted_tokens_uint8, attention)
-      new_x = (logits, predicted_tokens_uint8, scores)
-      return new_carry, new_x
+    dropout_masks = RecurrentDropoutMasks(self.num_layers,
+                                          self.horizontal_dropout_rate)
+    h_dropout_masks = dropout_masks(
+      shape=(batch_size, hidden_size),
+      train=train)
+    # The keys projection can be calculated once for the whole sequence.
+    projected_keys = linen.Dense(ATTENTION_SIZE, use_bias=False)(
+      encoder_hidden_states)
+    decoder_lstm = DecoderLSTM(
+      self.shared_embedding,
+      encoder_hidden_states,
+      projected_keys,
+      attention_mask,
+      train,
+      self.vocab_size,
+      self.num_layers,
+      h_dropout_masks,
+      self.vertical_dropout_rate,
+      self.embed_dropout_rate,
+      self.attention_layer_dropout
+    )
 
     # initialisig the LSTM states and final output with the
     # encoder hidden states
     attention = jnp.zeros((batch_size, ATTENTION_LAYER_SIZE))
-    init_carry = (nn.make_rng(), init_states, inputs[:, 0], attention)
+    init_carry = (self.make_rng('lstm'), init_states, inputs[:, 0], attention)
 
-    if self.is_initializing():
-      # initialize parameters before scan
-      decode_step_fn(init_carry, inputs[:, 0])
-
-    _, (logits, predictions, scores) = jax_utils.scan_in_dim(
-        decode_step_fn,
-        init=init_carry,  # rng, lstm_state, last_pred
-        xs=inputs,
-        axis=1)
+    _, (logits, predictions, scores) = decoder_lstm(init_carry, inputs)
     # The attention weights are only examined on the evaluation flow, so this
     # if is used to avoid unnecesary operations.
-    if not self.is_initializing() and not train:
+    if not train:
       attention_weights = jnp.array(scores)
       # Going from [output_seq_len, batch_size, input_seq_len]
       # to [batch_size, output_seq_len, input_seq_len].
