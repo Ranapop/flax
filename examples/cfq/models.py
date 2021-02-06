@@ -143,8 +143,7 @@ class MultilayerLSTMCell(nn.Module):
       # Apply dropout to the hidden state from lower layer.
       if train and layer_idx != 0 and vertical_dropout_rate > 0:
         input = nn.dropout(input,
-                           rate=vertical_dropout_rate,
-                           deterministic=train)
+                           rate=vertical_dropout_rate)
       state, output = cell((c, h), input)
       states.append(state)
       input = output
@@ -215,7 +214,7 @@ class Encoder(nn.Module):
             embed_dropout_rate: float = EMBED_DROPOUT):
 
     inputs = shared_embedding(inputs)
-    inputs = nn.dropout(inputs, rate=embed_dropout_rate, deterministic=train)
+    inputs = nn.dropout(inputs, rate=embed_dropout_rate, deterministic=not train)
     lstm = MultilayerLSTM.partial(
         hidden_size=hidden_size,
         num_layers=num_layers,
@@ -303,7 +302,7 @@ class Decoder(nn.Module):
       if not train:
         x = last_prediction
       x = shared_embedding(x)
-      x = nn.dropout(x, rate=embed_dropout_rate, deterministic=train)
+      x = nn.dropout(x, rate=embed_dropout_rate, deterministic=not train)
       lstm_input = jnp.concatenate([x, prev_attention], axis=-1)
       states, h = multilayer_lstm_cell(
         horizontal_dropout_masks=h_dropout_masks,
@@ -316,7 +315,7 @@ class Decoder(nn.Module):
       context_and_state = jnp.concatenate([context, h], axis=-1)
       context_and_state = nn.dropout(context_and_state,
                                      rate=attention_layer_dropout,
-                                     deterministic=train)
+                                     deterministic=not train)
       attention = jnp.tanh(attention_layer(context_and_state))
       logits = projection(attention)
       predicted_tokens = jax.random.categorical(categorical_rng, logits)
@@ -518,7 +517,7 @@ class SyntaxBasedDecoder(nn.Module):
                                          action_value=previous_action[1])
       prev_action_emb = nn.dropout(prev_action_emb,
                                    rate=embed_dropout_rate,
-                                   deterministic=train)
+                                   deterministic=not train)
       dec_prev_state = jnp.expand_dims(h, 0)
       context, scores = mlp_attention(dec_prev_state, projected_keys,
                                       encoder_hidden_states, attention_mask)
