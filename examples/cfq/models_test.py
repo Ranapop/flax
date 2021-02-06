@@ -153,7 +153,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(c.shape, (batch_size, hidden_size))
       self.assertEqual(h.shape, (batch_size, hidden_size))
 
-  def est_compute_attention_masks(self):
+  def test_compute_attention_masks(self):
     shape = (2, 7)
     lengths = jnp.array([5, 7])
     mask = models.compute_attention_masks(shape, lengths)
@@ -161,7 +161,9 @@ class ModelsTest(parameterized.TestCase):
                                [True, True, True, True, True, True, True]])
     self.assertEqual(True, jnp.array_equal(mask, expected_mask))
 
-  def est_decoder_train(self):
+  def test_decoder_train(self):
+    rng1, rng2, rng3 = random.split(random.PRNGKey(0), num=3)
+    rngs = {'params': rng1, 'dropout': rng2, 'lstm': rng3}
     seq1 = [1, 0, 2, 4]
     seq2 = [1, 4, 2, 3]
     inputs = jnp.array([seq1, seq2], dtype=jnp.uint8)
@@ -176,29 +178,35 @@ class ModelsTest(parameterized.TestCase):
     initial_states = [initial_state] * num_layers
     enc_hidden_states = jnp.zeros((batch_size, input_seq_len, hidden_size))
     mask = jnp.zeros((batch_size, input_seq_len), dtype=bool)
-    with nn.stochastic(jax.random.PRNGKey(0)):
-      shared_embedding = nn.Embed.partial(
+    class DummyModule(linen.Module):
+
+      @linen.compact
+      def __call__(self):
+        shared_embedding = linen.Embed(
           num_embeddings=vocab_size,
           features=20,
           embedding_init=nn.initializers.normal(stddev=1.0))
-      decoder = Decoder.partial(vocab_size=vocab_size,
-                                num_layers=num_layers,
-                                horizontal_dropout_rate=0.4,
-                                vertical_dropout_rate=0.4)
-      out, initial_params = decoder.init(
-          nn.make_rng(),
+        decoder = Decoder(shared_embedding=shared_embedding,
+                          vocab_size=vocab_size,
+                          num_layers=num_layers,
+                          horizontal_dropout_rate=0.4,
+                          vertical_dropout_rate=0.4)
+        return decoder(
           init_states=initial_states,
           encoder_hidden_states=enc_hidden_states,
           attention_mask=mask,
           inputs=inputs,
-          shared_embedding=shared_embedding,
           train=True)
-      logits, predictions, scores = out
-      self.assertEqual(logits.shape, (batch_size, seq_len, vocab_size))
-      self.assertEqual(predictions.shape, (batch_size, seq_len))
-      self.assertEqual(scores, None)
+    
+    out, initial_params = DummyModule().init_with_output(rngs)
+    logits, predictions, scores = out
+    self.assertEqual(logits.shape, (batch_size, seq_len, vocab_size))
+    self.assertEqual(predictions.shape, (batch_size, seq_len))
+    self.assertEqual(scores, None)
 
-  def est_decoder_inference(self):
+  def test_decoder_inference(self):
+    rng1, rng2 = random.split(random.PRNGKey(0))
+    rngs = {'params': rng1, 'lstm': rng2}
     max_len = 4
     input_seq_len = 5
     seq1 = [1, 1, 1, 1]
@@ -214,26 +222,31 @@ class ModelsTest(parameterized.TestCase):
     initial_states = [initial_state] * num_layers
     enc_hidden_states = jnp.zeros((batch_size, input_seq_len, hidden_size))
     mask = jnp.zeros((batch_size, input_seq_len), dtype=bool)
-    with nn.stochastic(jax.random.PRNGKey(0)):
-      shared_embedding = nn.Embed.partial(
+
+    class DummyModule(linen.Module):
+
+      @linen.compact
+      def __call__(self):
+        shared_embedding = linen.Embed(
           num_embeddings=vocab_size,
           features=20,
           embedding_init=nn.initializers.normal(stddev=1.0))
-      decoder = Decoder.partial(vocab_size=vocab_size,
-                                num_layers=num_layers,
-                                horizontal_dropout_rate=0.4,
-                                vertical_dropout_rate=0.4)
-      (logits, predictions,
-        scores), _ = decoder.init(nn.make_rng(),
-                                  init_states=initial_states,
-                                  encoder_hidden_states=enc_hidden_states,
-                                  attention_mask=mask,
-                                  inputs=inputs,
-                                  shared_embedding=shared_embedding,
-                                  train=False)
-      self.assertEqual(logits.shape, (batch_size, max_len, vocab_size))
-      self.assertEqual(predictions.shape, (batch_size, max_len))
-      self.assertEqual(scores, None)
+        decoder = Decoder(shared_embedding=shared_embedding,
+                          vocab_size=vocab_size,
+                          num_layers=num_layers,
+                          horizontal_dropout_rate=0.4,
+                          vertical_dropout_rate=0.4)
+        return decoder(
+          init_states=initial_states,
+          encoder_hidden_states=enc_hidden_states,
+          attention_mask=mask,
+          inputs=inputs,
+          train=False)
+    
+    (logits, predictions, scores), _ = DummyModule().init_with_output(rngs)
+    self.assertEqual(logits.shape, (batch_size, max_len, vocab_size))
+    self.assertEqual(predictions.shape, (batch_size, max_len))
+    self.assertEqual(scores.shape, (batch_size, max_len, input_seq_len))
 
 
   def est_seq_2_seq(self):
