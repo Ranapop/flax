@@ -254,22 +254,41 @@ class MultilayerLSTM(linen.Module):
     return outputs, final_states
 
 
-class Encoder(nn.Module):
-  """LSTM encoder, returning state after EOS is input."""
+class Encoder(linen.Module):
+  """LSTM encoder, returning state after EOS is input.
+  
+  Attributes:
+    shared_embedding: Embedding module shared between encoder & decoder.
+    hidden_size: LSTM hidden size.
+    num_layers: Number of stacked LSTMs.
+    horizontal_dropout_rate: Dropout rate.
+    vertical_dropout_rate: Recurrent dropout rate.
+    embed_dropout_rate: Embedding dropout rate.
+  """
+  shared_embedding: linen.Module
+  hidden_size: int
+  num_layers: int
+  horizontal_dropout_rate: float
+  vertical_dropout_rate: float
+  embed_dropout_rate: float = EMBED_DROPOUT
 
-  def apply(self, inputs: jnp.array, lengths: jnp.array,
-            shared_embedding: nn.Module, train: bool, hidden_size: int,
-            num_layers: int, horizontal_dropout_rate: float,
-            vertical_dropout_rate: float,
-            embed_dropout_rate: float = EMBED_DROPOUT):
-
-    inputs = shared_embedding(inputs)
-    inputs = nn.dropout(inputs, rate=embed_dropout_rate, deterministic=train)
-    lstm = MultilayerLSTM.partial(
-        hidden_size=hidden_size,
-        num_layers=num_layers,
-        dropout_rate=vertical_dropout_rate,
-        recurrent_dropout_rate=horizontal_dropout_rate).shared(name='lstm')
+  @linen.compact
+  def __call__(self, inputs: jnp.array, lengths: jnp.array, train: bool):
+    """
+    Args:
+      inputs: Encoder inputs (batch of sequences). Shape [batch_size, seq_len].
+      lengths: Input lenghts, shape [batch_size].
+      train: Train flow flag.
+    """
+    inputs = self.shared_embedding(inputs)
+    embed_dropout = linen.Dropout(self.embed_dropout_rate)
+    inputs = embed_dropout(inputs, deterministic=train)
+    lstm = MultilayerLSTM(
+      hidden_size=self.hidden_size,
+      num_layers=self.num_layers,
+      dropout_rate=self.vertical_dropout_rate,
+      recurrent_dropout_rate=self.horizontal_dropout_rate,
+      name='lstm')
     outputs, final_states = lstm(inputs, lengths, train=train)
     return outputs, final_states
 

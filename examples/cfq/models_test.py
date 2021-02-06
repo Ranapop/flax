@@ -5,6 +5,7 @@ import jax
 from jax import random
 import jax.numpy as jnp
 from flax import nn
+from flax import linen
 
 import models
 from models import Encoder, MlpAttention, RecurrentDropoutMasks, Decoder,\
@@ -13,7 +14,9 @@ from models import Encoder, MlpAttention, RecurrentDropoutMasks, Decoder,\
 
 class ModelsTest(parameterized.TestCase):
 
-  def est_encoder(self):
+  def test_encoder(self):
+    rng1, rng2 = random.split(random.PRNGKey(0))
+    rngs = {'params': rng1, 'dropout': rng2}
     seq1 = [1, 0, 3]
     seq2 = [1, 0, 3]
     batch_size = 2
@@ -22,27 +25,35 @@ class ModelsTest(parameterized.TestCase):
     num_layers = 5
     inputs = jnp.array([seq1, seq2])
     lengths = jnp.array([len(seq1), len(seq2)])
-    with nn.stochastic(jax.random.PRNGKey(0)):
-      shared_embedding = nn.Embed.partial(
+    class DummyModule(linen.Module):
+
+      @linen.compact
+      def __call__(self, inputs, lengths, train):
+        shared_embedding = linen.Embed(
           num_embeddings=10,
           features=20,
           embedding_init=nn.initializers.normal(stddev=1.0))
-      encoder = Encoder.partial(hidden_size=hidden_size,
-                                num_layers=num_layers,
-                                horizontal_dropout_rate=0.4,
-                                vertical_dropout_rate=0.4)
-      out, initial_params = encoder.init(nn.make_rng(),
-                                         inputs=inputs,
-                                         lengths=lengths,
-                                         shared_embedding=shared_embedding,
-                                         train=True)
-      outputs, hidden_states = out
-      self.assertEqual(outputs.shape, (batch_size, seq_len, hidden_size))
-      self.assertEqual(len(hidden_states), num_layers)
-      for i in range(num_layers):
-        c, h = hidden_states[i]
-        self.assertEqual(c.shape, (batch_size, hidden_size))
-        self.assertEqual(h.shape, (batch_size, hidden_size))
+        encoder = Encoder(
+          shared_embedding=shared_embedding,
+          hidden_size=hidden_size,
+          num_layers=num_layers,
+          horizontal_dropout_rate=0.4,
+          vertical_dropout_rate=0.4)
+        return encoder(inputs, lengths, train)
+
+    dummy_module = DummyModule()
+    out, initial_params = dummy_module.init_with_output(
+      rngs,
+      inputs=inputs,
+      lengths=lengths,
+      train=True)
+    outputs, hidden_states = out
+    self.assertEqual(outputs.shape, (batch_size, seq_len, hidden_size))
+    self.assertEqual(len(hidden_states), num_layers)
+    for i in range(num_layers):
+      c, h = hidden_states[i]
+      self.assertEqual(c.shape, (batch_size, hidden_size))
+      self.assertEqual(h.shape, (batch_size, hidden_size))
 
   def test_mlp_attenntion(self):
     rng = dict(params=random.PRNGKey(0))
