@@ -132,6 +132,15 @@ class ModelsTest(parameterized.TestCase):
       c, h = state
       self.assertEqual(c.shape, (batch_size, hidden_size))
       self.assertEqual(h.shape, (batch_size, hidden_size))
+    rng1, rng2 = random.split(random.PRNGKey(0))
+    rngs = {'params': rng1, 'dropout': rng2}
+    (outputs, states), _ = multilayer_lstm.init_with_output(rngs,
+      inputs, lengths, True)
+    self.assertEqual(outputs.shape, (batch_size, seq_len, hidden_size))
+    for state in states:
+      c, h = state
+      self.assertEqual(c.shape, (batch_size, hidden_size))
+      self.assertEqual(h.shape, (batch_size, hidden_size))
 
   def est_compute_attention_masks(self):
     shape = (2, 7)
