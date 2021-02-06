@@ -249,22 +249,24 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(scores.shape, (batch_size, max_len, input_seq_len))
 
 
-  def est_seq_2_seq(self):
+  def test_seq_2_seq(self):
+    rng1, rng2, rng3 = random.split(random.PRNGKey(0), num=3)
+    rngs = {'params': rng1, 'dropout': rng2, 'lstm': rng3}
     vocab_size = 10
     batch_size = 2
     max_len = 5
     enc_inputs = jnp.array([[1, 0, 2], [1, 4, 2]], dtype=jnp.uint8)
     lengths = jnp.array([2, 3])
     dec_inputs = jnp.array([[6, 7, 3, 5, 1], [1, 4, 2, 3, 2]], dtype=jnp.uint8)
-    seq2seq = Seq2seq.partial(vocab_size=vocab_size)
-    with nn.stochastic(jax.random.PRNGKey(0)):
-      (logits, predictions, scores), _ = seq2seq.init(nn.make_rng(),
-                                            encoder_inputs=enc_inputs,
-                                            decoder_inputs=dec_inputs,
-                                            encoder_inputs_lengths=lengths)
-      self.assertEqual(logits.shape, (batch_size, max_len - 1, vocab_size))
-      self.assertEqual(predictions.shape, (batch_size, max_len - 1))
-      self.assertEqual(scores, None)
+    seq2seq = Seq2seq(vocab_size=vocab_size)
+    (logits, predictions, scores), _ = seq2seq.init_with_output(rngs,
+                                          encoder_inputs=enc_inputs,
+                                          decoder_inputs=dec_inputs,
+                                          encoder_inputs_lengths=lengths,
+                                          train=True)
+    self.assertEqual(logits.shape, (batch_size, max_len - 1, vocab_size))
+    self.assertEqual(predictions.shape, (batch_size, max_len - 1))
+    self.assertEqual(scores, None)
 
   def est_seq_2_seq_inference_apply(self):
     vocab_size = 10
