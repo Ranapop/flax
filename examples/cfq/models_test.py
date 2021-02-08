@@ -268,7 +268,9 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(predictions.shape, (batch_size, max_len - 1))
     self.assertEqual(scores, None)
 
-  def est_seq_2_seq_inference_apply(self):
+  def test_seq_2_seq_inference_apply(self):
+    rng1, rng2 = random.split(random.PRNGKey(0))
+    rngs = {'params': rng1, 'lstm': rng2}
     vocab_size = 10
     batch_size = 2
     max_len = 5
@@ -277,23 +279,28 @@ class ModelsTest(parameterized.TestCase):
     dec_inputs = jnp.array([[6, 7, 3, 5, 1], [1, 4, 2, 3, 2]], dtype=jnp.uint8)
     input_length = 3
     predicted_length = 4
-    seq2seq = Seq2seq.partial(vocab_size=vocab_size)
-    with nn.stochastic(jax.random.PRNGKey(0)):
-      _, initial_params = models.Seq2seq.partial(vocab_size=vocab_size
-                            ).init_by_shape(nn.make_rng(),
-                            [((1, 1), jnp.uint8),
-                              ((1, 2), jnp.uint8),
-                              ((1,), jnp.uint8)])
-      model = nn.Model(models.Seq2seq, initial_params)
-      logits, predictions, attention_weights = model(encoder_inputs=enc_inputs,
-                                                 decoder_inputs=dec_inputs,
-                                                 encoder_inputs_lengths=lengths,
-                                                 vocab_size=vocab_size,
-                                                 train=False)
-      self.assertEqual(logits.shape, (batch_size, max_len - 1, vocab_size))
-      self.assertEqual(predictions.shape, (batch_size, max_len - 1))
-      self.assertEqual(
-        attention_weights.shape, (batch_size, predicted_length, input_length))
+    seq2seq = Seq2seq(vocab_size=vocab_size)
+    init_batch = [
+      jnp.zeros((1, 1), jnp.uint8),
+      jnp.zeros((1, 2), jnp.uint8),
+      jnp.zeros((1,), jnp.uint8)
+    ]
+    initial_params = seq2seq.init(rngs,
+      init_batch[0],
+      init_batch[1],
+      init_batch[2],
+      False)
+    logits, predictions, attention_weights = seq2seq.apply(
+      {'params': initial_params['params']},
+      enc_inputs,
+      dec_inputs,
+      lengths,
+      False,
+      rngs=rngs)
+    self.assertEqual(logits.shape, (batch_size, max_len - 1, vocab_size))
+    self.assertEqual(predictions.shape, (batch_size, max_len - 1))
+    self.assertEqual(
+      attention_weights.shape, (batch_size, predicted_length, input_length))
 
   
   def est_seq_2_tree_train_apply(self):

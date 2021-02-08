@@ -179,7 +179,7 @@ class MultilayerLSTMScan(linen.Module):
   @functools.partial(
       linen.transforms.scan,
       variable_broadcast='params',
-      split_rngs={'params': False},
+      split_rngs={'params': False, 'dropout': False},
       in_axes = 1,
       out_axes = 1,
       )
@@ -336,7 +336,7 @@ class DecoderLSTM(linen.Module):
   @functools.partial(
       linen.transforms.scan,
       variable_broadcast='params',
-      split_rngs={'params': False},
+      split_rngs={'params': False, 'dropout': False},
       in_axes = 1,
       out_axes = 1)
   def __call__(self, carry, x):
@@ -504,7 +504,7 @@ class Seq2seq(linen.Module):
     shared_embedding = linen.Embed(
         num_embeddings=self.vocab_size,
         features=self.emb_dim,
-        embedding_init=nn.initializers.normal(stddev=1.0))
+        embedding_init=linen.initializers.normal(stddev=1.0))
 
     encoder = Encoder(shared_embedding=shared_embedding, 
                       hidden_size=self.hidden_size,
