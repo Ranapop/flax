@@ -5,7 +5,7 @@ import jax
 from jax import random
 import jax.numpy as jnp
 from flax import nn
-from flax import linen
+from flax import linen as nn
 
 import models
 from models import Encoder, MlpAttention, RecurrentDropoutMasks, Decoder,\
@@ -25,11 +25,11 @@ class ModelsTest(parameterized.TestCase):
     num_layers = 5
     inputs = jnp.array([seq1, seq2])
     lengths = jnp.array([len(seq1), len(seq2)])
-    class DummyModule(linen.Module):
+    class DummyModule(nn.Module):
 
-      @linen.compact
+      @nn.compact
       def __call__(self, inputs, lengths, train):
-        shared_embedding = linen.Embed(
+        shared_embedding = nn.Embed(
           num_embeddings=10,
           features=20,
           embedding_init=nn.initializers.normal(stddev=1.0))
@@ -178,11 +178,11 @@ class ModelsTest(parameterized.TestCase):
     initial_states = [initial_state] * num_layers
     enc_hidden_states = jnp.zeros((batch_size, input_seq_len, hidden_size))
     mask = jnp.zeros((batch_size, input_seq_len), dtype=bool)
-    class DummyModule(linen.Module):
+    class DummyModule(nn.Module):
 
-      @linen.compact
+      @nn.compact
       def __call__(self):
-        shared_embedding = linen.Embed(
+        shared_embedding = nn.Embed(
           num_embeddings=vocab_size,
           features=20,
           embedding_init=nn.initializers.normal(stddev=1.0))
@@ -222,11 +222,11 @@ class ModelsTest(parameterized.TestCase):
     enc_hidden_states = jnp.zeros((batch_size, input_seq_len, hidden_size))
     mask = jnp.zeros((batch_size, input_seq_len), dtype=bool)
 
-    class DummyModule(linen.Module):
+    class DummyModule(nn.Module):
 
-      @linen.compact
+      @nn.compact
       def __call__(self):
-        shared_embedding = linen.Embed(
+        shared_embedding = nn.Embed(
           num_embeddings=vocab_size,
           features=20,
           embedding_init=nn.initializers.normal(stddev=1.0))

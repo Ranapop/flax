@@ -20,8 +20,7 @@ import jax
 from jax import random
 import jax.numpy as jnp
 from flax import jax_utils
-from flax import nn
-from flax import linen
+from flax import linen as nn
 import functools
 
 # hyperparams
@@ -37,7 +36,7 @@ ATTENTION_DROPOUT = 0
 
 """Common modules"""
 
-class MlpAttention(linen.Module):
+class MlpAttention(nn.Module):
   """MLP attention module that returns a scalar score for each key.
 
   Args:
@@ -49,7 +48,7 @@ class MlpAttention(linen.Module):
   hidden_size: int = None
   use_batch_axis: bool = True
 
-  @linen.compact
+  @nn.compact
   def __call__(self,
             query: jnp.ndarray,
             projected_keys: jnp.ndarray,
@@ -80,14 +79,14 @@ class MlpAttention(linen.Module):
     Returns:
       The weighted values (context vector) [batch_size, seq_len]
     """
-    projected_query = linen.Dense(self.hidden_size, name='query', use_bias=False)(query)
+    projected_query = nn.Dense(self.hidden_size, name='query', use_bias=False)(query)
     # Query broadcasts in the sum below along the time (seq_length) dimension.
-    energy = linen.tanh(projected_keys + projected_query)
-    scores = linen.Dense(1, name='energy', use_bias=False)(energy)
+    energy = nn.tanh(projected_keys + projected_query)
+    scores = nn.Dense(1, name='energy', use_bias=False)(energy)
     scores = scores.squeeze(-1)  # New shape: <float32>[batch_size, seq_len].
     # TODO: see if I can rewrite this to not have the squeezing and unsqueezing
     scores = jnp.where(mask, scores, -jnp.inf)  # Using exp(-inf) = 0 below.
-    scores = linen.softmax(scores, axis=-1)
+    scores = nn.softmax(scores, axis=-1)
 
     if self.use_batch_axis:
       # Shape: <float32>[batch_size, seq_len]
@@ -98,7 +97,7 @@ class MlpAttention(linen.Module):
     return context, scores  
 
 
-class RecurrentDropoutMasks(linen.Module):
+class RecurrentDropoutMasks(nn.Module):
   """ Module for creating dropout masks for the recurrent cells.
 
   Attributes:
@@ -108,7 +107,7 @@ class RecurrentDropoutMasks(linen.Module):
   num_masks: int
   dropout_rate: float
 
-  @linen.compact
+  @nn.compact
   def __call__(self, shape: Tuple, train: bool):
     if not train or self.dropout_rate == 0:
       return [None] * self.num_masks
@@ -123,7 +122,7 @@ class RecurrentDropoutMasks(linen.Module):
     return masks
 
 
-class MultilayerLSTMCell(linen.Module):
+class MultilayerLSTMCell(nn.Module):
   """LSTM cell with multiple layers
   
   Args:
@@ -131,7 +130,7 @@ class MultilayerLSTMCell(linen.Module):
   """
   num_layers: int
 
-  @linen.compact
+  @nn.compact
   def __call__(self,
     horizontal_dropout_masks: jnp.array,
     vertical_dropout_rate: float,
@@ -155,14 +154,14 @@ class MultilayerLSTMCell(linen.Module):
     final_output = None
     for layer_idx in range(self.num_layers):
       lstm_name = 'lstm_layer' + str(layer_idx)
-      cell = linen.LSTMCell(name=lstm_name)
+      cell = nn.LSTMCell(name=lstm_name)
       c, h = previous_states[layer_idx]
       # Apply dropout to h.
       if horizontal_dropout_masks[layer_idx] is not None:
         h = h * horizontal_dropout_masks[layer_idx]
       # Apply dropout to the hidden state from lower layer.
       if train and layer_idx != 0 and vertical_dropout_rate > 0:
-        dropout = linen.Dropout(rate=vertical_dropout_rate)
+        dropout = nn.Dropout(rate=vertical_dropout_rate)
         input = dropout(input)
       state, output = cell((c, h), input)
       states.append(state)
@@ -170,20 +169,20 @@ class MultilayerLSTMCell(linen.Module):
       final_output = output
     return states, final_output
 
-class MultilayerLSTMScan(linen.Module):
+class MultilayerLSTMScan(nn.Module):
   num_layers: int
   h_dropout_masks: List
   dropout_rate: float
   train: bool
 
   @functools.partial(
-      linen.transforms.scan,
+      nn.transforms.scan,
       variable_broadcast='params',
       split_rngs={'params': False, 'dropout': False},
       in_axes = 1,
       out_axes = 1,
       )
-  @linen.compact
+  @nn.compact
   def __call__(self, carry, x):
     multilayer_lstm_cell = MultilayerLSTMCell(
       num_layers=self.num_layers,
@@ -209,7 +208,7 @@ class MultilayerLSTMScan(linen.Module):
     new_carry = carried_states, lengths, step+1
     return new_carry, h
 
-class MultilayerLSTM(linen.Module):
+class MultilayerLSTM(nn.Module):
   """"Multilayer LSTM.
 
   Attributes:
@@ -223,7 +222,7 @@ class MultilayerLSTM(linen.Module):
   dropout_rate: float
   recurrent_dropout_rate: float
 
-  @linen.compact
+  @nn.compact
   def __call__(self,
                inputs, lengths,
                train):
@@ -245,7 +244,7 @@ class MultilayerLSTM(linen.Module):
                                    self.dropout_rate,
                                    train)
     initial_states = [
-          linen.LSTMCell.initialize_carry(
+          nn.LSTMCell.initialize_carry(
             jax.random.PRNGKey(0), (batch_size,), self.hidden_size)
           for _ in range(self.num_layers)]
     init_carry = init=(initial_states, lengths, jnp.array(0))
@@ -253,7 +252,7 @@ class MultilayerLSTM(linen.Module):
     return outputs, final_states
 
 
-class Encoder(linen.Module):
+class Encoder(nn.Module):
   """LSTM encoder, returning state after EOS is input.
   
   Attributes:
@@ -264,14 +263,14 @@ class Encoder(linen.Module):
     vertical_dropout_rate: Recurrent dropout rate.
     embed_dropout_rate: Embedding dropout rate.
   """
-  shared_embedding: linen.Module
+  shared_embedding: nn.Module
   hidden_size: int
   num_layers: int
   horizontal_dropout_rate: float
   vertical_dropout_rate: float
   embed_dropout_rate: float = EMBED_DROPOUT
 
-  @linen.compact
+  @nn.compact
   def __call__(self, inputs: jnp.array, lengths: jnp.array, train: bool):
     """
     Args:
@@ -280,7 +279,7 @@ class Encoder(linen.Module):
       train: Train flow flag.
     """
     inputs = self.shared_embedding(inputs)
-    embed_dropout = linen.Dropout(self.embed_dropout_rate)
+    embed_dropout = nn.Dropout(self.embed_dropout_rate)
     inputs = embed_dropout(inputs, deterministic=not train)
     lstm = MultilayerLSTM(
       hidden_size=self.hidden_size,
@@ -298,7 +297,7 @@ def compute_attention_masks(mask_shape: Tuple, lengths: jnp.array):
   return mask
 
 
-class DecoderLSTM(linen.Module):
+class DecoderLSTM(nn.Module):
   """
   Attributes:
     shared_embedding: Embedding module shared between encoder & decoder.
@@ -313,7 +312,7 @@ class DecoderLSTM(linen.Module):
     embed_dropout_rate: Embedding dropout rate.
     attention_layer_dropout: Attention dropout rate.
   """
-  shared_embedding: linen.Module
+  shared_embedding: nn.Module
   encoder_hidden_states: jnp.array
   projected_keys: jnp.array
   attention_mask: jnp.array
@@ -327,14 +326,14 @@ class DecoderLSTM(linen.Module):
 
   def setup(self):
     self.multilayer_lstm_cell = MultilayerLSTMCell(num_layers=self.num_layers)
-    self.attention_layer = linen.Dense(features=ATTENTION_LAYER_SIZE)
-    self.projection = linen.Dense(features=self.vocab_size)
+    self.attention_layer = nn.Dense(features=ATTENTION_LAYER_SIZE)
+    self.projection = nn.Dense(features=self.vocab_size)
     self.mlp_attention = MlpAttention(hidden_size=ATTENTION_SIZE)
-    self.embed_dropout = linen.Dropout(self.embed_dropout_rate)
-    self.attention_dropout = linen.Dropout(self.attention_layer_dropout)
+    self.embed_dropout = nn.Dropout(self.embed_dropout_rate)
+    self.attention_dropout = nn.Dropout(self.attention_layer_dropout)
 
   @functools.partial(
-      linen.transforms.scan,
+      nn.transforms.scan,
       variable_broadcast='params',
       split_rngs={'params': False, 'dropout': False},
       in_axes = 1,
@@ -367,7 +366,7 @@ class DecoderLSTM(linen.Module):
 
 
 """Baseline modules."""
-class Decoder(linen.Module):
+class Decoder(nn.Module):
   """LSTM decoder.
   
   Attributes:
@@ -382,7 +381,7 @@ class Decoder(linen.Module):
     attention_layer_dropout: dropout applied on the attention layer input (on
       the concatenation of current state and context vector)
   """
-  shared_embedding: linen.Module
+  shared_embedding: nn.Module
   vocab_size: int
   num_layers: int
   horizontal_dropout_rate: float
@@ -390,7 +389,7 @@ class Decoder(linen.Module):
   embed_dropout_rate: float = EMBED_DROPOUT
   attention_layer_dropout: float = ATTENTION_DROPOUT
 
-  @linen.compact
+  @nn.compact
   def __call__(self,
     init_states: jnp.array,
     encoder_hidden_states: jnp.array,
@@ -423,7 +422,7 @@ class Decoder(linen.Module):
       shape=(batch_size, hidden_size),
       train=train)
     # The keys projection can be calculated once for the whole sequence.
-    projected_keys = linen.Dense(ATTENTION_SIZE, use_bias=False)(
+    projected_keys = nn.Dense(ATTENTION_SIZE, use_bias=False)(
       encoder_hidden_states)
     decoder_lstm = DecoderLSTM(
       self.shared_embedding,
@@ -457,7 +456,7 @@ class Decoder(linen.Module):
     return logits, predictions, attention_weights
 
 
-class Seq2seq(linen.Module):
+class Seq2seq(nn.Module):
   """Sequence-to-sequence class using encoder/decoder architecture.
   
   Attributes:
@@ -475,7 +474,7 @@ class Seq2seq(linen.Module):
   horizontal_dropout_rate: float = HORIZONTAL_DROPOUT
   vertical_dropout_rate: float = VERTICAL_DROPOUT
 
-  @linen.compact
+  @nn.compact
   def __call__(self,
     encoder_inputs: jnp.array,
     decoder_inputs: jnp.array,
@@ -500,10 +499,10 @@ class Seq2seq(linen.Module):
       Returns:
         Array of decoded logits.
     """
-    shared_embedding = linen.Embed(
-        num_embeddings=self.vocab_size,
-        features=self.emb_dim,
-        embedding_init=linen.initializers.normal(stddev=1.0))
+    shared_embedding = nn.Embed(
+      num_embeddings=self.vocab_size,
+      features=self.emb_dim,
+      embedding_init=nn.initializers.normal(stddev=1.0))
 
     encoder = Encoder(shared_embedding=shared_embedding, 
                       hidden_size=self.hidden_size,
@@ -537,23 +536,23 @@ class Seq2seq(linen.Module):
 ACTION_EMBEDDING_SIZE = 128
 NODE_EMBEDDING_SIZE = 32
 
-class ActionEmbed(linen.Module):
+class ActionEmbed(nn.Module):
   """
   Attributes:
     rule_vocab_size: Number of grammar rules.
     token_embedding: Token embedding module.
   """
   rule_vocab_size: int
-  token_embedding: linen.Module
+  token_embedding: nn.Module
 
-  @linen.compact
+  @nn.compact
   def __call__(self,
                action_type: jnp.array,
                action_value: jnp.array):
-    rule_embedding = linen.Embed(
+    rule_embedding = nn.Embed(
       num_embeddings=self.rule_vocab_size,
       features=ACTION_EMBEDDING_SIZE,
-      embedding_init=linen.initializers.normal(stddev=1.0))
+      embedding_init=nn.initializers.normal(stddev=1.0))
 
     rule_emb = rule_embedding(action_value)
     token_emb = self.token_embedding(action_value)
@@ -563,7 +562,7 @@ class ActionEmbed(linen.Module):
      jnp.equal(action_type, jnp.array(1)) * token_emb
     return action_emb
 
-class SyntaxBasedDecoderLSTM(linen.Module):
+class SyntaxBasedDecoderLSTM(nn.Module):
   """
   Attributes:
     shared_embedding: Embedding module (shared between encoder & decoder).
@@ -579,7 +578,7 @@ class SyntaxBasedDecoderLSTM(linen.Module):
     vertical_dropout_rate: LSTM vertical dropout rate (between layers).
     embed_dropout_rate: embedding dropot rate.
   """
-  shared_embedding: linen.Module
+  shared_embedding: nn.Module
   encoder_hidden_states: jnp.array
   projected_keys: jnp.array
   attention_mask: jnp.array
@@ -594,20 +593,20 @@ class SyntaxBasedDecoderLSTM(linen.Module):
 
   def setup(self):
     self.multilayer_lstm_cell = MultilayerLSTMCell(num_layers=self.num_layers)
-    self.rule_projection = linen.Dense(features=self.rule_vocab_size)
-    self.token_projection = linen.Dense(features=self.token_vocab_size)
+    self.rule_projection = nn.Dense(features=self.rule_vocab_size)
+    self.token_projection = nn.Dense(features=self.token_vocab_size)
     self.mlp_attention = MlpAttention(
       hidden_size=ATTENTION_SIZE, use_batch_axis=False)
     self.action_embedding = ActionEmbed(rule_vocab_size=self.rule_vocab_size,
                                         token_embedding=self.shared_embedding)
-    self.node_embedding = linen.Embed(
+    self.node_embedding = nn.Embed(
       num_embeddings=self.node_vocab_size,
       features=NODE_EMBEDDING_SIZE,
-      embedding_init=linen.initializers.normal(stddev=1.0))
-    self.embed_dropout = linen.Dropout(self.embed_dropout_rate)
+      embedding_init=nn.initializers.normal(stddev=1.0))
+    self.embed_dropout = nn.Dropout(self.embed_dropout_rate)
 
   @functools.partial(
-      linen.transforms.scan,
+      nn.transforms.scan,
       variable_broadcast='params',
       split_rngs={'params': False, 'dropout': False},
       in_axes = 0,
@@ -649,7 +648,7 @@ class SyntaxBasedDecoderLSTM(linen.Module):
     accumulator = (rule_logits, token_logits, prediction_uint8, scores)
     return new_carry, accumulator
 
-class SyntaxBasedDecoder(linen.Module):
+class SyntaxBasedDecoder(nn.Module):
   """LSTM syntax-based decoder.
   Attributes:
     shared_embedding: token embedding module.
@@ -660,7 +659,7 @@ class SyntaxBasedDecoder(linen.Module):
     horizontal_dropout_rate: LSTM vertical dropout rate.
     embed_dropout_rate: embedding dropout rate.
   """
-  shared_embedding: linen.Module
+  shared_embedding: nn.Module
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -669,7 +668,7 @@ class SyntaxBasedDecoder(linen.Module):
   vertical_dropout_rate: float
   embed_dropout_rate: float = EMBED_DROPOUT
 
-  @linen.compact
+  @nn.compact
   def apply(self,
             init_states: jnp.array,
             encoder_hidden_states: jnp.array,
@@ -687,9 +686,9 @@ class SyntaxBasedDecoder(linen.Module):
       train: flag distinguishing between train and test flow.
     """
     # The keys projection can be calculated once for the whole sequence.
-    projected_keys = linen.Dense(ATTENTION_SIZE,
-                                 name='keys',
-                                 use_bias=False)(encoder_hidden_states)
+    projected_keys = nn.Dense(ATTENTION_SIZE,
+                              name='keys',
+                              use_bias=False)(encoder_hidden_states)
     
     dropout_masks = RecurrentDropoutMasks(self.num_layers,
                                           self.horizontal_dropout_rate)
@@ -738,7 +737,7 @@ class SyntaxBasedDecoder(linen.Module):
     return rule_logits, token_logits, predictions, attention_weights
 
 
-class Seq2tree(linen.Module):
+class Seq2tree(nn.Module):
   """Sequence-to-ast class following Yin and Neubig.
   Attributes:
     rule_vocab_size: Number of rules.
@@ -761,16 +760,16 @@ class Seq2tree(linen.Module):
   horizontal_dropout_rate=HORIZONTAL_DROPOUT
   vertical_dropout_rate=VERTICAL_DROPOUT
 
-  @linen.compact
+  @nn.compact
   def __call__(self,
     encoder_inputs: jnp.array,
     decoder_inputs: jnp.array,
     encoder_inputs_lengths: jnp.array):
 
-    shared_embedding = linen.Embed(
-        num_embeddings=self.token_vocab_size,
-        features=self.emb_dim,
-        embedding_init=linen.initializers.normal(stddev=1.0))
+    shared_embedding = nn.Embed(
+      num_embeddings=self.token_vocab_size,
+      features=self.emb_dim,
+      embedding_init=nn.initializers.normal(stddev=1.0))
 
     encoder = Encoder(
       shared_embedding=shared_embedding,
