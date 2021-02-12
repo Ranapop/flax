@@ -744,8 +744,8 @@ class Seq2tree(linen.Module):
     rule_vocab_size: Number of rules.
     token_vocab_size: Number of input & output tokens.
     node_vocab_size: Number of node types.
-    emb_dim: Token embedding dimension.
     train: Train flag.
+    emb_dim: Token embedding dimension.
     hidden_size: LSTM hidden size.
     num_layers: LSTM number of layers.
     horizontal_dropout_rate: LSTM horizontal dropout rate (between steps).
