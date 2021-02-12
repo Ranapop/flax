@@ -17,17 +17,26 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 
+import jax
 import jax.numpy as jnp
 
 
+from train import get_initial_params
 from train import mask_sequences
 from train import cross_entropy_loss
 from train import compute_perfect_match_accuracy
 from train import compute_metrics
+from models import Seq2seq
 
 class TrainTest(parameterized.TestCase):
 
 
+  def test_get_initial_params(self):
+    vocab_size = 10
+    rng = jax.random.PRNGKey(0)
+    initial_params = get_initial_params(rng, vocab_size)
+    self.assertNotEqual(initial_params, None)
+    
   def test_mask_sequences(self):
     eos_id = 10
     sequences = jnp.array([

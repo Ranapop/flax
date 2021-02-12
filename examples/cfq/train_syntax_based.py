@@ -31,7 +31,7 @@ from jax.experimental.optimizers import clip_grads
 
 import flax
 from flax import jax_utils
-from flax import nn
+from flax import linen as nn
 from flax.training import checkpoints
 from flax.training import common_utils
 from flax.metrics import tensorboard
@@ -64,26 +64,34 @@ def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
   # Use where to zero out +/-inf if necessary.
   return jnp.where(mask, sequence_batch, 0)
 
-
-def create_model(rule_vocab_size: int,
-                 token_vocab_size: int,
-                 node_vocab_size: int) -> nn.Module:
-  """Creates a seq2seq model."""
-  _, initial_params = models.Seq2tree.partial(
-      rule_vocab_size=rule_vocab_size,
-      token_vocab_size=token_vocab_size,
-      node_vocab_size=node_vocab_size
-  ).init_by_shape(
-      nn.make_rng(),
-      #encoder_inputs
-      [
-          ((1, 1), jnp.uint8),
-          # Decoder inputs [batch_size, 3, seq_len].
-          ((1, 3, 1), jnp.uint8),
-          ((1,), jnp.uint8)
-      ])
-  model = nn.Model(models.Seq2tree, initial_params)
-  return model
+def get_initial_params(rng: jax.random.PRNGKey,
+                       rule_vocab_size: int,
+                       token_vocab_size: int,
+                       node_vocab_size: int):
+  seq2seq = models.Seq2tree(
+    rule_vocab_size,
+    token_vocab_size,
+    node_vocab_size,
+    train = False
+  )
+  initial_batch = [
+          jnp.array((1, 1), jnp.uint8),
+          #decoder_inputs
+          # need to pass 2 for decoder length
+          # as the first token is cut off
+          jnp.array((1, 2), jnp.uint8),
+          jnp.array((1,), jnp.uint8)
+      ]
+  initial_batch = [
+    jnp.zeros((1, 1), jnp.uint8),
+    jnp.zeros((1, 3, 1), jnp.uint8),
+    jnp.zeros((1,), jnp.uint8)
+  ]
+  initial_params = seq2seq.init(rng,
+    initial_batch[0],
+    initial_batch[1],
+    initial_batch[2])
+  return initial_params['params']
 
 
 def cross_entropy_loss(rule_logits: jnp.array,
@@ -248,9 +256,10 @@ def get_decoder_inputs(batch: BatchType):
                    static_broadcasted_argnums=(3, 4, 5))
 def train_step(optimizer: Any,
                batch: BatchType,
-               rng: Any,
+               rng: jax.random.PRNGKey,
                rule_vocab_size: int, token_vocab_size: int, node_vocab_size: int):
   """Train one step."""
+  step_rng = jax.random.fold_in(rng, optimizer.state.step)
 
   inputs = batch[inp_constants.QUESTION_KEY]
   input_lengths = batch[inp_constants.QUESTION_LEN_KEY]
@@ -259,16 +268,17 @@ def train_step(optimizer: Any,
   decoder_inputs = get_decoder_inputs(batch)
   queries_lengths = batch[inp_constants.ACTION_SEQ_LEN_KEY]
 
-  def loss_fn(model):
+  def loss_fn(params):
     """Compute cross-entropy loss."""
-    with nn.stochastic(rng):
-      rule_logits, token_logits, predictions, _ = \
-        model(encoder_inputs=inputs,
-              decoder_inputs=decoder_inputs,
-              encoder_inputs_lengths=input_lengths,
-              rule_vocab_size=rule_vocab_size,
-              token_vocab_size=token_vocab_size,
-              node_vocab_size=node_vocab_size)
+    seq2tree = models.Seq2tree(
+      rule_vocab_size, token_vocab_size, node_vocab_size, train=True)
+    rule_logits, token_logits, predictions, _ = \
+      seq2tree.apply(
+        {'params': params}, 
+        encoder_inputs=inputs,
+        decoder_inputs=decoder_inputs,
+        encoder_inputs_lengths=input_lengths,
+        rngs={'dropout': step_rng})
     loss = cross_entropy_loss(rule_logits,
                               token_logits,
                               action_types,
@@ -297,9 +307,8 @@ def train_step(optimizer: Any,
   return optimizer, metrics
 
 
-@jax.partial(jax.jit, static_argnums=[4, 5, 6, 8])
-def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
-          rng: Any,
+@jax.partial(jax.jit, static_argnums=[3, 4, 5, 7])
+def infer(params, inputs: jnp.array, inputs_lengths: jnp.array,
           rule_vocab_size: int, token_vocab_size: int, node_vocab_size: int,
           bos_encoding: jnp.array,
           predicted_output_length: int):
@@ -308,7 +317,6 @@ def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
     Args:
         model: the seq2seq model applied
         inputs: batch of input sequences
-        rng: rng
         vocab_size: size of vocabulary
         bos_encoding: id the BOS token
         predicted_output_length: what length should predict for the output
@@ -323,19 +331,18 @@ def infer(model: nn.Module, inputs: jnp.array, inputs_lengths: jnp.array,
   decoder_inputs = jnp.array([action_types, action_values, node_types])
   # Go from [2, batch_size, seq_len] -> [batch_size, 2, seq_len].
   decoder_inputs = jnp.swapaxes(decoder_inputs, 0, 1)
-  with nn.stochastic(rng):
-    rule_logits, token_logits, predictions, attention_weights = \
-      model(encoder_inputs=inputs,
-            decoder_inputs=decoder_inputs,
-            encoder_inputs_lengths=inputs_lengths,
-            rule_vocab_size=rule_vocab_size,
-            token_vocab_size=token_vocab_size,
-            node_vocab_size=node_vocab_size,
-            train=False)
+  seq2tree = models.Seq2tree(
+      rule_vocab_size, token_vocab_size, node_vocab_size, train=False)
+  rule_logits, token_logits, predictions, attention_weights = \
+    seq2tree.apply(
+      {'params': params},
+      encoder_inputs=inputs,
+      decoder_inputs=decoder_inputs,
+      encoder_inputs_lengths=inputs_lengths)
   return rule_logits, token_logits, predictions, attention_weights
 
 
-def evaluate_model(model: nn.Module,
+def evaluate_model(params: Any,
                    batches: tf.data.Dataset,
                    data_source: inp.CFQDataSource,
                    predicted_output_length: int,
@@ -343,16 +350,16 @@ def evaluate_model(model: nn.Module,
                    no_logged_examples: int = None):
   """Evaluate the model on the validation/test batches
 
-    Args:
-        model: model
-        batches: validation batches
-        data_source: CFQ data source (needed for vocab size, w2i etc.)
-        predicted_output_length: how long the predicted sequence should be
-        no_logged_examples: how many examples to log (they will be taken
-                            from the first batch, so no_logged_examples
-                            should be < batch_size)
-                            if None, no logging
-    """
+  Args:
+      model: The model parameters.
+      batches: validation batches
+      data_source: CFQ data source (needed for vocab size, w2i etc.)
+      predicted_output_length: how long the predicted sequence should be
+      no_logged_examples: how many examples to log (they will be taken
+                          from the first batch, so no_logged_examples
+                          should be < batch_size)
+                          if None, no logging
+  """
   no_batches = 0
   avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
   logging_file = open(logging_file_name,'a')
@@ -363,8 +370,8 @@ def evaluate_model(model: nn.Module,
     gold_action_types = batch['action_types']
     queries_lengths = batch['action_seq_len'] - 1
     rule_logits, token_logits, inferred_outputs, attention_weights = \
-      infer(model,
-            inputs, input_lengths, nn.make_rng(),
+      infer(params,
+            inputs, input_lengths,
             data_source.rule_vocab_size,
             data_source.tokens_vocab_size,
             data_source.node_vocab_size,
@@ -432,61 +439,66 @@ def train_model(learning_rate: float = None,
     eval_summary_writer = tensorboard.SummaryWriter(
         os.path.join(model_dir, 'eval'))
 
-  with nn.stochastic(jax.random.PRNGKey(seed)):
-    model = create_model(data_source.rule_vocab_size,
-                         data_source.tokens_vocab_size,
-                         data_source.node_vocab_size)
-    optimizer = flax.optim.Adam(learning_rate=learning_rate).create(model)
-    optimizer = jax_utils.replicate(optimizer)
+  
+  rng = jax.random.PRNGKey(seed)
+  rng, init_rng = jax.random.split(rng)
+  initial_params = get_initial_params(
+    init_rng,
+    data_source.rule_vocab_size,
+    data_source.tokens_vocab_size,
+    data_source.node_vocab_size 
+  )
+  optimizer = flax.optim.Adam(learning_rate=learning_rate).create(initial_params)
+  optimizer = jax_utils.replicate(optimizer)
 
-    if bucketing:
-      train_batches = data_source.get_bucketed_batches(
-          split = 'train',
-          batch_size = batch_size,
-          bucket_size = 8,
-          drop_remainder = True,
-          shuffle = True)
-    else:
-      train_batches = data_source.get_batches(split = 'train',
-                                              batch_size = batch_size,
-                                              shuffle = True,
-                                              drop_remainder=True)
+  if bucketing:
+    train_batches = data_source.get_bucketed_batches(
+        split = 'train',
+        batch_size = batch_size,
+        bucket_size = 8,
+        drop_remainder = True,
+        shuffle = True)
+  else:
+    train_batches = data_source.get_batches(split = 'train',
+                                            batch_size = batch_size,
+                                            shuffle = True,
+                                            drop_remainder=True)
 
-    dev_batches = data_source.get_batches(split = 'dev',
-                                          batch_size = batch_size,
-                                          shuffle = True,
-                                          drop_remainder = True)
+  dev_batches = data_source.get_batches(split = 'dev',
+                                        batch_size = batch_size,
+                                        shuffle = True,
+                                        drop_remainder = True)
 
-    train_iter = iter(train_batches)
-    train_metrics = []
-    for step, batch in zip(range(num_train_steps), train_iter):
-      if batch_size % jax.device_count() > 0:
-        raise ValueError('Batch size must be divisible by the number of devices')
-      batch = common_utils.shard(jax.tree_map(lambda x: x._numpy(), batch))
-      step_key = nn.make_rng()
-      # Shard the step PRNG key
-      sharded_keys = common_utils.shard_prng_key(step_key)
-      optimizer, metrics = train_step(optimizer, batch, sharded_keys,
-                                      data_source.rule_vocab_size,
-                                      data_source.tokens_vocab_size,
-                                      data_source.node_vocab_size)
-      train_metrics.append(metrics)
-      if (step + 1) % eval_freq == 0:
-        train_metrics = common_utils.get_metrics(train_metrics)
-        train_summary = jax.tree_map(lambda x: x.mean(), train_metrics)
-        train_metrics = []
-        # evaluate
-        model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
-        dev_metrics = evaluate_model(model=model,
-                                    batches=dev_batches,
-                                    data_source=data_source,
-                                    predicted_output_length=max_out_len,
-                                    logging_file_name = logging_file_name,
-                                    no_logged_examples=3)
-        log(step, train_summary, dev_metrics)
-        save_to_tensorboard(train_summary_writer, train_summary, step)
-        save_to_tensorboard(eval_summary_writer, dev_metrics, step)
-    logging.info('Done training')
+  train_iter = iter(train_batches)
+  train_metrics = []
+  for step, batch in zip(range(num_train_steps), train_iter):
+    if batch_size % jax.device_count() > 0:
+      raise ValueError('Batch size must be divisible by the number of devices')
+    batch = common_utils.shard(jax.tree_map(lambda x: x._numpy(), batch))
+    rng, step_key = jax.random.split(rng)
+    # Shard the step PRNG key
+    sharded_keys = common_utils.shard_prng_key(step_key)
+    optimizer, metrics = train_step(optimizer, batch, sharded_keys,
+                                    data_source.rule_vocab_size,
+                                    data_source.tokens_vocab_size,
+                                    data_source.node_vocab_size)
+    train_metrics.append(metrics)
+    if (step + 1) % eval_freq == 0:
+      train_metrics = common_utils.get_metrics(train_metrics)
+      train_summary = jax.tree_map(lambda x: x.mean(), train_metrics)
+      train_metrics = []
+      # evaluate
+      params = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
+      dev_metrics = evaluate_model(params=params,
+                                  batches=dev_batches,
+                                  data_source=data_source,
+                                  predicted_output_length=max_out_len,
+                                  logging_file_name = logging_file_name,
+                                  no_logged_examples=3)
+      log(step, train_summary, dev_metrics)
+      save_to_tensorboard(train_summary_writer, train_summary, step)
+      save_to_tensorboard(eval_summary_writer, dev_metrics, step)
+  logging.info('Done training')
 
   logging.info('Saving model at %s', model_dir)
   checkpoints.save_checkpoint(model_dir, optimizer, num_train_steps)
@@ -495,6 +507,7 @@ def train_model(learning_rate: float = None,
   return optimizer.target
 
 
+#TODO: migrate to linen.
 def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
                seed: int, batch_size: int):
   """Evaluate model at model_dir on dev subset"""
