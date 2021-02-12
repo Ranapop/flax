@@ -281,7 +281,7 @@ class Encoder(linen.Module):
     """
     inputs = self.shared_embedding(inputs)
     embed_dropout = linen.Dropout(self.embed_dropout_rate)
-    inputs = embed_dropout(inputs, deterministic=train)
+    inputs = embed_dropout(inputs, deterministic=not train)
     lstm = MultilayerLSTM(
       hidden_size=self.hidden_size,
       num_layers=self.num_layers,
@@ -344,7 +344,7 @@ class DecoderLSTM(linen.Module):
     if not self.train:
       x = last_prediction
     x = self.shared_embedding(x)
-    x = self.embed_dropout(x, deterministic=self.train)
+    x = self.embed_dropout(x, deterministic=not self.train)
     lstm_input = jnp.concatenate([x, prev_attention], axis=-1)
     states, h = self.multilayer_lstm_cell(
       horizontal_dropout_masks=self.h_dropout_masks,
@@ -356,7 +356,7 @@ class DecoderLSTM(linen.Module):
       self.projected_keys, self.encoder_hidden_states, self.attention_mask)
     context_and_state = jnp.concatenate([context, h], axis=-1)
     context_and_state = self.attention_dropout(
-      context_and_state, deterministic=self.train)
+      context_and_state, deterministic=not self.train)
     attention = jnp.tanh(self.attention_layer(context_and_state))
     logits = self.projection(attention)
     predicted_tokens = jnp.argmax(logits, axis=-1)
