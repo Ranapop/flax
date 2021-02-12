@@ -176,6 +176,7 @@ class MultilayerLSTMScan(linen.Module):
   dropout_rate: float
   train: bool
 
+  #TODO: see if can remove split_rngs.
   @functools.partial(
       linen.transforms.scan,
       variable_broadcast='params',

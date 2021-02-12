@@ -63,12 +63,6 @@ def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
   mask = (lengths[:, jnp.newaxis] > jnp.arange(sequence_batch.shape[1]))
   return sequence_batch * mask
 
-#TODO Why do I need 'params' rng? 
-def make_rngs(rng: jax.random.PRNGKey):
-  rng1, rng2 = random.split(rng)
-  rngs = {'params': rng1, 'dropout': rng2}
-  return rngs
-
 def get_initial_params(rng: jax.random.PRNGKey, vocab_size: int):
   seq2seq = Seq2seq(vocab_size=vocab_size)
   initial_batch = [
@@ -233,7 +227,7 @@ def train_step(optimizer: Any,
       decoder_inputs=labels,
       encoder_inputs_lengths=input_lengths,
       train=True,
-      rngs=make_rngs(step_rng))
+      rngs={'dropout': step_rng})
     loss = cross_entropy_loss(logits,
                               labels_no_bos,
                               queries_lengths,
