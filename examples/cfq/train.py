@@ -430,6 +430,7 @@ def train_model(learning_rate: float = None,
   return optimizer.target
 
 
+#TODO: migrate to linen.
 def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
                seed: int, batch_size: int):
   """Evaluate model at model_dir on dev subset"""
