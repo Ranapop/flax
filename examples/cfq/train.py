@@ -67,11 +67,11 @@ def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
 def make_rngs(rng: jax.random.PRNGKey, train: bool = False):
   if train:
     rng1, rng2, rng3 = random.split(rng, num=3)
-    rngs = {'params': rng1, 'dropout': rng2, 'lstm': rng3}
+    rngs = {'params': rng1, 'dropout': rng2}
     return rngs
   else:
     rng1, rng2 = random.split(rng)
-    return {'params': rng1, 'lstm': rng2}
+    return {'params': rng1}
 
 def get_initial_params(rng: jax.random.PRNGKey, vocab_size: int):
   rngs = make_rngs(rng)
