@@ -360,7 +360,7 @@ class DecoderLSTM(linen.Module):
       context_and_state, deterministic=self.train)
     attention = jnp.tanh(self.attention_layer(context_and_state))
     logits = self.projection(attention)
-    predicted_tokens = jax.random.categorical(categorical_rng, logits)
+    predicted_tokens = jnp.argmax(logits, axis=-1)
     predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
     new_carry = (carry_rng, states, predicted_tokens_uint8, attention)
     new_x = (logits, predicted_tokens_uint8, scores)
