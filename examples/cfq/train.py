@@ -63,18 +63,7 @@ def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
   mask = (lengths[:, jnp.newaxis] > jnp.arange(sequence_batch.shape[1]))
   return sequence_batch * mask
 
-#TODO Why do I need 'params' rng? 
-def make_rngs(rng: jax.random.PRNGKey, train: bool = False):
-  if train:
-    rng1, rng2, rng3 = random.split(rng, num=3)
-    rngs = {'params': rng1, 'dropout': rng2, 'lstm': rng3}
-    return rngs
-  else:
-    rng1, rng2 = random.split(rng)
-    return {'params': rng1, 'lstm': rng2}
-
 def get_initial_params(rng: jax.random.PRNGKey, vocab_size: int):
-  rngs = make_rngs(rng)
   seq2seq = Seq2seq(vocab_size=vocab_size)
   initial_batch = [
           jnp.array((1, 1), jnp.uint8),
@@ -89,7 +78,7 @@ def get_initial_params(rng: jax.random.PRNGKey, vocab_size: int):
       jnp.zeros((1, 2), jnp.uint8),
       jnp.zeros((1,), jnp.uint8)
     ]
-  initial_params = seq2seq.init(rngs,
+  initial_params = seq2seq.init(rng,
       initial_batch[0],
       initial_batch[1],
       initial_batch[2],
@@ -238,7 +227,7 @@ def train_step(optimizer: Any,
       decoder_inputs=labels,
       encoder_inputs_lengths=input_lengths,
       train=True,
-      rngs=make_rngs(step_rng, True))
+      rngs={'dropout': step_rng})
     loss = cross_entropy_loss(logits,
                               labels_no_bos,
                               queries_lengths,
@@ -260,10 +249,9 @@ def train_step(optimizer: Any,
   metrics = jax.lax.pmean(metrics, axis_name='batch')
   return optimizer, metrics
 
-#TODO: do I need a random key on the eval flow?
-@jax.partial(jax.jit, static_argnums=[4, 6])
+@jax.partial(jax.jit, static_argnums=[3, 5])
 def infer(params: Dict, inputs: jnp.array, inputs_lengths: jnp.array,
-          rng: jax.random.PRNGKey, vocab_size: int, bos_encoding: jnp.array,
+          vocab_size: int, bos_encoding: jnp.array,
           predicted_output_length: int):
   """Apply model on inference flow and return predictions.
 
@@ -287,8 +275,7 @@ def infer(params: Dict, inputs: jnp.array, inputs_lengths: jnp.array,
     encoder_inputs=inputs,
     decoder_inputs=initial_dec_inputs,
     encoder_inputs_lengths=inputs_lengths,
-    train=False,
-    rngs=make_rngs(rng, False))
+    train=False)
   return logits, predictions, attention_weights
 
 
@@ -319,7 +306,7 @@ def evaluate_model(model: nn.Module,
     gold_outputs = batch[inp_constants.QUERY_KEY][:, 1:]
     #TODO: do not use rngs on eval.
     logits, inferred_outputs, attention_weights = infer(model,
-                                inputs, input_lengths, random.PRNGKey(0),
+                                inputs, input_lengths,
                                 data_source.tokens_vocab_size,
                                 data_source.bos_idx,
                                 predicted_output_length)
@@ -443,6 +430,7 @@ def train_model(learning_rate: float = None,
   return optimizer.target
 
 
+#TODO: migrate to linen.
 def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
                seed: int, batch_size: int):
   """Evaluate model at model_dir on dev subset"""

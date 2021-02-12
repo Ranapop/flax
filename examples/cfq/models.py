@@ -340,8 +340,7 @@ class DecoderLSTM(linen.Module):
       in_axes = 1,
       out_axes = 1)
   def __call__(self, carry, x):
-    rng, previous_states, last_prediction, prev_attention = carry
-    carry_rng, categorical_rng = jax.random.split(rng, 2)
+    previous_states, last_prediction, prev_attention = carry
     if not self.train:
       x = last_prediction
     x = self.shared_embedding(x)
@@ -360,9 +359,9 @@ class DecoderLSTM(linen.Module):
       context_and_state, deterministic=self.train)
     attention = jnp.tanh(self.attention_layer(context_and_state))
     logits = self.projection(attention)
-    predicted_tokens = jax.random.categorical(categorical_rng, logits)
+    predicted_tokens = jnp.argmax(logits, axis=-1)
     predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
-    new_carry = (carry_rng, states, predicted_tokens_uint8, attention)
+    new_carry = (states, predicted_tokens_uint8, attention)
     new_x = (logits, predicted_tokens_uint8, scores)
     return new_carry, new_x
 
@@ -443,7 +442,7 @@ class Decoder(linen.Module):
     # initialisig the LSTM states and final output with the
     # encoder hidden states
     attention = jnp.zeros((batch_size, ATTENTION_LAYER_SIZE))
-    init_carry = (self.make_rng('lstm'), init_states, inputs[:, 0], attention)
+    init_carry = (init_states, inputs[:, 0], attention)
 
     _, (logits, predictions, scores) = decoder_lstm(init_carry, inputs)
     # The attention weights are only examined on the evaluation flow, so this
@@ -538,41 +537,144 @@ class Seq2seq(linen.Module):
 ACTION_EMBEDDING_SIZE = 128
 NODE_EMBEDDING_SIZE = 32
 
-class ActionEmbed(nn.Module):
+class ActionEmbed(linen.Module):
+  """
+  Attributes:
+    rule_vocab_size: Number of grammar rules.
+    token_embedding: Token embedding module.
+  """
+  rule_vocab_size: int
+  token_embedding: linen.Module
 
-  def apply(self,
-            action_type: jnp.array,
-            action_value: jnp.array,
-            rule_vocab_size,
-            token_embedding: nn.Module):
-    rule_embedding = nn.Embed.partial(
-      num_embeddings=rule_vocab_size,
+  @linen.compact
+  def __call__(self,
+               action_type: jnp.array,
+               action_value: jnp.array):
+    rule_embedding = linen.Embed(
+      num_embeddings=self.rule_vocab_size,
       features=ACTION_EMBEDDING_SIZE,
-      embedding_init=nn.initializers.normal(stddev=1.0))
+      embedding_init=linen.initializers.normal(stddev=1.0))
 
     rule_emb = rule_embedding(action_value)
-    token_emb = token_embedding(action_value)
+    token_emb = self.token_embedding(action_value)
     # Return the rule_emb in case the action_type is 0, token_emb in case the
     # action type is 1 and a zero-valued vector otherwise.
     action_emb = jnp.equal(action_type, jnp.array(0)) * rule_emb + \
      jnp.equal(action_type, jnp.array(1)) * token_emb
     return action_emb
-class SyntaxBasedDecoder(nn.Module):
-  """LSTM syntax-based decoder."""
 
+class SyntaxBasedDecoderLSTM(linen.Module):
+  """
+  Attributes:
+    shared_embedding: Embedding module (shared between encoder & decoder).
+    encoder_hidden_states: Encoder hidden states.
+    projected_keys: Attention keys passed through a dense layer.
+    attention_mask: Attention masks.
+    rule_vocab_size: Number of rules.
+    token_vocab_size: Number of tokens.
+    node_vocab_size: Number of AST node types.
+    train: Train flag.
+    num_layers: NUmber of LSTM layers.
+    h_dropout_masks: Horizontal dropout masks.
+    vertical_dropout_rate: LSTM vertical dropout rate (between layers).
+    embed_dropout_rate: embedding dropot rate.
+  """
+  shared_embedding: linen.Module
+  encoder_hidden_states: jnp.array
+  projected_keys: jnp.array
+  attention_mask: jnp.array
+  rule_vocab_size: int
+  token_vocab_size: int
+  node_vocab_size: int
+  train: bool
+  num_layers: int
+  h_dropout_masks: List
+  vertical_dropout_rate: float
+  embed_dropout_rate: float = EMBED_DROPOUT
+
+  def setup(self):
+    self.multilayer_lstm_cell = MultilayerLSTMCell(num_layers=self.num_layers)
+    self.rule_projection = linen.Dense(features=self.rule_vocab_size)
+    self.token_projection = linen.Dense(features=self.token_vocab_size)
+    self.mlp_attention = MlpAttention(
+      hidden_size=ATTENTION_SIZE, use_batch_axis=False)
+    self.action_embedding = ActionEmbed(rule_vocab_size=self.rule_vocab_size,
+                                        token_embedding=self.shared_embedding)
+    self.node_embedding = linen.Embed(
+      num_embeddings=self.node_vocab_size,
+      features=NODE_EMBEDDING_SIZE,
+      embedding_init=linen.initializers.normal(stddev=1.0))
+    self.embed_dropout = linen.Dropout(self.embed_dropout_rate)
+
+  @functools.partial(
+      linen.transforms.scan,
+      variable_broadcast='params',
+      split_rngs={'params': False, 'dropout': False},
+      in_axes = 0,
+      out_axes = 0)
+  def __call__(self, carry, x):
+    action_type = jnp.asarray(x[0], dtype=jnp.uint8)
+    action_value = jnp.asarray(x[1], dtype=jnp.uint8)
+    node_type = jnp.asarray(x[2], dtype=jnp.uint8)
+    multilayer_lstm_output, previous_action = carry
+    previous_states, h = multilayer_lstm_output
+    prev_action_emb = self.action_embedding(action_type=previous_action[0],
+                                            action_value=previous_action[1])
+    prev_action_emb = self.embed_dropout(prev_action_emb,
+                                         deterministic=not self.train)
+    dec_prev_state = jnp.expand_dims(h, 0)
+    context, scores = self.mlp_attention(
+      dec_prev_state,
+      self.projected_keys,
+      self.encoder_hidden_states,
+      self.attention_mask)
+    node_emb = self.node_embedding(node_type)
+    lstm_input = jnp.concatenate([prev_action_emb, node_emb, context], axis=-1)
+    states, h = self.multilayer_lstm_cell(
+      horizontal_dropout_masks=self.h_dropout_masks,
+      vertical_dropout_rate=self.vertical_dropout_rate,
+      input=lstm_input,
+      previous_states=previous_states,
+      train=self.train)
+    rule_logits = self.rule_projection(h)
+    token_logits = self.token_projection(h)
+    predicted_rules = jnp.argmax(rule_logits, axis=-1)
+    predicted_tokens = jnp.argmax(token_logits, axis=-1)
+    prediction = jnp.where(action_type, predicted_tokens, predicted_rules)
+    prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
+    if not self.train:
+      action_value = prediction_uint8
+    current_action = (action_type, action_value)
+    new_carry = ((jnp.array(states), h), current_action)
+    accumulator = (rule_logits, token_logits, prediction_uint8, scores)
+    return new_carry, accumulator
+
+class SyntaxBasedDecoder(linen.Module):
+  """LSTM syntax-based decoder.
+  Attributes:
+    shared_embedding: token embedding module.
+    rule_vocab_size: rule vocab size.
+    token_vocab_size: token vocab size.
+    num_layers: number of LSTM layers.
+    horizontal_dropout_rate: LSTM horizontal dropout rate.
+    horizontal_dropout_rate: LSTM vertical dropout rate.
+    embed_dropout_rate: embedding dropout rate.
+  """
+  shared_embedding: linen.Module
+  rule_vocab_size: int
+  token_vocab_size: int
+  node_vocab_size: int
+  num_layers: int
+  horizontal_dropout_rate: float
+  vertical_dropout_rate: float
+  embed_dropout_rate: float = EMBED_DROPOUT
+
+  @linen.compact
   def apply(self,
             init_states: jnp.array,
             encoder_hidden_states: jnp.array,
             attention_mask: jnp.array,
             inputs: jnp.array,
-            shared_embedding: nn.Module,
-            rule_vocab_size: int,
-            token_vocab_size: int,
-            node_vocab_size: int,
-            num_layers: int,
-            horizontal_dropout_rate: float,
-            vertical_dropout_rate: float,
-            embed_dropout_rate: float = EMBED_DROPOUT,
             train: bool = False):
     """
     Args:
@@ -582,105 +684,51 @@ class SyntaxBasedDecoder(nn.Module):
         [input_seq_len, hidden_size].
       attention_mask: attention mask [input_seq_len].
       inputs: decoder inputs [output_seq_len].
-      shared_embedding: token embedding module.
-      rule_vocab_size: rule vocab size.
-      token_vocab_size: token vocab size.
-      num_layers: number of LSTM layers.
-      horizontal_dropout_rate: LSTM horizontal dropout rate.
-      horizontal_dropout_rate: LSTM vertical dropout rate.
-      embed_dropout_rate: embedding dropout rate.
       train: flag distinguishing between train and test flow.
     """
-    multilayer_lstm_cell = MultilayerLSTMCell.partial(num_layers=num_layers).shared(
-        name='multilayer_lstm')
-    rule_projection = nn.Dense.shared(features=rule_vocab_size,
-                                      name='rule_projection')
-    token_projection = nn.Dense.shared(features=token_vocab_size,
-                                       name='token_projection')
-    mlp_attention = MlpAttention(
-      hidden_size=ATTENTION_SIZE,
-      use_batch_axis=False,
-      name='attention')
-    action_embedding = ActionEmbed.shared(rule_vocab_size=rule_vocab_size,
-                                          token_embedding=shared_embedding,
-                                          name='action_embedding')
-    node_embedding = nn.Embed.shared(
-        name='node_embedding',
-        num_embeddings=node_vocab_size,
-        features=NODE_EMBEDDING_SIZE,
-        embedding_init=nn.initializers.normal(stddev=1.0))
     # The keys projection can be calculated once for the whole sequence.
-    projected_keys = nn.Dense(encoder_hidden_states,
-                              ATTENTION_SIZE,
-                              name='keys',
-                              bias=False)
+    projected_keys = linen.Dense(ATTENTION_SIZE,
+                                 name='keys',
+                                 use_bias=False)(encoder_hidden_states)
     
+    dropout_masks = RecurrentDropoutMasks(self.num_layers,
+                                          self.horizontal_dropout_rate)
     hidden_size = encoder_hidden_states.shape[-1]
-    h_dropout_masks = create_dropout_masks(
-        num_masks=num_layers,
-        shape=(hidden_size),
-        dropout_rate=horizontal_dropout_rate,
-        train=train)
-
-    def decode_step_fn(carry, x):
-      action_type = jnp.asarray(x[0], dtype=jnp.uint8)
-      action_value = jnp.asarray(x[1], dtype=jnp.uint8)
-      node_type = jnp.asarray(x[2], dtype=jnp.uint8)
-      rng, multilayer_lstm_output, previous_action = carry
-      previous_states, h = multilayer_lstm_output
-      carry_rng, categorical_rng = jax.random.split(rng, 2)
-      prev_action_emb = action_embedding(action_type=previous_action[0],
-                                         action_value=previous_action[1])
-      prev_action_emb = nn.dropout(prev_action_emb,
-                                   rate=embed_dropout_rate,
-                                   deterministic=not train)
-      dec_prev_state = jnp.expand_dims(h, 0)
-      context, scores = mlp_attention(dec_prev_state, projected_keys,
-                                      encoder_hidden_states, attention_mask)
-      node_emb = node_embedding(node_type)
-      lstm_input = jnp.concatenate([prev_action_emb, node_emb, context], axis=-1)
-      states, h = multilayer_lstm_cell(
-        horizontal_dropout_masks=h_dropout_masks,
-        vertical_dropout_rate=vertical_dropout_rate,
-        input=lstm_input,
-        previous_states=previous_states,
-        train=train)
-      rule_logits = rule_projection(h)
-      token_logits = token_projection(h)
-      predicted_rules = jax.random.categorical(categorical_rng, rule_logits)
-      predicted_tokens = jax.random.categorical(categorical_rng, token_logits)
-      prediction = jnp.where(action_type, predicted_tokens, predicted_rules)
-      prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
-      if not train:
-        action_value = prediction_uint8
-      current_action = (action_type, action_value)
-      new_carry = (carry_rng, (jnp.array(states), h), current_action)
-      accumulator = (rule_logits, token_logits, prediction_uint8, scores)
-      return new_carry, accumulator
+    h_dropout_masks = dropout_masks(
+      shape=(hidden_size),
+      train=train)
+    
+    decoder_lstm = SyntaxBasedDecoderLSTM(
+      self.shared_embedding,
+      encoder_hidden_states,
+      projected_keys,
+      attention_mask,
+      self.rule_vocab_size,
+      self.token_vocab_size,
+      self.node_vocab_size,
+      train,
+      self.num_layers,
+      h_dropout_masks,
+      self.vertical_dropout_rate,
+      self.embed_dropout_rate
+    )
 
     # initialisig the LSTM states and final output with the
     # encoder hidden states
     # Convention: initial action has type 2.
     initial_action = (jnp.array(2, dtype=jnp.uint8), jnp.array(0, dtype=jnp.uint8))
     multilayer_lstm_output = (init_states, init_states[-1, 1, :])
-    init_carry = (nn.make_rng(), multilayer_lstm_output, initial_action)
-
-    if self.is_initializing():
-      # initialize parameters before scan
-      initial_x = jnp.zeros((3,), dtype=jnp.uint8)
-      decode_step_fn(init_carry, initial_x)
+    init_carry = (multilayer_lstm_output, initial_action)
 
     # Go from [2, out_seq_len] -> [out_seq_len, 2].
     scan_inputs = jnp.swapaxes(inputs, 0, 1)
 
-    _, (rule_logits, token_logits, predictions, scores) = jax_utils.scan_in_dim(
-        decode_step_fn,
-        init=init_carry,  # rng, lstm_state, last_pred
-        xs=scan_inputs,
-        axis=0)
+    _, (rule_logits, token_logits, predictions, scores) = decoder_lstm(
+        init_carry, scan_inputs)
+
     # The attention weights are only examined on the evaluation flow, so this
     # if is used to avoid unnecesary operations.
-    if not self.is_initializing() and not train:
+    if not train:
       attention_weights = jnp.array(scores)
       # Going from [batch_size, output_seq_len, input_seq_len]
       # to [batch_size, input_seq_len, output_seq_len].
@@ -690,40 +738,55 @@ class SyntaxBasedDecoder(nn.Module):
     return rule_logits, token_logits, predictions, attention_weights
 
 
-class Seq2tree(nn.Module):
-  """Sequence-to-ast class following Yin and Neubig."""
+class Seq2tree(linen.Module):
+  """Sequence-to-ast class following Yin and Neubig.
+  Attributes:
+    rule_vocab_size: Number of rules.
+    token_vocab_size: Number of input & output tokens.
+    node_vocab_size: Number of node types.
+    emb_dim: Token embedding dimension.
+    train: Train flag.
+    hidden_size: LSTM hidden size.
+    num_layers: LSTM number of layers.
+    horizontal_dropout_rate: LSTM horizontal dropout rate (between steps).
+    vertical_dropout_rate: LSTM vertical dropout rate (between layers).
+  """
+  rule_vocab_size: int
+  token_vocab_size: int
+  node_vocab_size: int
+  train: bool
+  emb_dim: int = ACTION_EMBEDDING_SIZE
+  hidden_size: int = LSTM_HIDDEN_SIZE
+  num_layers=NUM_LAYERS
+  horizontal_dropout_rate=HORIZONTAL_DROPOUT
+  vertical_dropout_rate=VERTICAL_DROPOUT
 
-  def apply(self,
-            encoder_inputs: jnp.array,
-            decoder_inputs: jnp.array,
-            encoder_inputs_lengths: jnp.array,
-            rule_vocab_size: int,
-            token_vocab_size: int,
-            node_vocab_size: int,
-            emb_dim: int = ACTION_EMBEDDING_SIZE,
-            train: bool = True,
-            hidden_size: int = LSTM_HIDDEN_SIZE,
-            num_layers=NUM_LAYERS,
-            horizontal_dropout_rate=HORIZONTAL_DROPOUT,
-            vertical_dropout_rate=VERTICAL_DROPOUT):
-    shared_embedding = nn.Embed.shared(
-        num_embeddings=token_vocab_size,
-        features=emb_dim,
-        embedding_init=nn.initializers.normal(stddev=1.0))
+  @linen.compact
+  def __call__(self,
+    encoder_inputs: jnp.array,
+    decoder_inputs: jnp.array,
+    encoder_inputs_lengths: jnp.array):
 
-    encoder = Encoder.partial(hidden_size=hidden_size,
-                              num_layers=num_layers,
-                              horizontal_dropout_rate=horizontal_dropout_rate,
-                              vertical_dropout_rate=vertical_dropout_rate)
-    decoder = SyntaxBasedDecoder.partial(
-                                   num_layers=num_layers,
-                                   horizontal_dropout_rate=horizontal_dropout_rate,
-                                   vertical_dropout_rate=vertical_dropout_rate,
-                                   train=train,
-                                   rule_vocab_size=rule_vocab_size,
-                                   token_vocab_size=token_vocab_size,
-                                   node_vocab_size=node_vocab_size,
-                                   shared_embedding=shared_embedding)
+    shared_embedding = linen.Embed(
+        num_embeddings=self.token_vocab_size,
+        features=self.emb_dim,
+        embedding_init=linen.initializers.normal(stddev=1.0))
+
+    encoder = Encoder(
+      shared_embedding=shared_embedding,
+      hidden_size=self.hidden_size,
+      num_layers=self.num_layers,
+      horizontal_dropout_rate=self.horizontal_dropout_rate,
+      vertical_dropout_rate=self.vertical_dropout_rate)
+    decoder = SyntaxBasedDecoder(
+      shared_embedding=shared_embedding,
+      rule_vocab_size=self.rule_vocab_size,
+      token_vocab_size=self.token_vocab_size,
+      node_vocab_size=self.node_vocab_size,
+      num_layers=self.num_layers,
+      horizontal_dropout_rate=self.horizontal_dropout_rate,
+      vertical_dropout_rate=self.vertical_dropout_rate)
+    decoder = functools.partial(decoder.apply, train=self.train)
     vmapped_decoder = jax.vmap(decoder)
     # compute attention masks
     mask = compute_attention_masks(encoder_inputs.shape, encoder_inputs_lengths)
@@ -731,7 +794,7 @@ class Seq2tree(nn.Module):
     # Encode inputs
     hidden_states, init_decoder_states = encoder(encoder_inputs,
                                                  encoder_inputs_lengths,
-                                                 shared_embedding, train)
+                                                 self.train)
     # [no_layers, 2, batch, hidden_size] -> [batch, no_layers, 2, hidden_size]
     init_decoder_states = jnp.array(init_decoder_states)
     init_decoder_states = jnp.swapaxes(init_decoder_states, 0, 2)

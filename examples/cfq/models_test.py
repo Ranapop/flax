@@ -14,7 +14,7 @@ from models import Encoder, MlpAttention, RecurrentDropoutMasks, Decoder,\
 
 class ModelsTest(parameterized.TestCase):
 
-  def test_encoder(self):
+  def est_encoder(self):
     rng1, rng2 = random.split(random.PRNGKey(0))
     rngs = {'params': rng1, 'dropout': rng2}
     seq1 = [1, 0, 3]
@@ -55,7 +55,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(c.shape, (batch_size, hidden_size))
       self.assertEqual(h.shape, (batch_size, hidden_size))
 
-  def test_mlp_attenntion(self):
+  def est_mlp_attenntion(self):
     rng = dict(params=random.PRNGKey(0))
 
     batch_size = 2
@@ -79,7 +79,7 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(context.shape, (batch_size, values_size))
     self.assertEqual(scores.shape, (batch_size, seq_len))
 
-  def test_recurrent_dropout_masks(self):
+  def est_recurrent_dropout_masks(self):
     rng1, rng2 = random.split(random.PRNGKey(0))
     rngs = {'params': rng1, 'dropout': rng2}
     dropout = RecurrentDropoutMasks(3, 0.3)
@@ -88,7 +88,7 @@ class ModelsTest(parameterized.TestCase):
     for mask in masks:
       self.assertEqual(mask.shape, (2, 10))
 
-  def test_multilayer_LSTM_cell(self):
+  def est_multilayer_LSTM_cell(self):
     rng = dict(params=random.PRNGKey(0))
     num_layers = 3
     batch_size = 7
@@ -123,7 +123,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(h.shape, (batch_size, hidden_size))
     self.assertEqual(y.shape, (batch_size, hidden_size))
 
-  def test_multilayer_LSTM(self):
+  def est_multilayer_LSTM(self):
     rng = dict(params=random.PRNGKey(0))
     num_layers = 5
     batch_size = 10
@@ -153,7 +153,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(c.shape, (batch_size, hidden_size))
       self.assertEqual(h.shape, (batch_size, hidden_size))
 
-  def test_compute_attention_masks(self):
+  def est_compute_attention_masks(self):
     shape = (2, 7)
     lengths = jnp.array([5, 7])
     mask = models.compute_attention_masks(shape, lengths)
@@ -161,7 +161,7 @@ class ModelsTest(parameterized.TestCase):
                                [True, True, True, True, True, True, True]])
     self.assertEqual(True, jnp.array_equal(mask, expected_mask))
 
-  def test_decoder_train(self):
+  def est_decoder_train(self):
     rng1, rng2, rng3 = random.split(random.PRNGKey(0), num=3)
     rngs = {'params': rng1, 'dropout': rng2, 'lstm': rng3}
     seq1 = [1, 0, 2, 4]
@@ -204,7 +204,7 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(predictions.shape, (batch_size, seq_len))
     self.assertEqual(scores, None)
 
-  def test_decoder_inference(self):
+  def est_decoder_inference(self):
     rng1, rng2 = random.split(random.PRNGKey(0))
     rngs = {'params': rng1, 'lstm': rng2}
     max_len = 4
@@ -249,7 +249,7 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(scores.shape, (batch_size, max_len, input_seq_len))
 
 
-  def test_seq_2_seq(self):
+  def est_seq_2_seq(self):
     rng1, rng2, rng3 = random.split(random.PRNGKey(0), num=3)
     rngs = {'params': rng1, 'dropout': rng2, 'lstm': rng3}
     vocab_size = 10
@@ -268,7 +268,7 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(predictions.shape, (batch_size, max_len - 1))
     self.assertEqual(scores, None)
 
-  def test_seq_2_seq_inference_apply(self):
+  def est_seq_2_seq_inference_apply(self):
     rng1, rng2 = random.split(random.PRNGKey(0))
     rngs = {'params': rng1, 'lstm': rng2}
     vocab_size = 10
@@ -303,7 +303,7 @@ class ModelsTest(parameterized.TestCase):
       attention_weights.shape, (batch_size, predicted_length, input_length))
 
   
-  def est_seq_2_tree_train_apply(self):
+  def test_seq_2_tree_train_apply(self):
     rule_vocab_size = 10
     token_vocab_size = 100
     node_vocab_size = 15
@@ -327,34 +327,44 @@ class ModelsTest(parameterized.TestCase):
     dec_inputs = jnp.array(dec_inputs)
     input_length = 3
     predicted_length = 4
-    with nn.stochastic(jax.random.PRNGKey(0)):
-      _, initial_params = models.Seq2tree.partial(
-                            rule_vocab_size=rule_vocab_size,
-                            token_vocab_size=token_vocab_size,
-                            node_vocab_size=node_vocab_size
-                            ).init_by_shape(nn.make_rng(),
-                            [((1, 1), jnp.uint8),
-                              ((1, 3, 1), jnp.uint8),
-                              ((1,), jnp.uint8)])
-      model = nn.Model(models.Seq2tree, initial_params)
-      rule_logits,\
-      token_logits,\
-      predictions,\
-      attention_weights = model(encoder_inputs=enc_inputs,
-                                decoder_inputs=dec_inputs,
-                                encoder_inputs_lengths=lengths,
-                                rule_vocab_size=rule_vocab_size,
-                                token_vocab_size=token_vocab_size,
-                                node_vocab_size=node_vocab_size,
-                                train=True)
-      self.assertEqual(rule_logits.shape,
-                       (batch_size, predicted_length, rule_vocab_size))
-      self.assertEqual(token_logits.shape,
-                       (batch_size, predicted_length, token_vocab_size))
-      self.assertEqual(predictions.shape, (batch_size, predicted_length))
-      self.assertEqual(attention_weights, None)
+
+    seq2tree = models.Seq2tree(
+      rule_vocab_size=rule_vocab_size,
+      token_vocab_size=token_vocab_size,
+      node_vocab_size=node_vocab_size,
+      train=False)
+    init_batch = [
+      jnp.zeros((1, 1), jnp.uint8),
+      jnp.zeros((1, 3, 1), jnp.uint8),
+      jnp.zeros((1,), jnp.uint8)
+    ]
+    initial_params = seq2tree.init(jax.random.PRNGKey(0),
+      init_batch[0],
+      init_batch[1],
+      init_batch[2])
+
+    seq2tree = models.Seq2tree(
+      rule_vocab_size=rule_vocab_size,
+      token_vocab_size=token_vocab_size,
+      node_vocab_size=node_vocab_size,
+      train=True)
+    rule_logits,\
+    token_logits,\
+    predictions,\
+    attention_weights = seq2tree.apply(
+      {'params': initial_params['params']},
+      encoder_inputs=enc_inputs,
+      decoder_inputs=dec_inputs,
+      encoder_inputs_lengths=lengths,
+      rngs={'dropout': jax.random.PRNGKey(0)})
+    self.assertEqual(rule_logits.shape,
+                      (batch_size, predicted_length, rule_vocab_size))
+    self.assertEqual(token_logits.shape,
+                      (batch_size, predicted_length, token_vocab_size))
+    self.assertEqual(predictions.shape, (batch_size, predicted_length))
+    self.assertEqual(attention_weights, None)
   
-  def est_seq_2_tree_inference_apply(self):
+  def test_seq_2_tree_inference_apply(self):
     rule_vocab_size = 20
     token_vocab_size = 100
     node_vocab_size = 15
@@ -365,33 +375,37 @@ class ModelsTest(parameterized.TestCase):
     dec_inputs = jnp.zeros((batch_size, 3, max_len), dtype=jnp.uint8)
     input_length = 3
     predicted_length = 4
-    with nn.stochastic(jax.random.PRNGKey(0)):
-      _, initial_params = \
-        models.Seq2tree.partial(rule_vocab_size=rule_vocab_size,
-                                token_vocab_size=token_vocab_size,
-                                node_vocab_size=node_vocab_size
-                                ).init_by_shape(nn.make_rng(),
-                                [((1, 1), jnp.uint8),
-                                  ((1, 3, 1), jnp.uint8),
-                                  ((1,), jnp.uint8)])
-      model = nn.Model(models.Seq2tree, initial_params)
-      rule_logits,\
-      token_logits,\
-      predictions,\
-      attention_weights = model(encoder_inputs=enc_inputs,
-                                decoder_inputs=dec_inputs,
-                                encoder_inputs_lengths=lengths,
-                                rule_vocab_size=rule_vocab_size,
-                                token_vocab_size=token_vocab_size,
-                                node_vocab_size=node_vocab_size,
-                                train=False)
-      self.assertEqual(rule_logits.shape,
-                       (batch_size, max_len, rule_vocab_size))
-      self.assertEqual(token_logits.shape,
-                       (batch_size, max_len, token_vocab_size))
-      self.assertEqual(predictions.shape, (batch_size, max_len))
-      self.assertEqual(
-        attention_weights.shape, (batch_size, predicted_length, input_length))
+
+    seq2tree = models.Seq2tree(
+      rule_vocab_size=rule_vocab_size,
+      token_vocab_size=token_vocab_size,
+      node_vocab_size=node_vocab_size,
+      train=False)
+    init_batch = [
+      jnp.zeros((1, 1), jnp.uint8),
+      jnp.zeros((1, 3, 1), jnp.uint8),
+      jnp.zeros((1,), jnp.uint8)
+    ]
+    initial_params = seq2tree.init(jax.random.PRNGKey(0),
+      init_batch[0],
+      init_batch[1],
+      init_batch[2])
+
+    rule_logits,\
+    token_logits,\
+    predictions,\
+    attention_weights = seq2tree.apply(
+      {'params': initial_params['params']},
+      encoder_inputs=enc_inputs,
+      decoder_inputs=dec_inputs,
+      encoder_inputs_lengths=lengths)
+    self.assertEqual(rule_logits.shape,
+                      (batch_size, max_len, rule_vocab_size))
+    self.assertEqual(token_logits.shape,
+                      (batch_size, max_len, token_vocab_size))
+    self.assertEqual(predictions.shape, (batch_size, max_len))
+    self.assertEqual(
+      attention_weights.shape, (batch_size, predicted_length, input_length))
 
 
 if __name__ == '__main__':
