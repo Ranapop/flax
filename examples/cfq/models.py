@@ -340,8 +340,7 @@ class DecoderLSTM(linen.Module):
       in_axes = 1,
       out_axes = 1)
   def __call__(self, carry, x):
-    rng, previous_states, last_prediction, prev_attention = carry
-    carry_rng, categorical_rng = jax.random.split(rng, 2)
+    previous_states, last_prediction, prev_attention = carry
     if not self.train:
       x = last_prediction
     x = self.shared_embedding(x)
@@ -362,7 +361,7 @@ class DecoderLSTM(linen.Module):
     logits = self.projection(attention)
     predicted_tokens = jnp.argmax(logits, axis=-1)
     predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
-    new_carry = (carry_rng, states, predicted_tokens_uint8, attention)
+    new_carry = (states, predicted_tokens_uint8, attention)
     new_x = (logits, predicted_tokens_uint8, scores)
     return new_carry, new_x
 
@@ -443,7 +442,7 @@ class Decoder(linen.Module):
     # initialisig the LSTM states and final output with the
     # encoder hidden states
     attention = jnp.zeros((batch_size, ATTENTION_LAYER_SIZE))
-    init_carry = (self.make_rng('lstm'), init_states, inputs[:, 0], attention)
+    init_carry = (init_states, inputs[:, 0], attention)
 
     _, (logits, predictions, scores) = decoder_lstm(init_carry, inputs)
     # The attention weights are only examined on the evaluation flow, so this
