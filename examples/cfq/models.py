@@ -14,7 +14,7 @@
 
 # Lint as: python3
 """Flax modules composing the seq2seq LSTM architecture for CFQ"""
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 import numpy as np
 import jax
 from jax import random
@@ -569,6 +569,9 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     encoder_hidden_states: Encoder hidden states.
     projected_keys: Attention keys passed through a dense layer.
     attention_mask: Attention masks.
+    nodes_to_action_types: A mapping from node types to action types. If the
+      node is a head in a rule, the action will be an ApplyRule, and GenToken
+      otherwise.
     rule_vocab_size: Number of rules.
     token_vocab_size: Number of tokens.
     node_vocab_size: Number of AST node types.
@@ -582,6 +585,7 @@ class SyntaxBasedDecoderLSTM(nn.Module):
   encoder_hidden_states: jnp.array
   projected_keys: jnp.array
   attention_mask: jnp.array
+  nodes_to_action_types: Dict[int, int]
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -652,6 +656,9 @@ class SyntaxBasedDecoder(nn.Module):
   """LSTM syntax-based decoder.
   Attributes:
     shared_embedding: token embedding module.
+    nodes_to_action_types: A mapping from node types to action types. If the
+      node is a head in a rule, the action will be an ApplyRule, and GenToken
+      otherwise.
     rule_vocab_size: rule vocab size.
     token_vocab_size: token vocab size.
     num_layers: number of LSTM layers.
@@ -660,6 +667,7 @@ class SyntaxBasedDecoder(nn.Module):
     embed_dropout_rate: embedding dropout rate.
   """
   shared_embedding: nn.Module
+  nodes_to_action_types: Dict[int, int]
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -702,6 +710,7 @@ class SyntaxBasedDecoder(nn.Module):
       encoder_hidden_states,
       projected_keys,
       attention_mask,
+      self.nodes_to_action_types,
       self.rule_vocab_size,
       self.token_vocab_size,
       self.node_vocab_size,
@@ -740,6 +749,9 @@ class SyntaxBasedDecoder(nn.Module):
 class Seq2tree(nn.Module):
   """Sequence-to-ast class following Yin and Neubig.
   Attributes:
+    nodes_to_action_types: A mapping from node types to action types. If the
+      node is a head in a rule, the action will be an ApplyRule, and GenToken
+      otherwise.
     rule_vocab_size: Number of rules.
     token_vocab_size: Number of input & output tokens.
     node_vocab_size: Number of node types.
@@ -750,6 +762,7 @@ class Seq2tree(nn.Module):
     horizontal_dropout_rate: LSTM horizontal dropout rate (between steps).
     vertical_dropout_rate: LSTM vertical dropout rate (between layers).
   """
+  nodes_to_action_types: Dict[int, int]
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -779,6 +792,7 @@ class Seq2tree(nn.Module):
       vertical_dropout_rate=self.vertical_dropout_rate)
     decoder = SyntaxBasedDecoder(
       shared_embedding=shared_embedding,
+      nodes_to_action_types = self.nodes_to_action_types,
       rule_vocab_size=self.rule_vocab_size,
       token_vocab_size=self.token_vocab_size,
       node_vocab_size=self.node_vocab_size,

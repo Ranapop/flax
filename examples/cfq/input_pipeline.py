@@ -23,6 +23,8 @@ import tensorflow_text as text
 import jax.numpy as jnp
 import numpy as np
 
+import flax
+
 import input_pipeline_utils as inp_utils
 import preprocessing
 import input_pipeline_constants as inp_constants
@@ -268,15 +270,41 @@ class Seq2TreeCfqDataSource(CFQDataSource):
                grammar: Grammar = Grammar(GRAMMAR_STR),
                load_data: bool = True):
     self.grammar = grammar
-    node_types = grammar.collect_node_types()
+    node_types, node_flags = grammar.collect_node_types()
     self.node_vocab = self.construct_vocab(node_types)
     self.node_vocab_size = len(node_types)
     self.rule_vocab_size = len(grammar.branches)
+    nodes_to_action_types = self.construct_nodes_to_action_types(
+      node_types, node_flags)
+    # Make it a flax frozen dict so it can be passed as a static argument
+    # in jitted functions.
+    self.nodes_to_action_types = flax.core.FrozenDict(nodes_to_action_types)
     if load_data:
       super().__init__(seed,
                        fixed_output_len,
                        tokenizer,
                        cfq_split)
+
+  def construct_nodes_to_action_types(self,
+                                      node_types: List[str],
+                                      node_flags: List[int]):
+    """Construct a dictionary node type idx -> action type.
+
+    Args:
+      node_types: list of node types.
+      node_flags: flag array speciffying if a node is a rule node (1) or not (0).
+    Returns:
+     dict node idx -> action type.
+    """
+    nodes_to_action_types = {}
+    for i in range(len(node_types)):
+      node_idx = self.node_vocab[node_types[i]]
+      if node_flags[i] == 1:
+        action_type = asg.APPLY_RULE
+      else:
+        action_type = asg.GENERATE_TOKEN
+      nodes_to_action_types[node_idx] = action_type
+    return nodes_to_action_types
 
   def construct_vocab(self, items_list: List[str]):
     """Constructs vocabulary from list (word -> index). Assumes list contains no

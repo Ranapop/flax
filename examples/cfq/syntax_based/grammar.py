@@ -178,14 +178,22 @@ class Grammar:
   
   def collect_node_types(self):
     """Collects the node types (the values that will be stored in the frontier
-    nodes. These can be RULE_TERMs or REGEX_TERMs."""
+    nodes. These can be RULE_TERMs or REGEX_TERMs.
+    
+    The method also returns a list of flags, speciffying for each node type
+    if it's a rule node (1) or not (0)."""
     node_types = [self.grammar_entry]
+    node_flags = [1]
     for branch in self.branches:
       for term in branch.body:
         if term.term_type in [TermType.RULE_TERM, TermType.REGEX_TERM]:
           if term.value not in node_types:
             node_types.append(term.value)
-    return list(node_types)
+            if term.term_type == TermType.RULE_TERM:
+              node_flags.append(1)
+            else:
+              node_flags.append(0)
+    return list(node_types), node_flags
 
   def get_branch_id_by_head_and_index(self, head: str, index: int):
     """Returns the branch id given the head and index."""

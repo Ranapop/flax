@@ -65,10 +65,12 @@ def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
   return jnp.where(mask, sequence_batch, 0)
 
 def get_initial_params(rng: jax.random.PRNGKey,
+                       nodes_to_action_types: flax.core.FrozenDict,
                        rule_vocab_size: int,
                        token_vocab_size: int,
                        node_vocab_size: int):
   seq2seq = models.Seq2tree(
+    nodes_to_action_types,
     rule_vocab_size,
     token_vocab_size,
     node_vocab_size,
@@ -253,10 +255,11 @@ def get_decoder_inputs(batch: BatchType):
 
 
 @functools.partial(jax.pmap, axis_name='batch',
-                   static_broadcasted_argnums=(3, 4, 5))
+                   static_broadcasted_argnums=(3, 4, 5, 6))
 def train_step(optimizer: Any,
                batch: BatchType,
                rng: jax.random.PRNGKey,
+               nodes_to_action_types: flax.core.FrozenDict,
                rule_vocab_size: int, token_vocab_size: int, node_vocab_size: int):
   """Train one step."""
   step_rng = jax.random.fold_in(rng, optimizer.state.step)
@@ -271,6 +274,7 @@ def train_step(optimizer: Any,
   def loss_fn(params):
     """Compute cross-entropy loss."""
     seq2tree = models.Seq2tree(
+      nodes_to_action_types,
       rule_vocab_size, token_vocab_size, node_vocab_size, train=True)
     rule_logits, token_logits, predictions, _ = \
       seq2tree.apply(
@@ -307,8 +311,9 @@ def train_step(optimizer: Any,
   return optimizer, metrics
 
 
-@jax.partial(jax.jit, static_argnums=[3, 4, 5, 7])
+@jax.partial(jax.jit, static_argnums=[3, 4, 5, 6, 8])
 def infer(params, inputs: jnp.array, inputs_lengths: jnp.array,
+          nodes_to_action_types: flax.core.FrozenDict,
           rule_vocab_size: int, token_vocab_size: int, node_vocab_size: int,
           bos_encoding: jnp.array,
           predicted_output_length: int):
@@ -332,6 +337,7 @@ def infer(params, inputs: jnp.array, inputs_lengths: jnp.array,
   # Go from [2, batch_size, seq_len] -> [batch_size, 2, seq_len].
   decoder_inputs = jnp.swapaxes(decoder_inputs, 0, 1)
   seq2tree = models.Seq2tree(
+      nodes_to_action_types,
       rule_vocab_size, token_vocab_size, node_vocab_size, train=False)
   rule_logits, token_logits, predictions, attention_weights = \
     seq2tree.apply(
@@ -372,6 +378,7 @@ def evaluate_model(params: Any,
     rule_logits, token_logits, inferred_outputs, attention_weights = \
       infer(params,
             inputs, input_lengths,
+            data_source.nodes_to_action_types,
             data_source.rule_vocab_size,
             data_source.tokens_vocab_size,
             data_source.node_vocab_size,
@@ -444,6 +451,7 @@ def train_model(learning_rate: float = None,
   rng, init_rng = jax.random.split(rng)
   initial_params = get_initial_params(
     init_rng,
+    data_source.nodes_to_action_types,
     data_source.rule_vocab_size,
     data_source.tokens_vocab_size,
     data_source.node_vocab_size 
@@ -479,6 +487,7 @@ def train_model(learning_rate: float = None,
     # Shard the step PRNG key
     sharded_keys = common_utils.shard_prng_key(step_key)
     optimizer, metrics = train_step(optimizer, batch, sharded_keys,
+                                    data_source.nodes_to_action_types,
                                     data_source.rule_vocab_size,
                                     data_source.tokens_vocab_size,
                                     data_source.node_vocab_size)
