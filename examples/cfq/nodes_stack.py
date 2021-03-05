@@ -2,10 +2,14 @@ from typing import Tuple, List
 import jax
 import jax.numpy as jnp
 
+def create_empty_stack(stack_capacity):
+  stack_array = jnp.zeros((stack_capacity))
+  stack_pointer = 0
+  return (stack_array, stack_pointer)
+
 def push_to_stack(stack: Tuple[jnp.array, int], element: int):
   stack_array, stack_pointer = stack
   stack_capacity = stack_array.shape[0]
-  # print('Stack pointer + 1 {} <= stack capacity {}'.format(stack_pointer+1, stack_capacity))
   assert stack_pointer + 1 <= stack_capacity
   stack_array = jax.ops.index_update(stack_array, stack_pointer, element)
   stack_pointer += 1
