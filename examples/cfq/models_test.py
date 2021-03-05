@@ -323,11 +323,13 @@ class ModelsTest(parameterized.TestCase):
     ]
     dec_inputs = jnp.array(dec_inputs)
     nodes_to_action_types = jnp.zeros((node_vocab_size))
+    expanded_nodes = [[] for i in range(rule_vocab_size)]
     input_length = 3
     predicted_length = 4
 
     seq2tree = models.Seq2tree(
       nodes_to_action_types=nodes_to_action_types,
+      expanded_nodes = expanded_nodes,
       rule_vocab_size=rule_vocab_size,
       token_vocab_size=token_vocab_size,
       node_vocab_size=node_vocab_size,
@@ -344,6 +346,7 @@ class ModelsTest(parameterized.TestCase):
 
     seq2tree = models.Seq2tree(
       nodes_to_action_types=nodes_to_action_types,
+      expanded_nodes = expanded_nodes,
       rule_vocab_size=rule_vocab_size,
       token_vocab_size=token_vocab_size,
       node_vocab_size=node_vocab_size,
@@ -376,9 +379,11 @@ class ModelsTest(parameterized.TestCase):
     input_length = 3
     predicted_length = 4
     nodes_to_action_types = jnp.zeros((node_vocab_size))
+    expanded_nodes = [[] for i in range(rule_vocab_size)]
 
     seq2tree = models.Seq2tree(
       nodes_to_action_types=nodes_to_action_types,
+      expanded_nodes = expanded_nodes,
       rule_vocab_size=rule_vocab_size,
       token_vocab_size=token_vocab_size,
       node_vocab_size=node_vocab_size,

@@ -572,6 +572,8 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     nodes_to_action_types: A mapping from node types to action types. If the
       node is a head in a rule, the action will be an ApplyRule, and GenToken
       otherwise.
+    expanded_nodes: A list of lists showing how predicted branches should be
+      expanded into nodes.
     rule_vocab_size: Number of rules.
     token_vocab_size: Number of tokens.
     node_vocab_size: Number of AST node types.
@@ -586,6 +588,7 @@ class SyntaxBasedDecoderLSTM(nn.Module):
   projected_keys: jnp.array
   attention_mask: jnp.array
   nodes_to_action_types: jnp.array
+  expanded_nodes: List[List[int]]
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -661,6 +664,8 @@ class SyntaxBasedDecoder(nn.Module):
     nodes_to_action_types: A mapping from node types to action types stored as a
       binary vector. If the node is a head in a rule, the action will be an
       ApplyRule, and GenToken otherwise.
+    expanded_nodes: A list of lists showing how predicted branches should be
+      expanded into nodes.
     rule_vocab_size: rule vocab size.
     token_vocab_size: token vocab size.
     num_layers: number of LSTM layers.
@@ -670,6 +675,7 @@ class SyntaxBasedDecoder(nn.Module):
   """
   shared_embedding: nn.Module
   nodes_to_action_types: jnp.array
+  expanded_nodes: List[List[int]]
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -713,6 +719,7 @@ class SyntaxBasedDecoder(nn.Module):
       projected_keys,
       attention_mask,
       self.nodes_to_action_types,
+      self.expanded_nodes,
       self.rule_vocab_size,
       self.token_vocab_size,
       self.node_vocab_size,
@@ -754,6 +761,8 @@ class Seq2tree(nn.Module):
     nodes_to_action_types: A mapping from node types to action types. If the
       node is a head in a rule, the action will be an ApplyRule, and GenToken
       otherwise.
+    expanded_nodes: A list of lists showing how predicted branches should be
+      expanded into nodes.
     rule_vocab_size: Number of rules.
     token_vocab_size: Number of input & output tokens.
     node_vocab_size: Number of node types.
@@ -765,6 +774,7 @@ class Seq2tree(nn.Module):
     vertical_dropout_rate: LSTM vertical dropout rate (between layers).
   """
   nodes_to_action_types: jnp.array
+  expanded_nodes: List[List[int]]
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -795,6 +805,7 @@ class Seq2tree(nn.Module):
     decoder = SyntaxBasedDecoder(
       shared_embedding=shared_embedding,
       nodes_to_action_types = self.nodes_to_action_types,
+      expanded_nodes = self.expanded_nodes,
       rule_vocab_size=self.rule_vocab_size,
       token_vocab_size=self.token_vocab_size,
       node_vocab_size=self.node_vocab_size,
