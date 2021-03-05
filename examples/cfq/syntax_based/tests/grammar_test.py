@@ -103,6 +103,85 @@ class GrammarTest(parameterized.TestCase):
     term = rule_branch.body[0]
     self.assertEqual(term.term_type, TermType.REGEX_TERM)
 
+  def test_collect_node_types(self):
+    grammar_str = """
+      query: select_query
+      select_query: select_clause "WHERE" "{" where_clause "}"
+      select_clause: "SELECT" "DISTINCT" "?x0"
+                    | "SELECT" "count(*)"     
+      where_clause: where_entry 
+                    | where_clause "." where_entry
+      where_entry: triples_block
+                    | filter_clause
+      filter_clause: "FILTER" "(" var_token "!=" var_token ")"
+      triples_block: var_token TOKEN var_token
+      var_token: VAR
+               | TOKEN 
+      VAR: "?x0" | "?x1" | "?x2" | "?x3" | "?x4" | "?x5" 
+      TOKEN: /[^\s]+/
+    """
+    grammar = Grammar(grammar_str)
+    node_types = grammar.collect_node_types()
+    expected_nodes = ['query',
+                      'select_query', 'select_clause',
+                      'where_clause', 'where_entry', 'triples_block',
+                      'filter_clause',
+                      'var_token', 'TOKEN', 'VAR',
+                      '[^\\s]+']
+    expected_action_types = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
+    self.assertEqual(node_types, (expected_nodes, expected_action_types))
+
+  def test_get_expanded_nodes(self):
+    grammar_str = """
+      query: select_query
+      select_query: select_clause "WHERE" "{" where_clause "}"
+      select_clause: "SELECT" "DISTINCT" "?x0"
+                    | "SELECT" "count(*)"     
+      where_clause: where_entry 
+                    | where_clause "." where_entry
+      where_entry: triples_block
+                    | filter_clause
+      filter_clause: "FILTER" "(" var_token "!=" var_token ")"
+      triples_block: var_token TOKEN var_token
+      var_token: VAR
+               | TOKEN 
+      VAR: "?x0" 
+         | "?x1" 
+         | "?x2" 
+         | "?x3" 
+         | "?x4" 
+         | "?x5" 
+      TOKEN: /[^\s]+/
+    """
+    grammar = Grammar(grammar_str)
+    nodes_vocab = {'query': 0, 'select_query': 1, 'select_clause':2,
+                   'where_clause':3, 'where_entry': 4, 'triples_block': 5,
+                   'filter_clause': 6,
+                   'var_token': 7, 'TOKEN':8, 'VAR':9,
+                   '[^\\s]+': 10}
+    expected_expanded_nodes = [
+      [1],
+      [2, 3],
+      [],
+      [],
+      [4],
+      [3, 4],
+      [5],
+      [6],
+      [7, 7],
+      [7, 8, 7],
+      [9],
+      [8],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [10]
+    ]
+    expanded_nodes = grammar.get_expanded_nodes(nodes_vocab)
+    self.assertEqual(expanded_nodes, expected_expanded_nodes)
 
 if __name__ == '__main__':
   absltest.main()

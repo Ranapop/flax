@@ -195,6 +195,24 @@ class Grammar:
               node_flags.append(0)
     return list(node_types), node_flags
 
+  def get_expanded_nodes(self, nodes_vocab: List[str]):
+    """
+    Returns a list of lists showing how nodes can be expanded once a branch is
+    predicted, that is for each branch a list of nodes the node it would be
+    expanded with. The function gets a vocab for the nodes so the lists are
+    already numericalized.
+    """
+    expanded_nodes = []
+    for branch in self.branches:
+      body = branch.body
+      branch_nodes = []
+      for term in body:
+        if term.term_type in [TermType.RULE_TERM, TermType.REGEX_TERM]:
+          node_idx = nodes_vocab[term.value]
+          branch_nodes.append(node_idx)
+      expanded_nodes.append(branch_nodes)
+    return expanded_nodes
+
   def get_branch_id_by_head_and_index(self, head: str, index: int):
     """Returns the branch id given the head and index."""
     head_rules = self.rules[head]
