@@ -585,7 +585,7 @@ class SyntaxBasedDecoderLSTM(nn.Module):
   encoder_hidden_states: jnp.array
   projected_keys: jnp.array
   attention_mask: jnp.array
-  nodes_to_action_types: Dict[int, int]
+  nodes_to_action_types: jnp.array
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -616,9 +616,11 @@ class SyntaxBasedDecoderLSTM(nn.Module):
       in_axes = 0,
       out_axes = 0)
   def __call__(self, carry, x):
-    action_type = jnp.asarray(x[0], dtype=jnp.uint8)
-    action_value = jnp.asarray(x[1], dtype=jnp.uint8)
+    # action_type = jnp.asarray(x[0], dtype=jnp.uint8)
     node_type = jnp.asarray(x[2], dtype=jnp.uint8)
+    nodes_to_action_types = jnp.asarray(self.nodes_to_action_types, dtype=jnp.uint8)
+    action_type = nodes_to_action_types[node_type]
+    action_value = jnp.asarray(x[1], dtype=jnp.uint8)
     multilayer_lstm_output, previous_action = carry
     previous_states, h = multilayer_lstm_output
     prev_action_emb = self.action_embedding(action_type=previous_action[0],
@@ -656,9 +658,9 @@ class SyntaxBasedDecoder(nn.Module):
   """LSTM syntax-based decoder.
   Attributes:
     shared_embedding: token embedding module.
-    nodes_to_action_types: A mapping from node types to action types. If the
-      node is a head in a rule, the action will be an ApplyRule, and GenToken
-      otherwise.
+    nodes_to_action_types: A mapping from node types to action types stored as a
+      binary vector. If the node is a head in a rule, the action will be an
+      ApplyRule, and GenToken otherwise.
     rule_vocab_size: rule vocab size.
     token_vocab_size: token vocab size.
     num_layers: number of LSTM layers.
@@ -667,7 +669,7 @@ class SyntaxBasedDecoder(nn.Module):
     embed_dropout_rate: embedding dropout rate.
   """
   shared_embedding: nn.Module
-  nodes_to_action_types: Dict[int, int]
+  nodes_to_action_types: jnp.array
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -762,7 +764,7 @@ class Seq2tree(nn.Module):
     horizontal_dropout_rate: LSTM horizontal dropout rate (between steps).
     vertical_dropout_rate: LSTM vertical dropout rate (between layers).
   """
-  nodes_to_action_types: Dict[int, int]
+  nodes_to_action_types: jnp.array
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int

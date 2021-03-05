@@ -4,6 +4,7 @@ from absl.testing import parameterized
 import jax
 from jax import random
 import jax.numpy as jnp
+import flax
 from flax import nn
 from flax import linen as nn
 
@@ -321,9 +322,7 @@ class ModelsTest(parameterized.TestCase):
       ]
     ]
     dec_inputs = jnp.array(dec_inputs)
-    nodes_to_action_types = {
-      2: 0, 7:1, 3:1, 5:0
-    }
+    nodes_to_action_types = jnp.zeros((node_vocab_size))
     input_length = 3
     predicted_length = 4
 
@@ -376,7 +375,7 @@ class ModelsTest(parameterized.TestCase):
     dec_inputs = jnp.zeros((batch_size, 3, max_len), dtype=jnp.uint8)
     input_length = 3
     predicted_length = 4
-    nodes_to_action_types = {0: 0}
+    nodes_to_action_types = jnp.zeros((node_vocab_size))
 
     seq2tree = models.Seq2tree(
       nodes_to_action_types=nodes_to_action_types,

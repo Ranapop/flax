@@ -276,9 +276,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     self.rule_vocab_size = len(grammar.branches)
     nodes_to_action_types = self.construct_nodes_to_action_types(
       node_types, node_flags)
-    # Make it a flax frozen dict so it can be passed as a static argument
-    # in jitted functions.
-    self.nodes_to_action_types = flax.core.FrozenDict(nodes_to_action_types)
+    self.nodes_to_action_types = nodes_to_action_types
     if load_data:
       super().__init__(seed,
                        fixed_output_len,
@@ -296,14 +294,22 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     Returns:
      dict node idx -> action type.
     """
-    nodes_to_action_types = {}
+    # nodes_to_action_types = {}
+    # for i in range(len(node_types)):
+    #   node_idx = self.node_vocab[node_types[i]]
+    #   if node_flags[i] == 1:
+    #     action_type = asg.APPLY_RULE
+    #   else:
+    #     action_type = asg.GENERATE_TOKEN
+    #   nodes_to_action_types[node_idx] = action_type
+    nodes_to_action_types = np.zeros((len(node_types)))
     for i in range(len(node_types)):
       node_idx = self.node_vocab[node_types[i]]
       if node_flags[i] == 1:
         action_type = asg.APPLY_RULE
       else:
         action_type = asg.GENERATE_TOKEN
-      nodes_to_action_types[node_idx] = action_type
+      nodes_to_action_types[i] = action_type
     return nodes_to_action_types
 
   def construct_vocab(self, items_list: List[str]):
