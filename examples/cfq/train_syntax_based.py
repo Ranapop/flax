@@ -493,16 +493,16 @@ def train_model(learning_rate: float = None,
     # Shard the step PRNG key
     sharded_keys = common_utils.shard_prng_key(step_key)
     node_to_action_types = np.repeat([data_source.nodes_to_action_types], jax.device_count(), axis=0)
-    partial_train_step = functools.partial(train_step, expanded_nodes=data_source.expanded_nodes)
+    partial_train_step = functools.partial(train_step,
+      expanded_nodes=data_source.expanded_nodes,
+      rule_vocab_size=data_source.rule_vocab_size,
+      token_vocab_size=data_source.tokens_vocab_size,
+      node_vocab_size=data_source.node_vocab_size)
     pmapped_train_step = jax.pmap(
       partial_train_step,
-      axis_name='batch',
-      static_broadcasted_argnums=(4, 5, 6))
+      axis_name='batch')
     optimizer, metrics = pmapped_train_step(optimizer, batch, sharded_keys,
-                                    node_to_action_types,
-                                    data_source.rule_vocab_size,
-                                    data_source.tokens_vocab_size,
-                                    data_source.node_vocab_size)
+                                            node_to_action_types)
     train_metrics.append(metrics)
     if (step + 1) % eval_freq == 0:
       train_metrics = common_utils.get_metrics(train_metrics)
