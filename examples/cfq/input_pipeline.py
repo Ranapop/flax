@@ -276,12 +276,39 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     self.rule_vocab_size = len(grammar.branches)
     self.nodes_to_action_types = self.construct_nodes_to_action_types(
       node_types, node_flags)
-    self.expanded_nodes = grammar.get_expanded_nodes(self.node_vocab)
+    expanded_nodes_list = grammar.get_expanded_nodes(self.node_vocab)
+    self.expanded_nodes = self.get_expanded_nodes_array(expanded_nodes_list)
     if load_data:
       super().__init__(seed,
                        fixed_output_len,
                        tokenizer,
                        cfq_split)
+
+  def get_expanded_nodes_array(self, expanded_nodes: List[List[int]]):
+    """
+    Gets as parameter a list of lists, a list of nodes expansion for each
+    rule. The last list will be an empty list, found at position rule_vocab_size
+    and will be used when generating a token.
+    
+    This list will be transformed into a 2D jnp array, with padding to not have
+    a ragged shape. The length of each list will be also returned in a separate
+    array.
+
+    Returns
+      (node_expansions, lengths).
+    """
+    no_lists = len(expanded_nodes)
+    lists_lengths = [len(l) for l in expanded_nodes]
+    max_list_len = max(lists_lengths)
+    node_expansions_array = jnp.zeros((no_lists, max_list_len))
+    for i in range(no_lists):
+      l = node_expansions_array[i]
+      length = lists_lengths[i]
+      indexes = jax.ops.index[0:length]
+      node_expansions_array = jax.ops.index_update(
+        node_expansions_array, indexes, l)
+    lengths_array = jnp.array(lists_lengths)
+    return node_expansions_array, lengths_array 
 
   def construct_nodes_to_action_types(self,
                                       node_types: List[str],

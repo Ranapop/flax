@@ -15,7 +15,7 @@ from models import Encoder, MlpAttention, RecurrentDropoutMasks, Decoder,\
 
 class ModelsTest(parameterized.TestCase):
 
-  def test_encoder(self):
+  def est_encoder(self):
     rng1, rng2 = random.split(random.PRNGKey(0))
     rngs = {'params': rng1, 'dropout': rng2}
     seq1 = [1, 0, 3]
@@ -56,7 +56,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(c.shape, (batch_size, hidden_size))
       self.assertEqual(h.shape, (batch_size, hidden_size))
 
-  def test_mlp_attenntion(self):
+  def est_mlp_attenntion(self):
     rng = dict(params=random.PRNGKey(0))
 
     batch_size = 2
@@ -80,7 +80,7 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(context.shape, (batch_size, values_size))
     self.assertEqual(scores.shape, (batch_size, seq_len))
 
-  def test_recurrent_dropout_masks(self):
+  def est_recurrent_dropout_masks(self):
     rng1, rng2 = random.split(random.PRNGKey(0))
     rngs = {'params': rng1, 'dropout': rng2}
     dropout = RecurrentDropoutMasks(3, 0.3)
@@ -89,7 +89,7 @@ class ModelsTest(parameterized.TestCase):
     for mask in masks:
       self.assertEqual(mask.shape, (2, 10))
 
-  def test_multilayer_LSTM_cell(self):
+  def est_multilayer_LSTM_cell(self):
     rng = dict(params=random.PRNGKey(0))
     num_layers = 3
     batch_size = 7
@@ -124,7 +124,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(h.shape, (batch_size, hidden_size))
     self.assertEqual(y.shape, (batch_size, hidden_size))
 
-  def test_multilayer_LSTM(self):
+  def est_multilayer_LSTM(self):
     rng = dict(params=random.PRNGKey(0))
     num_layers = 5
     batch_size = 10
@@ -154,7 +154,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(c.shape, (batch_size, hidden_size))
       self.assertEqual(h.shape, (batch_size, hidden_size))
 
-  def test_compute_attention_masks(self):
+  def est_compute_attention_masks(self):
     shape = (2, 7)
     lengths = jnp.array([5, 7])
     mask = models.compute_attention_masks(shape, lengths)
@@ -162,7 +162,7 @@ class ModelsTest(parameterized.TestCase):
                                [True, True, True, True, True, True, True]])
     self.assertEqual(True, jnp.array_equal(mask, expected_mask))
 
-  def test_decoder_train(self):
+  def est_decoder_train(self):
     rng1, rng2 = random.split(random.PRNGKey(0))
     rngs = {'params': rng1, 'dropout': rng2}
     seq1 = [1, 0, 2, 4]
@@ -205,7 +205,7 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(predictions.shape, (batch_size, seq_len))
     self.assertEqual(scores, None)
 
-  def test_decoder_inference(self):
+  def est_decoder_inference(self):
     rng = dict(params=random.PRNGKey(0))
     max_len = 4
     input_seq_len = 5
@@ -249,7 +249,7 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(scores.shape, (batch_size, max_len, input_seq_len))
 
 
-  def test_seq_2_seq(self):
+  def est_seq_2_seq(self):
     rng1, rng2 = random.split(random.PRNGKey(0))
     rngs = {'params': rng1, 'dropout': rng2}
     vocab_size = 10
@@ -268,7 +268,7 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(predictions.shape, (batch_size, max_len - 1))
     self.assertEqual(scores, None)
 
-  def test_seq_2_seq_inference_apply(self):
+  def est_seq_2_seq_inference_apply(self):
     vocab_size = 10
     batch_size = 2
     max_len = 5
@@ -323,7 +323,10 @@ class ModelsTest(parameterized.TestCase):
     ]
     dec_inputs = jnp.array(dec_inputs)
     nodes_to_action_types = jnp.zeros((node_vocab_size))
-    expanded_nodes = [[] for i in range(rule_vocab_size)]
+    expanded_nodes_list = [[0] for i in range(rule_vocab_size+1)]
+    expanded_nodes_arr = jnp.array(expanded_nodes_list)
+    expanded_lengths = jnp.zeros(rule_vocab_size+1)
+    expanded_nodes = (expanded_nodes_arr, expanded_lengths)
     input_length = 3
     predicted_length = 4
 
@@ -379,7 +382,11 @@ class ModelsTest(parameterized.TestCase):
     input_length = 3
     predicted_length = 4
     nodes_to_action_types = jnp.zeros((node_vocab_size))
-    expanded_nodes = [[] for i in range(rule_vocab_size)]
+    
+    expanded_nodes_list = [[0] for i in range(rule_vocab_size+1)]
+    expanded_nodes_arr = jnp.array(expanded_nodes_list)
+    expanded_lengths = jnp.zeros(rule_vocab_size+1)
+    expanded_nodes = (expanded_nodes_arr, expanded_lengths)
 
     seq2tree = models.Seq2tree(
       nodes_to_action_types=nodes_to_action_types,

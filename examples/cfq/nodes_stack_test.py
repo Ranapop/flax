@@ -47,18 +47,23 @@ class NodesStackTest(parameterized.TestCase):
 
     stack_array = jnp.array([1, 2, 3, 0, 0, 0])
     stack_pointer = 3
-    new_elements = [4, 5]
+    new_elements_arr = jnp.array([4, 5, 0])
+    new_elements_length = jnp.array(2)
+    new_elements = (new_elements_arr, new_elements_length)
     new_stack = push_elements_to_stack((stack_array, stack_pointer), new_elements)
     expected_stack_array = jnp.array([1, 2, 3, 4, 5, 0])
     expected_stack_pointer = 5
     self.assertEqual(jnp.array_equal(new_stack[0], expected_stack_array), True)
     self.assertEqual(new_stack[1], expected_stack_pointer)
 
-  def test_push_elements_to_stack(self):
+  #TODO: think of the behaviour for full stack.
+  def est_push_elements_to_full_stack(self):
 
     stack_array = jnp.array([1, 2, 3, 4, 5, 0])
     stack_pointer = 5
-    new_elements = [6, 7]
+    new_elements_arr = jnp.array([6, 7])
+    new_elements_length = jnp.array(2)
+    new_elements = (new_elements_arr, new_elements_length)
     error = None
     try:
       new_stack = push_elements_to_stack(

@@ -211,6 +211,8 @@ class Grammar:
           node_idx = nodes_vocab[term.value]
           branch_nodes.append(node_idx)
       expanded_nodes.append(branch_nodes)
+    # put here an empty list here for token generation.
+    expanded_nodes.append([])
     return expanded_nodes
 
   def get_branch_id_by_head_and_index(self, head: str, index: int):

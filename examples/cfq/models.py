@@ -22,6 +22,7 @@ import jax.numpy as jnp
 from flax import jax_utils
 from flax import linen as nn
 import functools
+from nodes_stack import create_empty_stack, pop_element_from_stack, push_elements_to_stack
 
 # hyperparams
 LSTM_HIDDEN_SIZE = 512
@@ -588,7 +589,7 @@ class SyntaxBasedDecoderLSTM(nn.Module):
   projected_keys: jnp.array
   attention_mask: jnp.array
   nodes_to_action_types: jnp.array
-  expanded_nodes: List[List[int]]
+  expanded_nodes: Tuple[jnp.array, jnp.array]
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -620,11 +621,12 @@ class SyntaxBasedDecoderLSTM(nn.Module):
       out_axes = 0)
   def __call__(self, carry, x):
     # action_type = jnp.asarray(x[0], dtype=jnp.uint8)
+    multilayer_lstm_output, previous_action, frontier_nodes = carry
+    popped_node = pop_element_from_stack(frontier_nodes)
     node_type = jnp.asarray(x[2], dtype=jnp.uint8)
     nodes_to_action_types = jnp.asarray(self.nodes_to_action_types, dtype=jnp.uint8)
     action_type = nodes_to_action_types[node_type]
     action_value = jnp.asarray(x[1], dtype=jnp.uint8)
-    multilayer_lstm_output, previous_action = carry
     previous_states, h = multilayer_lstm_output
     prev_action_emb = self.action_embedding(action_type=previous_action[0],
                                             action_value=previous_action[1])
@@ -649,11 +651,16 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     predicted_rules = jnp.argmax(rule_logits, axis=-1)
     predicted_tokens = jnp.argmax(token_logits, axis=-1)
     prediction = jnp.where(action_type, predicted_tokens, predicted_rules)
+    # What should I do if I have a gen token?? -- maybe a special expansion with an empty list?
+    idx = jnp.where(action_type, prediction, jnp.array(self.rule_vocab_size))
+    expanded_nodes_arr, expanded_nodes_lengths = self.expanded_nodes
+    new_nodes = (expanded_nodes_arr[prediction], expanded_nodes_lengths[prediction])
+    new_frontier = push_elements_to_stack(frontier_nodes, new_nodes)
     prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
     if not self.train:
       action_value = prediction_uint8
     current_action = (action_type, action_value)
-    new_carry = ((jnp.array(states), h), current_action)
+    new_carry = ((jnp.array(states), h), current_action, frontier_nodes)
     accumulator = (rule_logits, token_logits, prediction_uint8, scores)
     return new_carry, accumulator
 
@@ -664,8 +671,10 @@ class SyntaxBasedDecoder(nn.Module):
     nodes_to_action_types: A mapping from node types to action types stored as a
       binary vector. If the node is a head in a rule, the action will be an
       ApplyRule, and GenToken otherwise.
-    expanded_nodes: A list of lists showing how predicted branches should be
-      expanded into nodes.
+    expanded_nodes: A tuple of arrays showing how predicted branches should be
+      expanded into nodes. The first array contains rule -> nodes and is
+      padded with zeroes to have a fixed size while the 2nd array contains the
+      number of nodes for each rule.
     rule_vocab_size: rule vocab size.
     token_vocab_size: token vocab size.
     num_layers: number of LSTM layers.
@@ -675,7 +684,7 @@ class SyntaxBasedDecoder(nn.Module):
   """
   shared_embedding: nn.Module
   nodes_to_action_types: jnp.array
-  expanded_nodes: List[List[int]]
+  expanded_nodes: Tuple[jnp.array, jnp.array]
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -735,7 +744,9 @@ class SyntaxBasedDecoder(nn.Module):
     # Convention: initial action has type 2.
     initial_action = (jnp.array(2, dtype=jnp.uint8), jnp.array(0, dtype=jnp.uint8))
     multilayer_lstm_output = (init_states, init_states[-1, 1, :])
-    init_carry = (multilayer_lstm_output, initial_action)
+    out_seq_len = inputs.shape[1]
+    initial_stack = create_empty_stack(out_seq_len)
+    init_carry = (multilayer_lstm_output, initial_action, initial_stack)
 
     # Go from [2, out_seq_len] -> [out_seq_len, 2].
     scan_inputs = jnp.swapaxes(inputs, 0, 1)
@@ -761,7 +772,7 @@ class Seq2tree(nn.Module):
     nodes_to_action_types: A mapping from node types to action types. If the
       node is a head in a rule, the action will be an ApplyRule, and GenToken
       otherwise.
-    expanded_nodes: A list of lists showing how predicted branches should be
+    expanded_nodes: A tuple of arrays showing how predicted branches should be
       expanded into nodes.
     rule_vocab_size: Number of rules.
     token_vocab_size: Number of input & output tokens.
@@ -774,7 +785,7 @@ class Seq2tree(nn.Module):
     vertical_dropout_rate: LSTM vertical dropout rate (between layers).
   """
   nodes_to_action_types: jnp.array
-  expanded_nodes: List[List[int]]
+  expanded_nodes: Tuple[jnp.array, jnp.array]
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
