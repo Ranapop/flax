@@ -622,8 +622,9 @@ class SyntaxBasedDecoderLSTM(nn.Module):
   def __call__(self, carry, x):
     # action_type = jnp.asarray(x[0], dtype=jnp.uint8)
     multilayer_lstm_output, previous_action, frontier_nodes = carry
-    popped_node = pop_element_from_stack(frontier_nodes)
+    popped_node, frontier_nodes = pop_element_from_stack(frontier_nodes)
     node_type = jnp.asarray(x[2], dtype=jnp.uint8)
+    node_type = jnp.asarray(popped_node, dtype=jnp.uint8)
     nodes_to_action_types = jnp.asarray(self.nodes_to_action_types, dtype=jnp.uint8)
     action_type = nodes_to_action_types[node_type]
     action_value = jnp.asarray(x[1], dtype=jnp.uint8)
@@ -654,7 +655,7 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     # What should I do if I have a gen token?? -- maybe a special expansion with an empty list?
     idx = jnp.where(action_type, prediction, jnp.array(self.rule_vocab_size))
     expanded_nodes_arr, expanded_nodes_lengths = self.expanded_nodes
-    new_nodes = (expanded_nodes_arr[prediction], expanded_nodes_lengths[prediction])
+    new_nodes = (expanded_nodes_arr[idx], expanded_nodes_lengths[idx])
     new_frontier = push_elements_to_stack(frontier_nodes, new_nodes)
     prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
     if not self.train:
@@ -745,7 +746,9 @@ class SyntaxBasedDecoder(nn.Module):
     initial_action = (jnp.array(2, dtype=jnp.uint8), jnp.array(0, dtype=jnp.uint8))
     multilayer_lstm_output = (init_states, init_states[-1, 1, :])
     out_seq_len = inputs.shape[1]
-    initial_stack = create_empty_stack(out_seq_len)
+    # print('Out seq len', out_seq_len)
+    # TODO: pass 3 as a parameter (coming from grammar, max expansion or smth).
+    initial_stack = create_empty_stack(out_seq_len * 3)
     init_carry = (multilayer_lstm_output, initial_action, initial_stack)
 
     # Go from [2, out_seq_len] -> [out_seq_len, 2].

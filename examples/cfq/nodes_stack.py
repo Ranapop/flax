@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 
 def create_empty_stack(stack_capacity):
-  stack_array = jnp.zeros((stack_capacity), dtype=jnp.int32)
+  stack_array = jnp.zeros((stack_capacity))
   stack_pointer = 0
   return (stack_array, stack_pointer)
 
@@ -21,21 +21,6 @@ def push_elements_to_stack(stack: Tuple[jnp.array, int],
   no_elements_with_padding = elements_array.shape[0]
   stack_array, stack_pointer = stack
   stack_capacity = stack_array.shape[0]
-  # assert stack_pointer + no_elements_with_padding <= stack_capacity
-  # indexes = jax.ops.index[stack_pointer:stack_pointer+no_elements_with_padding]
-  # stack_array = jax.ops.index_update(stack_array, indexes, elements_array)
-
-  # indexes = jax.ops.index[stack_pointer:stack_pointer+no_elements_with_padding]
-  # stack_array = jax.ops.index_update(
-  #   stack_array,
-  #   [stack_pointer:stack_pointer+no_elements_with_padding],
-  #   elements_array)
-  # indexes = list(range(stack_pointer+no_elements_with_padding+1))
-  # indexes = indexes[stack_pointer:stack_pointer+no_elements_with_padding]
-  # print('indexes length ', len(indexes))
-  # print('elements_array ', elements_array)
-  # print('stack array type', stack_array.dtype)
-  # print('elements_array type', elements_array.dtype)
   stack_array = jax.lax.dynamic_update_slice(
     stack_array, elements_array, [stack_pointer])
 

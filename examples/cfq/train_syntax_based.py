@@ -255,7 +255,8 @@ def get_decoder_inputs(batch: BatchType):
   output = jnp.swapaxes(output, 0, 1)
   return output
 
-
+@functools.partial(jax.pmap, axis_name='batch',
+                   static_broadcasted_argnums=(5, 6, 7))
 def train_step(optimizer: Any,
                batch: BatchType,
                rng: jax.random.PRNGKey,
@@ -493,16 +494,15 @@ def train_model(learning_rate: float = None,
     # Shard the step PRNG key
     sharded_keys = common_utils.shard_prng_key(step_key)
     node_to_action_types = np.repeat([data_source.nodes_to_action_types], jax.device_count(), axis=0)
-    partial_train_step = functools.partial(train_step,
-      expanded_nodes=data_source.expanded_nodes,
-      rule_vocab_size=data_source.rule_vocab_size,
-      token_vocab_size=data_source.tokens_vocab_size,
-      node_vocab_size=data_source.node_vocab_size)
-    pmapped_train_step = jax.pmap(
-      partial_train_step,
-      axis_name='batch')
-    optimizer, metrics = pmapped_train_step(optimizer, batch, sharded_keys,
-                                            node_to_action_types)
+    expanded_nodes_arr = np.repeat([data_source.expanded_nodes[0]], jax.device_count(), axis=0)
+    expanded_nodes_lengths = np.repeat([data_source.expanded_nodes[1]], jax.device_count(), axis=0)
+    expanded_nodes = (expanded_nodes_arr, expanded_nodes_lengths)
+    optimizer, metrics = train_step(optimizer, batch, sharded_keys,
+                                    node_to_action_types,
+                                    expanded_nodes,
+                                    data_source.rule_vocab_size,
+                                    data_source.tokens_vocab_size,
+                                    data_source.node_vocab_size)
     train_metrics.append(metrics)
     if (step + 1) % eval_freq == 0:
       train_metrics = common_utils.get_metrics(train_metrics)

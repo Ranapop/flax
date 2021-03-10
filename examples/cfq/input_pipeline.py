@@ -20,6 +20,7 @@ from absl import logging
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 import tensorflow_text as text
+import jax
 import jax.numpy as jnp
 import numpy as np
 
