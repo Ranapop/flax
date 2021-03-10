@@ -17,7 +17,7 @@
 
 import os
 import shutil
-from typing import Any, Text, Dict, TextIO, List
+from typing import Any, Text, Dict, TextIO, List, Tuple
 from absl import logging
 
 import tensorflow_datasets as tfds
@@ -66,7 +66,7 @@ def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
 
 def get_initial_params(rng: jax.random.PRNGKey,
                        nodes_to_action_types: flax.core.FrozenDict,
-                       expanded_nodes: List[List[int]],
+                       expanded_nodes: Tuple[jnp.array, jnp.array],
                        rule_vocab_size: int,
                        token_vocab_size: int,
                        node_vocab_size: int):
@@ -260,7 +260,7 @@ def train_step(optimizer: Any,
                batch: BatchType,
                rng: jax.random.PRNGKey,
                nodes_to_action_types: np.array,
-               expanded_nodes: List[List[int]],
+               expanded_nodes: Tuple[jnp.array, jnp.array],
                rule_vocab_size: int, token_vocab_size: int, node_vocab_size: int):
   """Train one step."""
   step_rng = jax.random.fold_in(rng, optimizer.state.step)
