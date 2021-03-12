@@ -621,10 +621,15 @@ class SyntaxBasedDecoderLSTM(nn.Module):
       out_axes = 0)
   def __call__(self, carry, x):
     # action_type = jnp.asarray(x[0], dtype=jnp.uint8)
-    multilayer_lstm_output, previous_action, frontier_nodes = carry
+    nan_error, multilayer_lstm_output, previous_action, frontier_nodes = carry
     popped_node, frontier_nodes = pop_element_from_stack(frontier_nodes)
-    node_type = jnp.asarray(x[2], dtype=jnp.uint8)
+    node_type_x = jnp.asarray(x[2], dtype=jnp.uint8)
     node_type = jnp.asarray(popped_node, dtype=jnp.uint8)
+    # See if the generated & pre-processed nodes are equal (on train they should
+    # be).
+    if self.train:
+      # nan_error = jnp.where(jnp.equal(node_type,node_type_x), jnp.ones(1) * jnp.nan, jnp.ones(1) * jnp.nan)
+      nan_error = jnp.nan
     nodes_to_action_types = jnp.asarray(self.nodes_to_action_types, dtype=jnp.uint8)
     action_type = nodes_to_action_types[node_type]
     action_value = jnp.asarray(x[1], dtype=jnp.uint8)
@@ -652,16 +657,21 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     predicted_rules = jnp.argmax(rule_logits, axis=-1)
     predicted_tokens = jnp.argmax(token_logits, axis=-1)
     prediction = jnp.where(action_type, predicted_tokens, predicted_rules)
+    prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
     # What should I do if I have a gen token?? -- maybe a special expansion with an empty list?
-    idx = jnp.where(action_type, prediction, jnp.array(self.rule_vocab_size))
+    if self.train:
+      idx = jnp.where(
+        action_type, action_value, jnp.array(self.rule_vocab_size))
+    else:
+      idx = jnp.where(
+        action_type, prediction_uint8, jnp.array(self.rule_vocab_size))
     expanded_nodes_arr, expanded_nodes_lengths = self.expanded_nodes
     new_nodes = (expanded_nodes_arr[idx], expanded_nodes_lengths[idx])
     new_frontier = push_elements_to_stack(frontier_nodes, new_nodes)
-    prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
     if not self.train:
       action_value = prediction_uint8
     current_action = (action_type, action_value)
-    new_carry = ((jnp.array(states), h), current_action, frontier_nodes)
+    new_carry = (nan_error, (jnp.array(states), h), current_action, frontier_nodes)
     accumulator = (rule_logits, token_logits, prediction_uint8, scores)
     return new_carry, accumulator
 
@@ -749,13 +759,15 @@ class SyntaxBasedDecoder(nn.Module):
     # print('Out seq len', out_seq_len)
     # TODO: pass 3 as a parameter (coming from grammar, max expansion or smth).
     initial_stack = create_empty_stack(out_seq_len * 3)
-    init_carry = (multilayer_lstm_output, initial_action, initial_stack)
+    nan_error = 0.
+    init_carry = (nan_error, multilayer_lstm_output, initial_action, initial_stack)
 
     # Go from [2, out_seq_len] -> [out_seq_len, 2].
     scan_inputs = jnp.swapaxes(inputs, 0, 1)
 
-    _, (rule_logits, token_logits, predictions, scores) = decoder_lstm(
+    final_carry, (rule_logits, token_logits, predictions, scores) = decoder_lstm(
         init_carry, scan_inputs)
+    nan_error, _, _, _ = final_carry
 
     # The attention weights are only examined on the evaluation flow, so this
     # if is used to avoid unnecesary operations.
@@ -766,7 +778,7 @@ class SyntaxBasedDecoder(nn.Module):
       jnp.swapaxes(attention_weights, 0, 1)
     else:
       attention_weights = None
-    return rule_logits, token_logits, predictions, attention_weights
+    return nan_error, rule_logits, token_logits, predictions, attention_weights
 
 
 class Seq2tree(nn.Module):
@@ -839,6 +851,7 @@ class Seq2tree(nn.Module):
     init_decoder_states = jnp.array(init_decoder_states)
     init_decoder_states = jnp.swapaxes(init_decoder_states, 0, 2)
     # Decode outputs.
+    nan_error,\
     rule_logits,\
     token_logits,\
     predictions,\
@@ -847,5 +860,5 @@ class Seq2tree(nn.Module):
                                         mask,
                                         decoder_inputs)
 
-    return rule_logits, token_logits, predictions, attention_weights
+    return nan_error, rule_logits, token_logits, predictions, attention_weights
 

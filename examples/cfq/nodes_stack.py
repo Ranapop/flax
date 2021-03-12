@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 
 def create_empty_stack(stack_capacity):
-  stack_array = jnp.zeros((stack_capacity))
+  stack_array = jnp.zeros((stack_capacity), dtype=jnp.int32)
   stack_pointer = 0
   return (stack_array, stack_pointer)
 
@@ -23,7 +23,6 @@ def push_elements_to_stack(stack: Tuple[jnp.array, int],
   stack_capacity = stack_array.shape[0]
   stack_array = jax.lax.dynamic_update_slice(
     stack_array, elements_array, [stack_pointer])
-
   stack_pointer += no_elements
   return (stack_array, stack_pointer)
 

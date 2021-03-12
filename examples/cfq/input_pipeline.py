@@ -301,7 +301,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     no_lists = len(expanded_nodes)
     lists_lengths = [len(l) for l in expanded_nodes]
     max_list_len = max(lists_lengths)
-    node_expansions_array = jnp.zeros((no_lists, max_list_len))
+    node_expansions_array = jnp.zeros((no_lists, max_list_len), dtype=jnp.int32)
     for i in range(no_lists):
       l = node_expansions_array[i]
       length = lists_lengths[i]

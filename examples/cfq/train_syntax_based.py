@@ -89,7 +89,7 @@ def get_initial_params(rng: jax.random.PRNGKey,
   initial_batch = [
     jnp.zeros((1, 1), jnp.uint8),
     jnp.zeros((1, 3, 1), jnp.uint8),
-    jnp.zeros((1,), jnp.uint8)
+    jnp.ones((1,), jnp.uint8)
   ]
   initial_params = seq2seq.init(rng,
     initial_batch[0],
@@ -255,6 +255,9 @@ def get_decoder_inputs(batch: BatchType):
   output = jnp.swapaxes(output, 0, 1)
   return output
 
+# Jit the function instead of just pmapping it to make sure error propagation
+# works.
+@functools.partial(jax.jit, static_argnums=(5,6,7))
 @functools.partial(jax.pmap, axis_name='batch',
                    static_broadcasted_argnums=(5, 6, 7))
 def train_step(optimizer: Any,
@@ -279,7 +282,7 @@ def train_step(optimizer: Any,
       nodes_to_action_types,
       expanded_nodes,
       rule_vocab_size, token_vocab_size, node_vocab_size, train=True)
-    rule_logits, token_logits, predictions, _ = \
+    nan_error, rule_logits, token_logits, predictions, _ = \
       seq2tree.apply(
         {'params': params}, 
         encoder_inputs=inputs,
@@ -293,11 +296,11 @@ def train_step(optimizer: Any,
                               queries_lengths,
                               rule_vocab_size,
                               token_vocab_size)
-    return loss, (rule_logits, token_logits, predictions)
+    return loss, (nan_error, rule_logits, token_logits, predictions)
 
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
   (_, output), grad = grad_fn(optimizer.target)
-  rule_logits, token_logits, predictions = output
+  nan_error, rule_logits, token_logits, predictions = output
   grad = jax.lax.pmean(grad, axis_name='batch')
   grad = clip_grads(grad, max_norm=1.0)
   optimizer = optimizer.apply_gradient(grad)
@@ -311,7 +314,7 @@ def train_step(optimizer: Any,
                             rule_vocab_size,
                             token_vocab_size)
   metrics = jax.lax.pmean(metrics, axis_name='batch')
-  return optimizer, metrics
+  return nan_error, optimizer, metrics
 
 
 @jax.partial(jax.jit, static_argnums=[5, 6, 7, 9])
@@ -344,7 +347,7 @@ def infer(params, inputs: jnp.array, inputs_lengths: jnp.array,
       nodes_to_action_types,
       expanded_nodes,
       rule_vocab_size, token_vocab_size, node_vocab_size, train=False)
-  rule_logits, token_logits, predictions, attention_weights = \
+  _, rule_logits, token_logits, predictions, attention_weights = \
     seq2tree.apply(
       {'params': params},
       encoder_inputs=inputs,
@@ -497,12 +500,14 @@ def train_model(learning_rate: float = None,
     expanded_nodes_arr = np.repeat([data_source.expanded_nodes[0]], jax.device_count(), axis=0)
     expanded_nodes_lengths = np.repeat([data_source.expanded_nodes[1]], jax.device_count(), axis=0)
     expanded_nodes = (expanded_nodes_arr, expanded_nodes_lengths)
-    optimizer, metrics = train_step(optimizer, batch, sharded_keys,
+    nan_error, optimizer, metrics = train_step(optimizer, batch, sharded_keys,
                                     node_to_action_types,
                                     expanded_nodes,
                                     data_source.rule_vocab_size,
                                     data_source.tokens_vocab_size,
                                     data_source.node_vocab_size)
+    print(nan_error)
+    
     train_metrics.append(metrics)
     if (step + 1) % eval_freq == 0:
       train_metrics = common_utils.get_metrics(train_metrics)

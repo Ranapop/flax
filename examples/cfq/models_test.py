@@ -3,6 +3,7 @@ from absl.testing import parameterized
 
 import jax
 from jax import random
+from jax.config import config
 import jax.numpy as jnp
 import flax
 from flax import nn
@@ -12,6 +13,10 @@ import models
 from models import Encoder, MlpAttention, RecurrentDropoutMasks, Decoder,\
   Seq2seq, MultilayerLSTMCell, MultilayerLSTM, Seq2tree
 
+# To be able to pass --jax_debug_nans=True for enabling debugging.
+config.parse_flags_with_absl()
+# Deactivate jitting for better debugging.
+# config.update('jax_disable_jit', True)
 
 class ModelsTest(parameterized.TestCase):
 
@@ -178,7 +183,8 @@ class ModelsTest(parameterized.TestCase):
         (batch_size, hidden_size)), jnp.zeros((batch_size, hidden_size)))
     initial_states = [initial_state] * num_layers
     enc_hidden_states = jnp.zeros((batch_size, input_seq_len, hidden_size))
-    mask = jnp.zeros((batch_size, input_seq_len), dtype=bool)
+    # If the mask is all False it leads to nan in the softmax.
+    mask = jnp.ones((batch_size, input_seq_len), dtype=bool)
     class DummyModule(nn.Module):
 
       @nn.compact
@@ -221,7 +227,7 @@ class ModelsTest(parameterized.TestCase):
         (batch_size, hidden_size)), jnp.zeros((batch_size, hidden_size)))
     initial_states = [initial_state] * num_layers
     enc_hidden_states = jnp.zeros((batch_size, input_seq_len, hidden_size))
-    mask = jnp.zeros((batch_size, input_seq_len), dtype=bool)
+    mask = jnp.ones((batch_size, input_seq_len), dtype=bool)
 
     class DummyModule(nn.Module):
 
@@ -281,7 +287,8 @@ class ModelsTest(parameterized.TestCase):
     init_batch = [
       jnp.zeros((1, 1), jnp.uint8),
       jnp.zeros((1, 2), jnp.uint8),
-      jnp.zeros((1,), jnp.uint8)
+      # To make sure the mask is not zero-valued.
+      jnp.ones((1,), jnp.uint8)
     ]
     initial_params = seq2seq.init(random.PRNGKey(0),
       init_batch[0],
@@ -340,7 +347,7 @@ class ModelsTest(parameterized.TestCase):
     init_batch = [
       jnp.zeros((1, 1), jnp.uint8),
       jnp.zeros((1, 3, 1), jnp.uint8),
-      jnp.zeros((1,), jnp.uint8)
+      jnp.ones((1,), jnp.uint8)
     ]
     initial_params = seq2tree.init(random.PRNGKey(0),
       init_batch[0],
@@ -354,21 +361,28 @@ class ModelsTest(parameterized.TestCase):
       token_vocab_size=token_vocab_size,
       node_vocab_size=node_vocab_size,
       train=True)
-    rule_logits,\
-    token_logits,\
-    predictions,\
-    attention_weights = seq2tree.apply(
-      {'params': initial_params['params']},
-      encoder_inputs=enc_inputs,
-      decoder_inputs=dec_inputs,
-      encoder_inputs_lengths=lengths,
-      rngs={'dropout': random.PRNGKey(0)})
-    self.assertEqual(rule_logits.shape,
-                      (batch_size, predicted_length, rule_vocab_size))
-    self.assertEqual(token_logits.shape,
-                      (batch_size, predicted_length, token_vocab_size))
-    self.assertEqual(predictions.shape, (batch_size, predicted_length))
-    self.assertEqual(attention_weights, None)
+
+    @jax.jit
+    def apply_model():
+      nan_error,\
+      rule_logits,\
+      token_logits,\
+      predictions,\
+      attention_weights = seq2tree.apply(
+        {'params': initial_params['params']},
+        encoder_inputs=enc_inputs,
+        decoder_inputs=dec_inputs,
+        encoder_inputs_lengths=lengths,
+        rngs={'dropout': random.PRNGKey(0)})
+      self.assertEqual(rule_logits.shape,
+                        (batch_size, predicted_length, rule_vocab_size))
+      self.assertEqual(token_logits.shape,
+                        (batch_size, predicted_length, token_vocab_size))
+      self.assertEqual(predictions.shape, (batch_size, predicted_length))
+      self.assertEqual(attention_weights, None)
+      return nan_error
+
+    nan_error = apply_model()
   
   def test_seq_2_tree_inference_apply(self):
     rule_vocab_size = 20
@@ -398,13 +412,14 @@ class ModelsTest(parameterized.TestCase):
     init_batch = [
       jnp.zeros((1, 1), jnp.uint8),
       jnp.zeros((1, 3, 1), jnp.uint8),
-      jnp.zeros((1,), jnp.uint8)
+      jnp.ones((1,), jnp.uint8)
     ]
     initial_params = seq2tree.init(random.PRNGKey(0),
       init_batch[0],
       init_batch[1],
       init_batch[2])
 
+    nan_error,\
     rule_logits,\
     token_logits,\
     predictions,\
