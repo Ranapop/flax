@@ -572,9 +572,7 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     projected_keys: Attention keys passed through a dense layer.
     attention_mask: Attention masks.
     grammar_info: Grammar information.
-    rule_vocab_size: Number of rules.
     token_vocab_size: Number of tokens.
-    node_vocab_size: Number of AST node types.
     train: Train flag.
     num_layers: NUmber of LSTM layers.
     h_dropout_masks: Horizontal dropout masks.
@@ -586,9 +584,7 @@ class SyntaxBasedDecoderLSTM(nn.Module):
   projected_keys: jnp.array
   attention_mask: jnp.array
   grammar_info: GrammarInfo
-  rule_vocab_size: int
   token_vocab_size: int
-  node_vocab_size: int
   train: bool
   num_layers: int
   h_dropout_masks: List
@@ -597,14 +593,15 @@ class SyntaxBasedDecoderLSTM(nn.Module):
 
   def setup(self):
     self.multilayer_lstm_cell = MultilayerLSTMCell(num_layers=self.num_layers)
-    self.rule_projection = nn.Dense(features=self.rule_vocab_size)
+    self.rule_projection = nn.Dense(features=self.grammar_info.rule_vocab_size)
     self.token_projection = nn.Dense(features=self.token_vocab_size)
     self.mlp_attention = MlpAttention(
       hidden_size=ATTENTION_SIZE, use_batch_axis=False)
-    self.action_embedding = ActionEmbed(rule_vocab_size=self.rule_vocab_size,
-                                        token_embedding=self.shared_embedding)
+    self.action_embedding = ActionEmbed(
+      rule_vocab_size=self.grammar_info.rule_vocab_size,
+      token_embedding=self.shared_embedding)
     self.node_embedding = nn.Embed(
-      num_embeddings=self.node_vocab_size,
+      num_embeddings=self.grammar_info.node_vocab_size,
       features=NODE_EMBEDDING_SIZE,
       embedding_init=nn.initializers.normal(stddev=1.0))
     self.embed_dropout = nn.Dropout(self.embed_dropout_rate)
@@ -657,10 +654,10 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     # What should I do if I have a gen token?? -- maybe a special expansion with an empty list?
     if self.train:
       idx = jnp.where(
-        action_type, action_value, jnp.array(self.rule_vocab_size))
+        action_type, action_value, jnp.array(self.grammar_info.rule_vocab_size))
     else:
       idx = jnp.where(
-        action_type, prediction_uint8, jnp.array(self.rule_vocab_size))
+        action_type, prediction_uint8, jnp.array(self.grammar_info.rule_vocab_size))
     expanded_nodes_arr, expanded_nodes_lengths = self.grammar_info.expanded_nodes
     new_nodes = (expanded_nodes_arr[idx], expanded_nodes_lengths[idx])
     new_frontier = push_elements_to_stack(frontier_nodes, new_nodes)
@@ -676,7 +673,6 @@ class SyntaxBasedDecoder(nn.Module):
   Attributes:
     shared_embedding: token embedding module.
     grammar_info: grammar information.
-    rule_vocab_size: rule vocab size.
     token_vocab_size: token vocab size.
     num_layers: number of LSTM layers.
     horizontal_dropout_rate: LSTM horizontal dropout rate.
@@ -685,9 +681,7 @@ class SyntaxBasedDecoder(nn.Module):
   """
   shared_embedding: nn.Module
   grammar_info: GrammarInfo
-  rule_vocab_size: int
   token_vocab_size: int
-  node_vocab_size: int
   num_layers: int
   horizontal_dropout_rate: float
   vertical_dropout_rate: float
@@ -728,9 +722,7 @@ class SyntaxBasedDecoder(nn.Module):
       projected_keys,
       attention_mask,
       self.grammar_info,
-      self.rule_vocab_size,
       self.token_vocab_size,
-      self.node_vocab_size,
       train,
       self.num_layers,
       h_dropout_masks,
@@ -775,9 +767,7 @@ class Seq2tree(nn.Module):
     grammar_info: Information about the grammar (like what how are the nodes
       expanded, which nodes are associated to an ApplyRule and which to a
       GenerateToken).
-    rule_vocab_size: Number of rules.
     token_vocab_size: Number of input & output tokens.
-    node_vocab_size: Number of node types.
     train: Train flag.
     emb_dim: Token embedding dimension.
     hidden_size: LSTM hidden size.
@@ -786,9 +776,7 @@ class Seq2tree(nn.Module):
     vertical_dropout_rate: LSTM vertical dropout rate (between layers).
   """
   grammar_info: GrammarInfo
-  rule_vocab_size: int
   token_vocab_size: int
-  node_vocab_size: int
   train: bool
   emb_dim: int = ACTION_EMBEDDING_SIZE
   hidden_size: int = LSTM_HIDDEN_SIZE
@@ -816,9 +804,7 @@ class Seq2tree(nn.Module):
     decoder = SyntaxBasedDecoder(
       shared_embedding=shared_embedding,
       grammar_info=self.grammar_info,
-      rule_vocab_size=self.rule_vocab_size,
       token_vocab_size=self.token_vocab_size,
-      node_vocab_size=self.node_vocab_size,
       num_layers=self.num_layers,
       horizontal_dropout_rate=self.horizontal_dropout_rate,
       vertical_dropout_rate=self.vertical_dropout_rate)

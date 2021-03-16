@@ -309,6 +309,8 @@ class ModelsTest(parameterized.TestCase):
   class FakeGrammarInfo():
 
     def __init__(self, node_vocab_size, rule_vocab_size):
+      self.node_vocab_size = node_vocab_size
+      self.rule_vocab_size = rule_vocab_size
       nodes_to_action_types = jnp.zeros((node_vocab_size))
       expanded_nodes_list = [[0] for i in range(rule_vocab_size+1)]
       expanded_nodes_arr = jnp.array(expanded_nodes_list)
@@ -345,9 +347,7 @@ class ModelsTest(parameterized.TestCase):
 
     seq2tree = models.Seq2tree(
       grammar_info=grammar_info,
-      rule_vocab_size=rule_vocab_size,
       token_vocab_size=token_vocab_size,
-      node_vocab_size=node_vocab_size,
       train=False)
     init_batch = [
       jnp.zeros((1, 1), jnp.uint8),
@@ -361,9 +361,7 @@ class ModelsTest(parameterized.TestCase):
 
     seq2tree = models.Seq2tree(
       grammar_info=grammar_info,
-      rule_vocab_size=rule_vocab_size,
       token_vocab_size=token_vocab_size,
-      node_vocab_size=node_vocab_size,
       train=True)
 
     @jax.jit
@@ -403,9 +401,7 @@ class ModelsTest(parameterized.TestCase):
 
     seq2tree = models.Seq2tree(
       grammar_info=grammar_info,
-      rule_vocab_size=rule_vocab_size,
       token_vocab_size=token_vocab_size,
-      node_vocab_size=node_vocab_size,
       train=False)
     init_batch = [
       jnp.zeros((1, 1), jnp.uint8),

@@ -67,14 +67,10 @@ def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
 
 def get_initial_params(rng: jax.random.PRNGKey,
                        grammar_info: GrammarInfo,
-                       rule_vocab_size: int,
-                       token_vocab_size: int,
-                       node_vocab_size: int):
+                       token_vocab_size: int):
   seq2seq = models.Seq2tree(
     grammar_info,
-    rule_vocab_size,
     token_vocab_size,
-    node_vocab_size,
     train = False
   )
   initial_batch = [
@@ -258,12 +254,12 @@ def get_decoder_inputs(batch: BatchType):
 # works (TODO: check to see when fix is part of a jax version).
 # @functools.partial(jax.jit, static_argnums=(...))
 @functools.partial(jax.pmap, axis_name='batch',
-                   static_broadcasted_argnums=(3, 4, 5, 6))
+                   static_broadcasted_argnums=(3, 4))
 def train_step(optimizer: Any,
                batch: BatchType,
                rng: jax.random.PRNGKey,
                grammar_info: GrammarInfo,
-               rule_vocab_size: int, token_vocab_size: int, node_vocab_size: int):
+               token_vocab_size: int):
   """Train one step."""
   step_rng = jax.random.fold_in(rng, optimizer.state.step)
 
@@ -278,7 +274,8 @@ def train_step(optimizer: Any,
     """Compute cross-entropy loss."""
     seq2tree = models.Seq2tree(
       grammar_info,
-      rule_vocab_size, token_vocab_size, node_vocab_size, train=True)
+      token_vocab_size,
+      train=True)
     nan_error, rule_logits, token_logits, predictions, _ = \
       seq2tree.apply(
         {'params': params}, 
@@ -291,7 +288,7 @@ def train_step(optimizer: Any,
                               action_types,
                               action_values,
                               queries_lengths,
-                              rule_vocab_size,
+                              grammar_info.rule_vocab_size,
                               token_vocab_size)
     return loss, (nan_error, rule_logits, token_logits, predictions)
 
@@ -308,16 +305,16 @@ def train_step(optimizer: Any,
                             action_values,
                             action_types,
                             queries_lengths,
-                            rule_vocab_size,
+                            grammar_info.rule_vocab_size,
                             token_vocab_size)
   metrics = jax.lax.pmean(metrics, axis_name='batch')
   return nan_error, optimizer, metrics
 
 
-@jax.partial(jax.jit, static_argnums=[3, 4, 5, 6, 8])
+@jax.partial(jax.jit, static_argnums=[3, 4, 6])
 def infer(params, inputs: jnp.array, inputs_lengths: jnp.array,
           grammar_info: GrammarInfo,
-          rule_vocab_size: int, token_vocab_size: int, node_vocab_size: int,
+          token_vocab_size: int,
           bos_encoding: jnp.array,
           predicted_output_length: int):
   """Apply model on inference flow and return predictions.
@@ -341,7 +338,8 @@ def infer(params, inputs: jnp.array, inputs_lengths: jnp.array,
   decoder_inputs = jnp.swapaxes(decoder_inputs, 0, 1)
   seq2tree = models.Seq2tree(
       grammar_info,
-      rule_vocab_size, token_vocab_size, node_vocab_size, train=False)
+      token_vocab_size,
+      train=False)
   _, rule_logits, token_logits, predictions, attention_weights = \
     seq2tree.apply(
       {'params': params},
@@ -382,9 +380,7 @@ def evaluate_model(params: Any,
       infer(params,
             inputs, input_lengths,
             data_source.grammar_info,
-            data_source.grammar_info.rule_vocab_size,
             data_source.tokens_vocab_size,
-            data_source.grammar_info.node_vocab_size,
             data_source.bos_idx,
             predicted_output_length)
     metrics = compute_metrics(
@@ -455,10 +451,7 @@ def train_model(learning_rate: float = None,
   initial_params = get_initial_params(
     init_rng,
     data_source.grammar_info,
-    data_source.grammar_info.rule_vocab_size,
-    data_source.tokens_vocab_size,
-    data_source.grammar_info.node_vocab_size 
-  )
+    data_source.tokens_vocab_size)
   optimizer = flax.optim.Adam(learning_rate=learning_rate).create(initial_params)
   optimizer = jax_utils.replicate(optimizer)
 
@@ -491,9 +484,7 @@ def train_model(learning_rate: float = None,
     sharded_keys = common_utils.shard_prng_key(step_key)
     nan_error, optimizer, metrics = train_step(optimizer, batch, sharded_keys,
                                     data_source.grammar_info,
-                                    data_source.grammar_info.rule_vocab_size,
-                                    data_source.tokens_vocab_size,
-                                    data_source.grammar_info.node_vocab_size)
+                                    data_source.tokens_vocab_size)
     
     train_metrics.append(metrics)
     if (step + 1) % eval_freq == 0:
