@@ -382,9 +382,9 @@ def evaluate_model(params: Any,
       infer(params,
             inputs, input_lengths,
             data_source.grammar_info,
-            data_source.rule_vocab_size,
+            data_source.grammar_info.rule_vocab_size,
             data_source.tokens_vocab_size,
-            data_source.node_vocab_size,
+            data_source.grammar_info.node_vocab_size,
             data_source.bos_idx,
             predicted_output_length)
     metrics = compute_metrics(
@@ -394,7 +394,7 @@ def evaluate_model(params: Any,
       gold_outputs,
       gold_action_types,
       queries_lengths,
-      data_source.rule_vocab_size,
+      data_source.grammar_info.rule_vocab_size,
       data_source.tokens_vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
     if no_logged_examples is not None and no_batches == 0:
@@ -455,9 +455,9 @@ def train_model(learning_rate: float = None,
   initial_params = get_initial_params(
     init_rng,
     data_source.grammar_info,
-    data_source.rule_vocab_size,
+    data_source.grammar_info.rule_vocab_size,
     data_source.tokens_vocab_size,
-    data_source.node_vocab_size 
+    data_source.grammar_info.node_vocab_size 
   )
   optimizer = flax.optim.Adam(learning_rate=learning_rate).create(initial_params)
   optimizer = jax_utils.replicate(optimizer)
@@ -491,9 +491,9 @@ def train_model(learning_rate: float = None,
     sharded_keys = common_utils.shard_prng_key(step_key)
     nan_error, optimizer, metrics = train_step(optimizer, batch, sharded_keys,
                                     data_source.grammar_info,
-                                    data_source.rule_vocab_size,
+                                    data_source.grammar_info.rule_vocab_size,
                                     data_source.tokens_vocab_size,
-                                    data_source.node_vocab_size)
+                                    data_source.grammar_info.node_vocab_size)
     
     train_metrics.append(metrics)
     if (step + 1) % eval_freq == 0:
