@@ -623,12 +623,12 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     # action_type = jnp.asarray(x[0], dtype=jnp.uint8)
     nan_error, multilayer_lstm_output, previous_action, frontier_nodes = carry
     popped_node, frontier_nodes = pop_element_from_stack(frontier_nodes)
-    node_type_x = jnp.asarray(x[2], dtype=jnp.uint8)
-    node_type = jnp.asarray(popped_node, dtype=jnp.uint8)
+    node_type = jnp.asarray(x[2], dtype=jnp.uint8)
+    # node_type = jnp.asarray(popped_node, dtype=jnp.uint8)
     # See if the generated & pre-processed nodes are equal (on train they should
     # be).
-    if self.train:
-      nan_error = jnp.where(jnp.equal(node_type,node_type_x), node_type, jnp.nan)
+    # if self.train:
+    #   nan_error = jnp.where(jnp.equal(node_type,node_type_x), node_type, jnp.nan)
     nodes_to_action_types = jnp.asarray(self.nodes_to_action_types, dtype=jnp.uint8)
     action_type = nodes_to_action_types[node_type]
     action_value = jnp.asarray(x[1], dtype=jnp.uint8)
