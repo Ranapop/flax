@@ -23,6 +23,7 @@ from flax import jax_utils
 from flax import linen as nn
 import functools
 from nodes_stack import create_empty_stack, pop_element_from_stack, push_elements_to_stack
+from grammar_info import GrammarInfo
 
 # hyperparams
 LSTM_HIDDEN_SIZE = 512
@@ -570,11 +571,7 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     encoder_hidden_states: Encoder hidden states.
     projected_keys: Attention keys passed through a dense layer.
     attention_mask: Attention masks.
-    nodes_to_action_types: A mapping from node types to action types. If the
-      node is a head in a rule, the action will be an ApplyRule, and GenToken
-      otherwise.
-    expanded_nodes: A list of lists showing how predicted branches should be
-      expanded into nodes.
+    grammar_info: Grammar information.
     rule_vocab_size: Number of rules.
     token_vocab_size: Number of tokens.
     node_vocab_size: Number of AST node types.
@@ -588,8 +585,7 @@ class SyntaxBasedDecoderLSTM(nn.Module):
   encoder_hidden_states: jnp.array
   projected_keys: jnp.array
   attention_mask: jnp.array
-  nodes_to_action_types: jnp.array
-  expanded_nodes: Tuple[jnp.array, jnp.array]
+  grammar_info: GrammarInfo
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -629,7 +625,8 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     # be).
     # if self.train:
     #   nan_error = jnp.where(jnp.equal(node_type,node_type_x), node_type, jnp.nan)
-    nodes_to_action_types = jnp.asarray(self.nodes_to_action_types, dtype=jnp.uint8)
+    nodes_to_action_types = jnp.asarray(self.grammar_info.nodes_to_action_types,
+                                        dtype=jnp.uint8)
     action_type = nodes_to_action_types[node_type]
     action_value = jnp.asarray(x[1], dtype=jnp.uint8)
     previous_states, h = multilayer_lstm_output
@@ -664,7 +661,7 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     else:
       idx = jnp.where(
         action_type, prediction_uint8, jnp.array(self.rule_vocab_size))
-    expanded_nodes_arr, expanded_nodes_lengths = self.expanded_nodes
+    expanded_nodes_arr, expanded_nodes_lengths = self.grammar_info.expanded_nodes
     new_nodes = (expanded_nodes_arr[idx], expanded_nodes_lengths[idx])
     new_frontier = push_elements_to_stack(frontier_nodes, new_nodes)
     if not self.train:
@@ -678,13 +675,7 @@ class SyntaxBasedDecoder(nn.Module):
   """LSTM syntax-based decoder.
   Attributes:
     shared_embedding: token embedding module.
-    nodes_to_action_types: A mapping from node types to action types stored as a
-      binary vector. If the node is a head in a rule, the action will be an
-      ApplyRule, and GenToken otherwise.
-    expanded_nodes: A tuple of arrays showing how predicted branches should be
-      expanded into nodes. The first array contains rule -> nodes and is
-      padded with zeroes to have a fixed size while the 2nd array contains the
-      number of nodes for each rule.
+    grammar_info: grammar information.
     rule_vocab_size: rule vocab size.
     token_vocab_size: token vocab size.
     num_layers: number of LSTM layers.
@@ -693,8 +684,7 @@ class SyntaxBasedDecoder(nn.Module):
     embed_dropout_rate: embedding dropout rate.
   """
   shared_embedding: nn.Module
-  nodes_to_action_types: jnp.array
-  expanded_nodes: Tuple[jnp.array, jnp.array]
+  grammar_info: GrammarInfo
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -737,8 +727,7 @@ class SyntaxBasedDecoder(nn.Module):
       encoder_hidden_states,
       projected_keys,
       attention_mask,
-      self.nodes_to_action_types,
-      self.expanded_nodes,
+      self.grammar_info,
       self.rule_vocab_size,
       self.token_vocab_size,
       self.node_vocab_size,
@@ -783,11 +772,9 @@ class SyntaxBasedDecoder(nn.Module):
 class Seq2tree(nn.Module):
   """Sequence-to-ast class following Yin and Neubig.
   Attributes:
-    nodes_to_action_types: A mapping from node types to action types. If the
-      node is a head in a rule, the action will be an ApplyRule, and GenToken
-      otherwise.
-    expanded_nodes: A tuple of arrays showing how predicted branches should be
-      expanded into nodes.
+    grammar_info: Information about the grammar (like what how are the nodes
+      expanded, which nodes are associated to an ApplyRule and which to a
+      GenerateToken).
     rule_vocab_size: Number of rules.
     token_vocab_size: Number of input & output tokens.
     node_vocab_size: Number of node types.
@@ -798,8 +785,7 @@ class Seq2tree(nn.Module):
     horizontal_dropout_rate: LSTM horizontal dropout rate (between steps).
     vertical_dropout_rate: LSTM vertical dropout rate (between layers).
   """
-  nodes_to_action_types: jnp.array
-  expanded_nodes: Tuple[jnp.array, jnp.array]
+  grammar_info: GrammarInfo
   rule_vocab_size: int
   token_vocab_size: int
   node_vocab_size: int
@@ -829,8 +815,7 @@ class Seq2tree(nn.Module):
       vertical_dropout_rate=self.vertical_dropout_rate)
     decoder = SyntaxBasedDecoder(
       shared_embedding=shared_embedding,
-      nodes_to_action_types = self.nodes_to_action_types,
-      expanded_nodes = self.expanded_nodes,
+      grammar_info=self.grammar_info,
       rule_vocab_size=self.rule_vocab_size,
       token_vocab_size=self.token_vocab_size,
       node_vocab_size=self.node_vocab_size,

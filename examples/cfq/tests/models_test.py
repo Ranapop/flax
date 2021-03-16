@@ -306,7 +306,17 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(
       attention_weights.shape, (batch_size, predicted_length, input_length))
 
-  
+  class FakeGrammarInfo():
+
+    def __init__(self, node_vocab_size, rule_vocab_size):
+      nodes_to_action_types = jnp.zeros((node_vocab_size))
+      expanded_nodes_list = [[0] for i in range(rule_vocab_size+1)]
+      expanded_nodes_arr = jnp.array(expanded_nodes_list)
+      expanded_lengths = jnp.zeros(rule_vocab_size+1)
+      expanded_nodes = (expanded_nodes_arr, expanded_lengths)
+      self.nodes_to_action_types = nodes_to_action_types
+      self.expanded_nodes = expanded_nodes
+
   def test_seq_2_tree_train_apply(self):
     rule_vocab_size = 10
     token_vocab_size = 100
@@ -329,17 +339,12 @@ class ModelsTest(parameterized.TestCase):
       ]
     ]
     dec_inputs = jnp.array(dec_inputs)
-    nodes_to_action_types = jnp.zeros((node_vocab_size))
-    expanded_nodes_list = [[0] for i in range(rule_vocab_size+1)]
-    expanded_nodes_arr = jnp.array(expanded_nodes_list)
-    expanded_lengths = jnp.zeros(rule_vocab_size+1)
-    expanded_nodes = (expanded_nodes_arr, expanded_lengths)
     input_length = 3
     predicted_length = 4
+    grammar_info = self.FakeGrammarInfo(node_vocab_size, rule_vocab_size)
 
     seq2tree = models.Seq2tree(
-      nodes_to_action_types=nodes_to_action_types,
-      expanded_nodes = expanded_nodes,
+      grammar_info=grammar_info,
       rule_vocab_size=rule_vocab_size,
       token_vocab_size=token_vocab_size,
       node_vocab_size=node_vocab_size,
@@ -355,8 +360,7 @@ class ModelsTest(parameterized.TestCase):
       init_batch[2])
 
     seq2tree = models.Seq2tree(
-      nodes_to_action_types=nodes_to_action_types,
-      expanded_nodes = expanded_nodes,
+      grammar_info=grammar_info,
       rule_vocab_size=rule_vocab_size,
       token_vocab_size=token_vocab_size,
       node_vocab_size=node_vocab_size,
@@ -395,16 +399,10 @@ class ModelsTest(parameterized.TestCase):
     dec_inputs = jnp.zeros((batch_size, 3, max_len), dtype=jnp.uint8)
     input_length = 3
     predicted_length = 4
-    nodes_to_action_types = jnp.zeros((node_vocab_size))
-    
-    expanded_nodes_list = [[0] for i in range(rule_vocab_size+1)]
-    expanded_nodes_arr = jnp.array(expanded_nodes_list)
-    expanded_lengths = jnp.zeros(rule_vocab_size+1)
-    expanded_nodes = (expanded_nodes_arr, expanded_lengths)
+    grammar_info = self.FakeGrammarInfo(node_vocab_size, rule_vocab_size)
 
     seq2tree = models.Seq2tree(
-      nodes_to_action_types=nodes_to_action_types,
-      expanded_nodes = expanded_nodes,
+      grammar_info=grammar_info,
       rule_vocab_size=rule_vocab_size,
       token_vocab_size=token_vocab_size,
       node_vocab_size=node_vocab_size,

@@ -28,6 +28,7 @@ import flax
 
 import input_pipeline_utils as inp_utils
 import preprocessing
+from grammar_info import GrammarInfo
 import input_pipeline_constants as inp_constants
 from input_pipeline_constants import QUESTION_KEY, QUESTION_LEN_KEY, QUERY_KEY, QUERY_LEN_KEY,\
   ACTION_TYPES_KEY, ACTION_VALUES_KEY, NODE_TYPES_KEY, PARENT_STEPS_KEY,\
@@ -275,10 +276,11 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     self.node_vocab = self.construct_vocab(node_types)
     self.node_vocab_size = len(node_types)
     self.rule_vocab_size = len(grammar.branches)
-    self.nodes_to_action_types = self.construct_nodes_to_action_types(
+    nodes_to_action_types = self.construct_nodes_to_action_types(
       node_types, node_flags)
     expanded_nodes_list = grammar.get_expanded_nodes(self.node_vocab)
-    self.expanded_nodes = self.get_expanded_nodes_array(expanded_nodes_list)
+    expanded_nodes = self.get_expanded_nodes_array(expanded_nodes_list)
+    self.grammar_info = GrammarInfo(nodes_to_action_types, expanded_nodes)
     if load_data:
       super().__init__(seed,
                        fixed_output_len,
