@@ -256,7 +256,7 @@ def get_decoder_inputs(batch: BatchType):
   return output
 
 # Jit the function instead of just pmapping it to make sure error propagation
-# works.
+# works (TODO: check to see when fix is part of a jax version).
 @functools.partial(jax.jit, static_argnums=(5,6,7))
 @functools.partial(jax.pmap, axis_name='batch',
                    static_broadcasted_argnums=(5, 6, 7))
@@ -506,7 +506,6 @@ def train_model(learning_rate: float = None,
                                     data_source.rule_vocab_size,
                                     data_source.tokens_vocab_size,
                                     data_source.node_vocab_size)
-    print(nan_error)
     
     train_metrics.append(metrics)
     if (step + 1) % eval_freq == 0:
