@@ -628,8 +628,7 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     # See if the generated & pre-processed nodes are equal (on train they should
     # be).
     if self.train:
-      # nan_error = jnp.where(jnp.equal(node_type,node_type_x), jnp.ones(1) * jnp.nan, jnp.ones(1) * jnp.nan)
-      nan_error = jnp.nan
+      nan_error = jnp.where(jnp.equal(node_type,node_type_x), node_type, jnp.nan)
     nodes_to_action_types = jnp.asarray(self.nodes_to_action_types, dtype=jnp.uint8)
     action_type = nodes_to_action_types[node_type]
     action_value = jnp.asarray(x[1], dtype=jnp.uint8)
