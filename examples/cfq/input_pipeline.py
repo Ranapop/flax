@@ -315,14 +315,14 @@ class Seq2TreeCfqDataSource(CFQDataSource):
 
   def construct_nodes_to_action_types(self,
                                       node_types: List[str],
-                                      node_flags: List[int]):
+                                      node_flags: List[int]) -> jnp.array:
     """Construct a dictionary node type idx -> action type.
 
     Args:
       node_types: list of node types.
       node_flags: flag array speciffying if a node is a rule node (1) or not (0).
     Returns:
-     dict node idx -> action type.
+     Array node idx -> action type.
     """
     nodes_to_action_types = np.zeros((len(node_types)))
     for i in range(len(node_types)):
