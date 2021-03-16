@@ -29,16 +29,16 @@ class GrammarTest(parameterized.TestCase):
       query: select_query
       select_query: select_clause "WHERE" "{" where_clause "}"
       select_clause: "SELECT" "DISTINCT" "?x0"
-                    | "SELECT" "count(*)"     
+                  | "SELECT" "count(*)"     
       where_clause: where_entry 
-                    | where_clause "." where_entry
+                  | where_clause "." where_entry
       where_entry: triples_block
-                    | filter_clause
+                | filter_clause
       filter_clause: "FILTER" "(" var_token "!=" var_token ")"
       triples_block: var_token TOKEN var_token
       var_token: VAR
-               | TOKEN 
-      VAR: "?x0" | "?x1" | "?x2" | "?x3" | "?x4" | "?x5" 
+              | TOKEN 
+      VAR: "?x0" | "?x1" | "?x2" | "?x3" | "?x4" | "?x5"
       TOKEN: /[^\s]+/
     """
     grammar = Grammar(grammar_str)
@@ -178,7 +178,8 @@ class GrammarTest(parameterized.TestCase):
       [],
       [],
       [],
-      [10]
+      [10],
+      []
     ]
     expanded_nodes = grammar.get_expanded_nodes(nodes_vocab)
     self.assertEqual(expanded_nodes, expected_expanded_nodes)
