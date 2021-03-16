@@ -259,7 +259,7 @@ def get_decoder_inputs(batch: BatchType):
 # works (TODO: check to see when fix is part of a jax version).
 # @functools.partial(jax.jit, static_argnums=(5,6,7))
 @functools.partial(jax.pmap, axis_name='batch',
-                   static_broadcasted_argnums=(5, 6, 7))
+                   static_broadcasted_argnums=(3, 4, 5, 6, 7))
 def train_step(optimizer: Any,
                batch: BatchType,
                rng: jax.random.PRNGKey,
@@ -496,13 +496,9 @@ def train_model(learning_rate: float = None,
     rng, step_key = jax.random.split(rng)
     # Shard the step PRNG key
     sharded_keys = common_utils.shard_prng_key(step_key)
-    node_to_action_types = np.repeat([data_source.nodes_to_action_types], jax.device_count(), axis=0)
-    expanded_nodes_arr = np.repeat([data_source.expanded_nodes[0]], jax.device_count(), axis=0)
-    expanded_nodes_lengths = np.repeat([data_source.expanded_nodes[1]], jax.device_count(), axis=0)
-    expanded_nodes = (expanded_nodes_arr, expanded_nodes_lengths)
     nan_error, optimizer, metrics = train_step(optimizer, batch, sharded_keys,
-                                    node_to_action_types,
-                                    expanded_nodes,
+                                    data_source.nodes_to_action_types,
+                                    data_source.expanded_nodes,
                                     data_source.rule_vocab_size,
                                     data_source.tokens_vocab_size,
                                     data_source.node_vocab_size)
