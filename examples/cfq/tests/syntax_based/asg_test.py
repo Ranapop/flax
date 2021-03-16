@@ -15,7 +15,7 @@
 # Lint as: python3
 """Module for unit tests for asg.py
 Should be run from cfq with:
-python -m syntax_based.tests.grammar_test
+python -m tests.syntax_based.grammar_test
 """
 from absl.testing import absltest
 from absl.testing import parameterized

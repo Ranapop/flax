@@ -15,12 +15,12 @@
 # Lint as: python3
 """Module with unit tests for node.py
 Should be run from cfq with:
-python -m syntax_based.tests.node_test
+python -m tests.syntax_based.node_test
 """
 from absl.testing import absltest
 from absl.testing import parameterized
-from ..node import Node, get_parent_time_steps, apply_action
-from ..grammar import RuleBranch
+from syntax_based.node import Node, get_parent_time_steps, apply_action
+from syntax_based.grammar import RuleBranch
 from collections import deque
 
 def add_child_to_parent(parent: Node, child: Node):
