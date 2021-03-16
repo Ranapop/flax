@@ -302,13 +302,15 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     lists_lengths = [len(l) for l in expanded_nodes]
     max_list_len = max(lists_lengths)
     node_expansions_array = jnp.zeros((no_lists, max_list_len), dtype=jnp.int32)
-    for i in range(no_lists):
-      l = node_expansions_array[i]
-      length = lists_lengths[i]
-      indexes = jax.ops.index[0:length]
-      node_expansions_array = jax.ops.index_update(
-        node_expansions_array, indexes, l)
     lengths_array = jnp.array(lists_lengths)
+    for i in range(no_lists):
+      current_list = expanded_nodes[i]
+      length = len(current_list)
+      current_list.reverse()
+      reversed_nodes = jnp.array(current_list)
+      indexes = jax.ops.index[i, 0:length]
+      node_expansions_array = jax.ops.index_update(
+        node_expansions_array, indexes, reversed_nodes)
     return node_expansions_array, lengths_array 
 
   def construct_nodes_to_action_types(self,
