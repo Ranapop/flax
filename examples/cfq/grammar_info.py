@@ -29,6 +29,7 @@ class GrammarInfo():
     self.node_vocab = self.construct_vocab(node_types)
     self.node_vocab_size = len(node_types)
     self.rule_vocab_size = len(grammar.branches)
+    self.grammar_entry = self.node_vocab[grammar.grammar_entry]
     self.nodes_to_action_types = self.construct_nodes_to_action_types(
       node_types, node_flags)
     expanded_nodes_list = grammar.get_expanded_nodes(self.node_vocab)

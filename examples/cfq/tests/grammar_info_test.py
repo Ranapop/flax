@@ -42,10 +42,12 @@ class GrammarInfoTest(parameterized.TestCase):
     expected_nodes_to_action_types = [
       0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1.
     ]
+    expected_grammar_entry = 0
     expected_nodes_to_action_types = jnp.array(expected_nodes_to_action_types)
     self.assertEqual(grammar_info.node_vocab, expected_node_vocab)
     self.assertTrue(jnp.array_equal(grammar_info.nodes_to_action_types,
                                     expected_nodes_to_action_types))
+    self.assertEqual(grammar_info.grammar_entry, expected_grammar_entry)
 
   def test_get_expanded_nodes_array(self):
     grammar_str = """
