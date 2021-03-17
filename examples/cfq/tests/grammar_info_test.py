@@ -73,7 +73,7 @@ class GrammarInfoTest(parameterized.TestCase):
     """
     grammar = Grammar(grammar_str)
     grammar_info = GrammarInfo(grammar)
-    expected_expanded_nodes_list = [
+    expanded_nodes_list = [
       [1],
       [2, 3],
       [],
@@ -96,7 +96,7 @@ class GrammarInfoTest(parameterized.TestCase):
       []
     ]
     node_expansions, lengths = grammar_info.get_expanded_nodes_array(
-      expected_expanded_nodes_list)
+      expanded_nodes_list)
     expected_expanded_nodes = [
       [1, 0, 0],
       [3, 2, 0],
