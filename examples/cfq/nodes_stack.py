@@ -5,15 +5,16 @@ from grammar_info import GrammarInfo
 
 def create_empty_stack(stack_capacity):
   stack_array = jnp.zeros((stack_capacity), dtype=jnp.int32)
-  stack_pointer = 0
+  stack_pointer = jnp.array(0, dtype=jnp.int32)
   return (stack_array, stack_pointer)
 
 def push_to_stack(stack: Tuple[jnp.array, int], element: int):
   stack_array, stack_pointer = stack
   stack_capacity = stack_array.shape[0]
-  assert stack_pointer + 1 <= stack_capacity
+  #TODO: error handling with nans.
+  # assert stack_pointer + 1 <= stack_capacity
   stack_array = jax.ops.index_update(stack_array, stack_pointer, element)
-  stack_pointer += 1
+  stack_pointer += jnp.array(1, dtype=jnp.int32)
   return (stack_array, stack_pointer)
 
 def push_elements_to_stack(stack: Tuple[jnp.array, int],
@@ -24,7 +25,7 @@ def push_elements_to_stack(stack: Tuple[jnp.array, int],
   stack_capacity = stack_array.shape[0]
   stack_array = jax.lax.dynamic_update_slice(
     stack_array, elements_array, [stack_pointer])
-  stack_pointer += no_elements
+  stack_pointer += jnp.array(no_elements, dtype=jnp.int32)
   return (stack_array, stack_pointer)
 
 def pop_element_from_stack(stack: Tuple[jnp.array, int]):
@@ -33,9 +34,10 @@ def pop_element_from_stack(stack: Tuple[jnp.array, int]):
   zero (as this is what the sequence would have been padded it while training).
   """
   stack_array, stack_pointer = stack
+  stack_top = stack_array[stack_pointer-1]
   popped_element = jnp.where(stack_pointer <= 0,
                              jnp.array(0),
-                             stack_array[stack_pointer-1])
+                             stack_top)
   stack_pointer -= 1
   new_stack = (stack_array, stack_pointer)
   return popped_element, new_stack

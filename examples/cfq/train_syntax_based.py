@@ -74,16 +74,8 @@ def get_initial_params(rng: jax.random.PRNGKey,
     train = False
   )
   initial_batch = [
-          jnp.array((1, 1), jnp.uint8),
-          #decoder_inputs
-          # need to pass 2 for decoder length
-          # as the first token is cut off
-          jnp.array((1, 2), jnp.uint8),
-          jnp.array((1,), jnp.uint8)
-      ]
-  initial_batch = [
     jnp.zeros((1, 1), jnp.uint8),
-    jnp.zeros((1, 3, 1), jnp.uint8),
+    jnp.zeros((1, 1, 1), jnp.uint8),
     jnp.ones((1,), jnp.uint8)
   ]
   initial_params = seq2seq.init(rng,

@@ -353,7 +353,7 @@ class ModelsTest(parameterized.TestCase):
       train=False)
     init_batch = [
       jnp.zeros((1, 1), jnp.uint8),
-      jnp.zeros((1, 3, 1), jnp.uint8),
+      jnp.zeros((1, 1, 1), jnp.uint8),
       jnp.ones((1,), jnp.uint8)
     ]
     initial_params = seq2tree.init(random.PRNGKey(0),
@@ -407,7 +407,7 @@ class ModelsTest(parameterized.TestCase):
       train=False)
     init_batch = [
       jnp.zeros((1, 1), jnp.uint8),
-      jnp.zeros((1, 3, 1), jnp.uint8),
+      jnp.zeros((1, 1, 1), jnp.uint8),
       jnp.ones((1,), jnp.uint8)
     ]
     initial_params = seq2tree.init(random.PRNGKey(0),
