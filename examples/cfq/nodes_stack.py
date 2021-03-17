@@ -1,6 +1,7 @@
 from typing import Tuple, List
 import jax
 import jax.numpy as jnp
+from grammar_info import GrammarInfo
 
 def create_empty_stack(stack_capacity):
   stack_array = jnp.zeros((stack_capacity), dtype=jnp.int32)
@@ -38,3 +39,15 @@ def pop_element_from_stack(stack: Tuple[jnp.array, int]):
   stack_pointer -= 1
   new_stack = (stack_array, stack_pointer)
   return popped_element, new_stack
+
+def apply_action_to_stack(stack: Tuple[jnp.array, int],
+                          action: Tuple[jnp.array, jnp.array],
+                          grammar_info: GrammarInfo):
+  action_type, action_value = action
+  # ApplyRule -> 0, GenToken -> 1.
+  idx = jnp.where(
+      action_type, jnp.array(grammar_info.rule_vocab_size), action_value)
+  expanded_nodes_arr, expanded_nodes_lengths = grammar_info.expanded_nodes
+  new_nodes = (expanded_nodes_arr[idx], expanded_nodes_lengths[idx])
+  new_stack = push_elements_to_stack(stack, new_nodes)
+  return new_stack
