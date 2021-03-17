@@ -35,6 +35,7 @@ class GrammarInfo():
       node_types, node_flags)
     expanded_nodes_list = grammar.get_expanded_nodes(self.node_vocab)
     self.expanded_nodes = self.get_expanded_nodes_array(expanded_nodes_list)
+    self.max_node_expansion = self.expanded_nodes[0].shape[1]
 
   def construct_vocab(self, items_list: List[str]):
     """Constructs vocabulary from list (word -> index). Assumes list contains no

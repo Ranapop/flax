@@ -318,6 +318,8 @@ class ModelsTest(parameterized.TestCase):
       expanded_nodes = (expanded_nodes_arr, expanded_lengths)
       self.nodes_to_action_types = nodes_to_action_types
       self.expanded_nodes = expanded_nodes
+      self.max_node_expansion = 3
+      self.grammar_entry = 0
 
   def test_seq_2_tree_train_apply(self):
     rule_vocab_size = 10

@@ -252,7 +252,7 @@ def get_decoder_inputs(batch: BatchType):
 
 # Jit the function instead of just pmapping it to make sure error propagation
 # works (TODO: check to see when fix is part of a jax version).
-# @functools.partial(jax.jit, static_argnums=(...))
+# @functools.partial(jax.jit, static_argnums=(3, 4))
 @functools.partial(jax.pmap, axis_name='batch',
                    static_broadcasted_argnums=(3, 4))
 def train_step(optimizer: Any,
