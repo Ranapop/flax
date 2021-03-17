@@ -15,6 +15,7 @@ class GrammarInfo():
     node_vocab: Dict of node (str) -> index.
     node_vocab_size: No of nodes.
     rule_vocab_size: No of rules.
+    grammar_entry: grammar entry node (index).
     nodes_to_action_types: A mapping from node types to action types stored as a
       binary vector. If the node is a head in a rule, the action will be an
       ApplyRule, and GenToken otherwise.
