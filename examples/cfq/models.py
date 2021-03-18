@@ -616,13 +616,11 @@ class SyntaxBasedDecoderLSTM(nn.Module):
   def __call__(self, carry, x):
     # action_type = jnp.asarray(x[0], dtype=jnp.uint8)
     nan_error, multilayer_lstm_output, previous_action, frontier_nodes = carry
-    popped_node, frontier_nodes = pop_element_from_stack(frontier_nodes)
-    node_type_x = jnp.asarray(x[2], dtype=jnp.uint8)
-    node_type = jnp.asarray(popped_node, dtype=jnp.uint8)
-    # See if the generated & pre-processed nodes are equal (on train they should
-    # be).
     if self.train:
-      nan_error = jnp.where(jnp.equal(node_type,node_type_x), node_type, jnp.nan)
+      node_type = jnp.asarray(x[2], dtype=jnp.uint8)
+    else:
+      popped_node, frontier_nodes = pop_element_from_stack(frontier_nodes)
+      node_type = jnp.asarray(popped_node, dtype=jnp.uint8)
     nodes_to_action_types = jnp.asarray(self.grammar_info.nodes_to_action_types,
                                         dtype=jnp.uint8)
     action_type = nodes_to_action_types[node_type]
@@ -655,9 +653,10 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     if not self.train:
       action_value = prediction_uint8
     current_action = (action_type, action_value)
-    new_frontier = apply_action_to_stack(
-      frontier_nodes, current_action, self.grammar_info)
-    new_carry = (nan_error, (jnp.array(states), h), current_action, new_frontier)
+    if not self.train:
+      frontier_nodes = apply_action_to_stack(
+        frontier_nodes, current_action, self.grammar_info)
+    new_carry = (nan_error, (jnp.array(states), h), current_action, frontier_nodes)
     accumulator = (rule_logits, token_logits, prediction_uint8, scores)
     return new_carry, accumulator
 
@@ -729,9 +728,12 @@ class SyntaxBasedDecoder(nn.Module):
     initial_action = (jnp.array(2, dtype=jnp.uint8), jnp.array(0, dtype=jnp.uint8))
     multilayer_lstm_output = (init_states, init_states[-1, 1, :])
     out_seq_len = inputs.shape[1]
-    initial_stack = create_empty_stack(
-      out_seq_len * self.grammar_info.max_node_expansion)
-    initial_stack = push_to_stack(initial_stack, self.grammar_info.grammar_entry)
+    if train:
+      initial_stack = None
+    else:
+      initial_stack = create_empty_stack(
+        out_seq_len * self.grammar_info.max_node_expansion)
+      initial_stack = push_to_stack(initial_stack, self.grammar_info.grammar_entry)
 
     nan_error = 0.
     init_carry = (nan_error, multilayer_lstm_output, initial_action, initial_stack)
