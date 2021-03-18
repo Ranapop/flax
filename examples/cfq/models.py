@@ -615,11 +615,13 @@ class SyntaxBasedDecoderLSTM(nn.Module):
       out_axes = 0)
   def __call__(self, carry, x):
     # action_type = jnp.asarray(x[0], dtype=jnp.uint8)
-    nan_error, multilayer_lstm_output, previous_action, frontier_nodes = carry
+    nan_error,\
+      multilayer_lstm_output, previous_action, frontier_nodes, step = carry
     if self.train:
       node_type = jnp.asarray(x[2], dtype=jnp.uint8)
     else:
-      popped_node, frontier_nodes = pop_element_from_stack(frontier_nodes)
+      popped_element, frontier_nodes = pop_element_from_stack(frontier_nodes)
+      popped_node, parent_step = popped_element
       node_type = jnp.asarray(popped_node, dtype=jnp.uint8)
     nodes_to_action_types = jnp.asarray(self.grammar_info.nodes_to_action_types,
                                         dtype=jnp.uint8)
@@ -655,8 +657,11 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     current_action = (action_type, action_value)
     if not self.train:
       frontier_nodes = apply_action_to_stack(
-        frontier_nodes, current_action, self.grammar_info)
-    new_carry = (nan_error, (jnp.array(states), h), current_action, frontier_nodes)
+        frontier_nodes, current_action, 0, self.grammar_info)
+    new_carry = (nan_error,\
+                 (jnp.array(states), h),\
+                 current_action,\
+                 frontier_nodes, step + 1)
     accumulator = (rule_logits, token_logits, prediction_uint8, scores)
     return new_carry, accumulator
 
@@ -733,17 +738,20 @@ class SyntaxBasedDecoder(nn.Module):
     else:
       initial_stack = create_empty_stack(
         out_seq_len * self.grammar_info.max_node_expansion)
-      initial_stack = push_to_stack(initial_stack, self.grammar_info.grammar_entry)
+      first_element = jnp.array([self.grammar_info.grammar_entry, -1])
+      initial_stack = push_to_stack(initial_stack, first_element)
 
     nan_error = 0.
-    init_carry = (nan_error, multilayer_lstm_output, initial_action, initial_stack)
+    step = 0
+    init_carry = (
+      nan_error, multilayer_lstm_output, initial_action, initial_stack, step)
 
     # Go from [2, out_seq_len] -> [out_seq_len, 2].
     scan_inputs = jnp.swapaxes(inputs, 0, 1)
 
     final_carry, (rule_logits, token_logits, predictions, scores) = decoder_lstm(
         init_carry, scan_inputs)
-    nan_error, _, _, _ = final_carry
+    nan_error, _, _, _, _ = final_carry
 
     # The attention weights are only examined on the evaluation flow, so this
     # if is used to avoid unnecesary operations.

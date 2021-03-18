@@ -34,9 +34,9 @@ class NodesStackTest(parameterized.TestCase):
   #TODO: Add error propagation with nans and fix this test.
   def test_push_to_full_stack(self):
 
-    stack_array = jnp.array([1, 2, 3, 4, 5, 6])
+    stack_array = jnp.array([[1,0], [2,1], [3,2], [4,3], [5,3], [6,3]])
     stack_pointer = 6
-    new_element = 7
+    new_element = jnp.array([7,4])
     error = None
     try:
       new_stack = push_to_stack((stack_array, stack_pointer), new_element)
@@ -46,13 +46,14 @@ class NodesStackTest(parameterized.TestCase):
 
   def test_push_elements_to_stack(self):
 
-    stack_array = jnp.array([1, 2, 3, 0, 0, 0])
+    stack_array = jnp.array([[1,0], [2,1], [3,2], [0,0], [0,0], [0,0]])
     stack_pointer = 3
-    new_elements_arr = jnp.array([4, 5, 0])
+    new_elements_arr = jnp.array([[4,3], [5,3], [6,3]])
     new_elements_length = jnp.array(2)
     new_elements = (new_elements_arr, new_elements_length)
     new_stack = push_elements_to_stack((stack_array, stack_pointer), new_elements)
-    expected_stack_array = jnp.array([1, 2, 3, 4, 5, 0])
+    expected_stack_array = jnp.array(
+      [[1,0], [2,1], [3,2], [4,3], [5,3], [6,3]])
     expected_stack_pointer = 5
     self.assertEqual(jnp.array_equal(new_stack[0], expected_stack_array), True)
     self.assertEqual(new_stack[1], expected_stack_pointer)
@@ -145,162 +146,195 @@ class NodesStackTest(parameterized.TestCase):
     
     # Initial stack: grammar_entry
     frontier = create_empty_stack(action_seq_len * max_node_expansion_size)
-    frontier = push_to_stack(frontier, grammar_info.grammar_entry)
-    expected_frontier_list = [0 for i in range(3 * action_seq_len)]
-    expected_frontier_list[0] = 0 # grammar entry.
+    initial_element = jnp.array([grammar_info.grammar_entry, -1])
+    frontier = push_to_stack(frontier, initial_element)
+    expected_frontier_list = [[0,0] for i in range(3 * action_seq_len)]
+    expected_frontier_list[0] = [0, -1] # grammar entry.
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(1)))
 
     # Step 0: ApplyRule query -> select_query
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(0) # 'query'
+    expected_node = jnp.array([0, -1]) # 'query'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[0], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[0], 0, grammar_info)
     # expected_frontier_nodes = ['select_query'] -> [1]
-    expected_frontier_list[0] = 1 # select_query
+    expected_frontier_list[0] = [1, 0] # select_query
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(1)))
 
     # Step 1: ApplyRule select_query -> select_clause "WHERE" "{" where_clause "}"
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(1) # 'select_query'
+    expected_node = jnp.array([1, 0]) # 'select_query'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[1], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[1], 1, grammar_info)
     # expected_frontier_nodes = ['where_clause', 'select_clause'] -> [3, 2]
-    expected_frontier_list[0] = 3 # where_clause
-    expected_frontier_list[1] = 2 # select_clause
+    expected_frontier_list[0] = [3, 1] # where_clause
+    expected_frontier_list[1] = [2, 1] # select_clause
+    expected_frontier_list[2] = [0, 1] # time step 1
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(2)))
 
     # Step 2: ApplyRule select_clause -> "SELECT" "DISTINCT" "?x0"
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(2) # 'select_clause'
+    expected_node = jnp.array([2, 1]) # 'select_clause'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[2], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[2], 2, grammar_info)
     # expected_frontier_nodes = ['where_clause'] -> [3]
-    expected_frontier_list[0] = 3 # where_clause
-    expected_frontier_list[1] = 0 # no element
+    expected_frontier_list[0] = [3, 1] # where_clause
+    expected_frontier_list[1] = [0, 2] # time step 2
+    expected_frontier_list[2] = [0, 2] # time step 2
+    expected_frontier_list[3] = [0, 2] # time step 2
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(1)))
 
     # Step 3: ApplyRule where_clause -> where_entry
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(3) # 'where_clause'
+    expected_node = jnp.array([3, 1]) # 'where_clause'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[3], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[3], 3, grammar_info)
     # expected_frontier_nodes = ['where_entry'] -> [4]
-    expected_frontier_list[0] = 4 # where_entry
+    expected_frontier_list[0] = [4, 3] # where_entry
+    expected_frontier_list[1] = [0, 3] # time step 3
+    expected_frontier_list[2] = [0, 3] # time step 3
+    expected_frontier_list[3] = [0, 2] # time step 2 (leftover)
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(1)))
 
     # Step 4: ApplyRule where_entry -> triples_block
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(4) # 'where_entry'
+    expected_node = jnp.array([4, 3]) # 'where_entry'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[4], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[4], 4, grammar_info)
     # expected_frontier_nodes = ['triples_block'] -> [5]
-    expected_frontier_list[0] = 5 # triples_block
+    expected_frontier_list[0] = [5, 4] # triples_block
+    expected_frontier_list[1] = [0, 4] # time step 4
+    expected_frontier_list[2] = [0, 4] # time step 4
+    expected_frontier_list[3] = [0, 2] # time step 2 (leftover)
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(1)))
 
     # Step 5: ApplyRule triples_block -> var_token TOKEN var_token
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(5) # 'triples_block'
+    expected_node = jnp.array([5, 4]) # 'triples_block'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[5], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[5], 5, grammar_info)
     # expected_frontier_nodes = ['var_token', 'TOKEN', 'var_token'] -> [7, 8, 7]
-    expected_frontier_list[0] = 7 # var_token
-    expected_frontier_list[1] = 8 # TOKEN
-    expected_frontier_list[2] = 7 # var_token
+    expected_frontier_list[0] = [7, 5] # var_token
+    expected_frontier_list[1] = [8, 5] # TOKEN
+    expected_frontier_list[2] = [7, 5] # var_token
+    expected_frontier_list[3] = [0, 2] # time step 2 (leftover)
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(3)))
 
     # Step 6: ApplyRule var_token -> VAR
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(7) # 'var_token'
+    expected_node = jnp.array([7, 5]) # 'var_token'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[6], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[6], 6, grammar_info)
     # expected_frontier_nodes = ['var_token', 'TOKEN', VAR] -> [7, 8, 9]
-    expected_frontier_list[0] = 7 # var_token
-    expected_frontier_list[1] = 8 # TOKEN
-    expected_frontier_list[2] = 9 # VAR
+    expected_frontier_list[0] = [7, 5] # var_token
+    expected_frontier_list[1] = [8, 5] # TOKEN
+    expected_frontier_list[2] = [9, 6] # VAR
+    expected_frontier_list[3] = [0, 6] # time step 6
+    expected_frontier_list[4] = [0, 6] # time step 6
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(3)))
 
     # Step 7: ApplyRule VAR -> "?x0"
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(9) # 'VAR'
+    expected_node = jnp.array([9, 6]) # 'VAR'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[7], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[7], 7, grammar_info)
     # expected_frontier_nodes = ['var_token', 'TOKEN'] -> [7, 8]
-    expected_frontier_list[0] = 7 # var_token
-    expected_frontier_list[1] = 8 # TOKEN
-    expected_frontier_list[2] = 0 # no element
+    expected_frontier_list[0] = [7, 5] # var_token
+    expected_frontier_list[1] = [8, 5] # TOKEN
+    expected_frontier_list[2] = [0, 7] # time step 7
+    expected_frontier_list[3] = [0, 7] # time step 7
+    expected_frontier_list[4] = [0, 7] # time step 7
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(2)))
 
     # Step 8: ApplyRule TOKEN -> /[^\s]+/
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(8) # 'TOKEN'
+    expected_node = jnp.array([8, 5]) # 'TOKEN'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[8], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[8], 8, grammar_info)
     # expected_frontier_nodes = ['var_token', '[^\s]+'] -> [7, 10]
-    expected_frontier_list[0] = 7 # var_token
-    expected_frontier_list[1] = 10 # [^\s]+
+    expected_frontier_list[0] = [7, 5] # var_token
+    expected_frontier_list[1] = [10, 8] # [^\s]+
+    expected_frontier_list[2] = [0, 8] # time step 8
+    expected_frontier_list[3] = [0, 8] # time step 8
+    expected_frontier_list[4] = [0, 7] # time step 7 (leftover)
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(2)))
 
     # Step 9: GenerateToken 'a'
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(10) # '[^\s]+'
+    expected_node = jnp.array([10, 8]) # '[^\s]+'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[9], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[9], 9, grammar_info)
     # expected_frontier_nodes = ['var_token'] -> [7]
-    expected_frontier_list[0] = 7 # var_token
-    expected_frontier_list[1] = 0 # no element
+    expected_frontier_list[0] = [7, 5] # var_token
+    expected_frontier_list[1] = [0, 9] # time step 9
+    expected_frontier_list[2] = [0, 9] # time step 9
+    expected_frontier_list[3] = [0, 9] # time step 9
+    expected_frontier_list[4] = [0, 7] # time step 7 (leftover)
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(1)))
 
     # Step 10: ApplyRule var_token -> TOKEN
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(7) # 'var_token'
+    expected_node = jnp.array([7, 5]) # 'var_token'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[10], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[10], 10, grammar_info)
     # expected_frontier_nodes = ['TOKEN'] -> [8]
-    expected_frontier_list[0] = 8 # TOKEN
+    expected_frontier_list[0] = [8, 10] # TOKEN
+    expected_frontier_list[1] = [0, 10] # time step 10
+    expected_frontier_list[2] = [0, 10] # time step 10
+    expected_frontier_list[3] = [0, 9] # time step 9 (leftover)
+    expected_frontier_list[4] = [0, 7] # time step 7 (leftover)
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(1)))
 
     # Step 11: ApplyRule TOKEN -> /[^\s]+/
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(8) # 'TOKEN'
+    expected_node = jnp.array([8, 10]) # 'TOKEN'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[11], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[11], 11, grammar_info)
     # expected_frontier_nodes = ['[^\s]+'] -> [10]
-    expected_frontier_list[0] = 10 # [^\s]+
+    expected_frontier_list[0] = [10, 11] # '[^\s]+'
+    expected_frontier_list[1] = [0, 11] # time step 11
+    expected_frontier_list[2] = [0, 11] # time step 11
+    expected_frontier_list[3] = [0, 9] # time step 9 (leftover)
+    expected_frontier_list[4] = [0, 7] # time step 7 (leftover)
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(1)))
 
     # Step 12: GenerateToken 'people.person'
     current_node, frontier = pop_element_from_stack(frontier)
-    expected_node = jnp.array(10) # '[^\s]+'
+    expected_node = jnp.array([10, 11]) # '[^\s]+'
     self.assertTrue(jnp.array_equal(current_node, expected_node))
-    frontier = apply_action_to_stack(frontier, actions[12], grammar_info)
+    frontier = apply_action_to_stack(frontier, actions[12], 12, grammar_info)
     # expected_frontier_nodes = [] -> []
-    expected_frontier_list[0] = 0 # no element
+    expected_frontier_list[0] = [0, 12] # time step 12
+    expected_frontier_list[1] = [0, 12] # time step 12
+    expected_frontier_list[2] = [0, 12] # time step 12
+    expected_frontier_list[3] = [0, 9] # time step 9 (leftover)
+    expected_frontier_list[4] = [0, 7] # time step 7 (leftover)
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(0)))
