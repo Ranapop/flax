@@ -16,6 +16,8 @@
 """Module for training/evaluation (metrics, loss, train, evaluate)"""
 
 import os
+import time
+import datetime
 import shutil
 from typing import Any, Text, Dict, TextIO, List, Tuple
 from absl import logging
@@ -420,9 +422,10 @@ def train_model(learning_rate: float = None,
                 eval_freq: float = None):
   """ Train model for num_train_steps.
 
-    Do the training on data_source.train_dataset and evaluate on
-    data_source.dev_dataset every few steps and log the results.
-    """
+  Do the training on data_source.train_dataset and evaluate on
+  data_source.dev_dataset every few steps and log the results.
+  """
+  start_time = time.time()
   if os.path.isdir(model_dir):
     # If attemptying to save in a directory where the model was saved before,
     # first remove the directory with its contents. This is done mostly
@@ -494,7 +497,9 @@ def train_model(learning_rate: float = None,
       log(step, train_summary, dev_metrics)
       save_to_tensorboard(train_summary_writer, train_summary, step)
       save_to_tensorboard(eval_summary_writer, dev_metrics, step)
-  logging.info('Done training')
+  end_time = time.time()
+  time_passed = datetime.timedelta(seconds=end_time - start_time) 
+  logging.info('Done training. Training took {}'.format(time_passed))
 
   logging.info('Saving model at %s', model_dir)
   checkpoints.save_checkpoint(model_dir, optimizer, num_train_steps)
