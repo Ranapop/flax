@@ -361,6 +361,7 @@ class DecoderLSTM(nn.Module):
       context_and_state, deterministic=not self.train)
     attention = jnp.tanh(self.attention_layer(context_and_state))
     logits = self.projection(attention)
+    #TODO: softmax before.
     predicted_tokens = jnp.argmax(logits, axis=-1)
     predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
     new_carry = (states, predicted_tokens_uint8, attention)
