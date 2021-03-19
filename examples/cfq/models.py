@@ -645,10 +645,16 @@ class SyntaxBasedDecoderLSTM(nn.Module):
       input=lstm_input,
       previous_states=previous_states,
       train=self.train)
-    rule_logits = self.rule_projection(h)
-    token_logits = self.token_projection(h)
+    # Rule logits are the projection when the action type is 0 (ApplyRule).
+    rule_logits = jnp.where(action_type,
+                            jnp.full(self.grammar_info.rule_vocab_size, -jnp.inf),
+                            self.rule_projection(h))
+    # Token logits are the projection when the action type is 1 (GenerateToken).
+    token_logits = jnp.where(action_type,
+                             self.token_projection(h),
+                             jnp.full(self.token_vocab_size, -jnp.inf))
     predicted_rules = jnp.argmax(nn.softmax(rule_logits, axis=-1), axis=-1)
-    predicted_tokens = jnp.argmax(jnp.softmax(token_logits, axis=-1), axis=-1)
+    predicted_tokens = jnp.argmax(nn.softmax(token_logits, axis=-1), axis=-1)
     prediction = jnp.where(action_type, predicted_tokens, predicted_rules)
     prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
     if not self.train:
