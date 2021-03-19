@@ -36,6 +36,7 @@ class GrammarInfo():
     expanded_nodes_list = grammar.get_expanded_nodes(self.node_vocab)
     self.expanded_nodes = self.get_expanded_nodes_array(expanded_nodes_list)
     self.max_node_expansion = self.expanded_nodes[0].shape[1]
+    self.valid_rules_by_nodes = self.get_valid_rules_by_nodes(grammar)
 
   def construct_vocab(self, items_list: List[str]):
     """Constructs vocabulary from list (word -> index). Assumes list contains no
@@ -92,4 +93,20 @@ class GrammarInfo():
       indexes = jax.ops.index[i, 0:length]
       node_expansions_array = jax.ops.index_update(
         node_expansions_array, indexes, reversed_nodes)
-    return node_expansions_array, lengths_array 
+    return node_expansions_array, lengths_array
+
+  def get_valid_rules_by_nodes(self, grammar: Grammar):
+    mask_shape = (self.node_vocab_size, self.rule_vocab_size)
+    mask = jnp.zeros(mask_shape, dtype=bool)
+    for node, node_idx in self.node_vocab.items():
+      if node in grammar.rules.keys():
+        # Get the valid branches.
+        valid_rules = grammar.rules[node]
+        for r in valid_rules:
+          branch = grammar.branches[r]
+          branch_id = branch.branch_id
+          mask = jax.ops.index_update(mask,
+                                      jax.ops.index[node_idx, branch_id],
+                                      True)
+    return mask
+    

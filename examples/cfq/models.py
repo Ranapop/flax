@@ -646,9 +646,13 @@ class SyntaxBasedDecoderLSTM(nn.Module):
       previous_states=previous_states,
       train=self.train)
     # Rule logits are the projection when the action type is 0 (ApplyRule).
+    neg_inf_rule_logits = jnp.full(self.grammar_info.rule_vocab_size, -jnp.inf)
     rule_logits = jnp.where(action_type,
-                            jnp.full(self.grammar_info.rule_vocab_size, -jnp.inf),
+                            neg_inf_rule_logits,
                             self.rule_projection(h))
+    # Only predict valid rules.
+    valid_rules = self.grammar_info.valid_rules_by_nodes[node_type]
+    rule_logits = jnp.where(valid_rules, rule_logits, neg_inf_rule_logits)
     # Token logits are the projection when the action type is 1 (GenerateToken).
     token_logits = jnp.where(action_type,
                              self.token_projection(h),

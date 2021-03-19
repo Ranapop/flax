@@ -316,10 +316,13 @@ class ModelsTest(parameterized.TestCase):
       expanded_nodes_arr = jnp.array(expanded_nodes_list)
       expanded_lengths = jnp.zeros(rule_vocab_size+1)
       expanded_nodes = (expanded_nodes_arr, expanded_lengths)
+      valid_rules_by_nodes = jnp.ones(
+        (node_vocab_size, rule_vocab_size), dtype=bool)
       self.nodes_to_action_types = nodes_to_action_types
       self.expanded_nodes = expanded_nodes
       self.max_node_expansion = 3
       self.grammar_entry = 0
+      self.valid_rules_by_nodes = valid_rules_by_nodes
 
   def test_seq_2_tree_train_apply(self):
     rule_vocab_size = 10

@@ -43,10 +43,52 @@ class GrammarInfoTest(parameterized.TestCase):
       0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1.
     ]
     expected_grammar_entry = 0
+    expected_valid_rules_by_nodes = [
+      # query: select_query 0 -> [0]
+      [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      # select_query: select_clause "WHERE" "{" where_clause "}" => 1 -> [1]
+      [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      # select_clause: "SELECT" "DISTINCT" "?x0"
+      #              | "SELECT" "count(*)"  
+      # => 2 -> [2, 3]
+      [0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      # where_clause: where_entry 
+      #             | where_clause "." where_entry
+      # => 3 -> [4, 5]
+      [0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      # where_entry: triples_block
+      #            | filter_clause
+      # => 4 -> [6, 7]
+      [0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      # triples_block: var_token TOKEN var_token => 5 -> [9]
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      # filter_clause: "FILTER" "(" var_token "!=" var_token ")" => 6 -> [8]
+      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      # var_token: VAR
+      #          | TOKEN 
+      # => 7 -> [10, 11]
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+      # TOKEN: /[^\s]+/ => 8 -> [18]
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+      # VAR: "?x0" 
+      #    | "?x1" 
+      #    | "?x2" 
+      #    | "?x3" 
+      #    | "?x4" 
+      #    | "?x5" 
+      # => 9 -> [12, 13, 14, 15, 16, 17]
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0],
+      # /[^\s]+/ -> [] => 10 -> []
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ]
+    expected_valid_rules_by_nodes = jnp.array(
+      expected_valid_rules_by_nodes, dtype=bool)
     expected_nodes_to_action_types = jnp.array(expected_nodes_to_action_types)
     self.assertEqual(grammar_info.node_vocab, expected_node_vocab)
     self.assertTrue(jnp.array_equal(grammar_info.nodes_to_action_types,
                                     expected_nodes_to_action_types))
+    self.assertTrue(jnp.array_equal(grammar_info.valid_rules_by_nodes,
+                                    expected_valid_rules_by_nodes))
     self.assertEqual(grammar_info.grammar_entry, expected_grammar_entry)
 
   def test_get_expanded_nodes_array(self):
