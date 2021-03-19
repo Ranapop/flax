@@ -333,13 +333,15 @@ class ModelsTest(parameterized.TestCase):
       [
         [0, 0, 1, 0], # action types
         [2, 3, 10, 0], # action_values
-        [1, 12, 1, 0] # node types
+        [1, 12, 1, 0], # node types
+        [-1, 0, 0, 2] # parent steps
       ],
       # example 2
       [
         [0, 1, 1, 0], # action types
         [5, 7, 13, 0], # action_values
-        [2, 7, 3, 5] # node types
+        [2, 7, 3, 5], # node types
+        [-1, 0, 0, 2] # parent steps
       ]
     ]
     dec_inputs = jnp.array(dec_inputs)
