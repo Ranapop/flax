@@ -646,8 +646,8 @@ class SyntaxBasedDecoderLSTM(nn.Module):
       train=self.train)
     rule_logits = self.rule_projection(h)
     token_logits = self.token_projection(h)
-    predicted_rules = jnp.argmax(rule_logits, axis=-1)
-    predicted_tokens = jnp.argmax(token_logits, axis=-1)
+    predicted_rules = jnp.argmax(nn.softmax(rule_logits, axis=-1), axis=-1)
+    predicted_tokens = jnp.argmax(jnp.softmax(token_logits, axis=-1), axis=-1)
     prediction = jnp.where(action_type, predicted_tokens, predicted_rules)
     prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
     if not self.train:
