@@ -375,8 +375,7 @@ class ModelsTest(parameterized.TestCase):
       rule_logits,\
       token_logits,\
       pred_act_types, pred_act_values,\
-      attention_weights,\
-      predicted_out_len = seq2tree.apply(
+      attention_weights = seq2tree.apply(
         {'params': initial_params['params']},
         encoder_inputs=enc_inputs,
         decoder_inputs=dec_inputs,
@@ -389,7 +388,6 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(pred_act_types.shape, (batch_size, predicted_length))
       self.assertEqual(pred_act_values.shape, (batch_size, predicted_length))
       self.assertEqual(attention_weights, None)
-      self.assertEqual(predicted_out_len, None)
       return nan_error
 
     nan_error = apply_model()
@@ -425,8 +423,7 @@ class ModelsTest(parameterized.TestCase):
     rule_logits,\
     token_logits,\
     pred_act_types, pred_act_values,\
-    attention_weights,\
-    predicted_out_len = seq2tree.apply(
+    attention_weights = seq2tree.apply(
       {'params': initial_params['params']},
       encoder_inputs=enc_inputs,
       decoder_inputs=dec_inputs,
@@ -439,7 +436,6 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(pred_act_values.shape, (batch_size, max_len))
     self.assertEqual(
       attention_weights.shape, (batch_size, predicted_length, input_length))
-    self.assertNotEqual(predicted_out_len, None)
 
 
 if __name__ == '__main__':

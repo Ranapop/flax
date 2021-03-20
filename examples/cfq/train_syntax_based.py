@@ -231,15 +231,12 @@ def write_examples(summary_writer: tensorboard.SummaryWriter,
   for i in range(0, no_logged_examples):
     gold_seq = data_source.action_seq_to_query(
       gold_batch[inp_constants.ACTION_TYPES_KEY][i],
-      gold_batch[inp_constants.ACTION_VALUES_KEY][i],
-      gold_batch[inp_constants.ACTION_SEQ_LEN_KEY][i])
+      gold_batch[inp_constants.ACTION_VALUES_KEY][i])
     inferred_seq = data_source.action_seq_to_query(
       inferred_batch[inp_constants.ACTION_TYPES_KEY][i],
-      inferred_batch[inp_constants.ACTION_VALUES_KEY][i],
-      inferred_batch[inp_constants.ACTION_SEQ_LEN_KEY][i])
+      inferred_batch[inp_constants.ACTION_VALUES_KEY][i])
     logged_text = 'Gold seq:  \n {0}  \nInferred seq:  \n {1}  \n'.format(
       gold_seq, inferred_seq)
-    print(logged_text)
     summary_writer.text('Example {}'.format(i), logged_text, step)
     file.write('Attention weights\n')
     np.savetxt(file, attention_weights[i], fmt='%0.2f')
@@ -279,7 +276,7 @@ def train_step(optimizer: Any,
       grammar_info,
       token_vocab_size,
       train=True)
-    nan_error, rule_logits, token_logits, pred_act_types, pred_act_values, _, _ = \
+    nan_error, rule_logits, token_logits, pred_act_types, pred_act_values, _ = \
       seq2tree.apply(
         {'params': params}, 
         encoder_inputs=inputs,
@@ -344,14 +341,14 @@ def infer(params, inputs: jnp.array, inputs_lengths: jnp.array,
       token_vocab_size,
       train=False)
   _, rule_logits, token_logits,\
-     pred_act_types, pred_act_values, attention_weights, predicted_len = \
+     pred_act_types, pred_act_values, attention_weights = \
     seq2tree.apply(
       {'params': params},
       encoder_inputs=inputs,
       decoder_inputs=decoder_inputs,
       encoder_inputs_lengths=inputs_lengths)
   return rule_logits, token_logits,\
-    pred_act_types, pred_act_values, attention_weights, predicted_len
+    pred_act_types, pred_act_values, attention_weights
 
 
 def evaluate_model(params: Any,
@@ -384,7 +381,7 @@ def evaluate_model(params: Any,
     gold_action_types = batch['action_types']
     queries_lengths = batch['action_seq_len'] - 1
     rule_logits, token_logits,\
-      pred_act_types, pred_act_values, attention_weights, predicted_len = \
+      pred_act_types, pred_act_values, attention_weights = \
         infer(params,
               inputs, input_lengths,
               data_source.grammar_info,
@@ -403,8 +400,7 @@ def evaluate_model(params: Any,
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
     predicted_batch = {
       inp_constants.ACTION_TYPES_KEY: pred_act_types,
-      inp_constants.ACTION_VALUES_KEY: pred_act_values,
-      inp_constants.ACTION_SEQ_LEN_KEY: predicted_len
+      inp_constants.ACTION_VALUES_KEY: pred_act_values
     }
     if no_logged_examples is not None and no_batches == 0:
       write_examples(summary_writer,

@@ -78,6 +78,9 @@ def apply_sequence_of_actions(action_sequence: List, grammar: Grammar):
   frontier_nodes = deque()
   frontier_nodes.append(root)
   for action in action_sequence:
+    if not frontier_nodes:
+      # Stop applying sequences when the stack is empty.
+      return root
     frontier_nodes = apply_action(frontier_nodes, action, grammar)
   return root
 

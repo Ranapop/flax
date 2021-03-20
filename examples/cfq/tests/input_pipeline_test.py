@@ -70,8 +70,7 @@ class InputPipelineTest(parameterized.TestCase):
     ]
     action_types = jnp.array([a[0] for a in action_sequence])
     action_values = jnp.array([a[1] for a in action_sequence])
-    seq_len = 13
-    query = data_source.action_seq_to_query(action_types, action_values, seq_len)
+    query = data_source.action_seq_to_query(action_types, action_values)
     expected_query = 'SELECT DISTINCT ?x0 WHERE { ?x0 a people.person }'
     self.assertEqual(query, expected_query)
 
@@ -86,8 +85,7 @@ class InputPipelineTest(parameterized.TestCase):
     action_values = jnp.array(
       [0, 1, 3, 5, 4, 6, 9, 11, 18, 1, 18, 0, 11, 18, 2,
       6, 9, 11, 18, 1, 18, 3, 11, 18, 2])
-    seq_len = 25
-    query = data_source.action_seq_to_query(action_types, action_values, seq_len)
+    query = data_source.action_seq_to_query(action_types, action_values)
     expected_query = 'SELECT count(*) WHERE { '+\
                        'M0 film.producer.films_executive_produced M1 . '+\
                        'M0 film.producer.film|ns:film.production_company.films M1 }'
@@ -102,8 +100,7 @@ class InputPipelineTest(parameterized.TestCase):
     data_source = Seq2TreeCfqDataSource(0, False, load_data=False)
     action_types = jnp.array([0, 0, 0, 0, 0, 0])
     action_values = jnp.array([0, 1, 3, 5, 5, 5])
-    seq_len = 6
-    query = data_source.action_seq_to_query(action_types, action_values, seq_len)
+    query = data_source.action_seq_to_query(action_types, action_values)
     expected_query = 'SELECT count(*) WHERE {  .  .  .  }'
     self.assertEqual(query, expected_query)
 

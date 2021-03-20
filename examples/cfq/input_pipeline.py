@@ -363,13 +363,12 @@ class Seq2TreeCfqDataSource(CFQDataSource):
 
   def action_seq_to_query(self,
                           action_types: jnp.array,
-                          action_values: jnp.array,
-                          seq_len: int):
+                          action_values: jnp.array):
     # Extract sequence of actions (python data structure).
-    action_types_list = action_types[0:seq_len].tolist()
-    action_values_list = action_values[0:seq_len].tolist()
+    action_types_list = action_types.tolist()
+    action_values_list = action_values.tolist()
     actions = []
-    for i in range(seq_len):
+    for i in range(len(action_types_list)):
       action_type = action_types_list[i]
       action_value = action_values_list[i]
       if action_type == asg.GENERATE_TOKEN:
