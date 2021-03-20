@@ -224,7 +224,7 @@ def log(step: int, train_metrics: Dict, dev_metrics: Dict):
 
 def write_examples(summary_writer: tensorboard.SummaryWriter,
                    step: int,
-                   file: TextIO, no_logged_examples: int,
+                   no_logged_examples: int,
                    gold_batch: Dict, inferred_batch: Dict,
                    attention_weights: jnp.array,
                    data_source: inp.CFQDataSource):
@@ -248,8 +248,6 @@ def write_examples(summary_writer: tensorboard.SummaryWriter,
     attention_weights_no_pad = attention_weights[i][0:question_len][0:act_seq_len]
     train_util.save_attention_img_to_tensorboard(
       summary_writer, step, question, actions_as_strings, attention_weights_no_pad)
-    file.write('Attention weights\n')
-    np.savetxt(file, attention_weights[i], fmt='%0.2f')
 
 
 def get_decoder_inputs(batch: BatchType):
@@ -365,7 +363,6 @@ def evaluate_model(params: Any,
                    batches: tf.data.Dataset,
                    data_source: inp.CFQDataSource,
                    predicted_output_length: int,
-                   logging_file_name: str,
                    summary_writer: tensorboard.SummaryWriter,
                    step: int,
                    no_logged_examples: int = None):
@@ -383,7 +380,6 @@ def evaluate_model(params: Any,
   """
   no_batches = 0
   avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
-  logging_file = open(logging_file_name,'a')
   for batch in tfds.as_numpy(batches):
     inputs = batch[inp_constants.QUESTION_KEY]
     input_lengths = batch[inp_constants.QUESTION_LEN_KEY]
@@ -415,13 +411,12 @@ def evaluate_model(params: Any,
     if no_logged_examples is not None and no_batches == 0:
       write_examples(summary_writer,
                      step,
-                     logging_file, no_logged_examples,
+                     no_logged_examples,
                      batch, predicted_batch,
                      attention_weights,
                      data_source)
     no_batches += 1
   avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
-  logging_file.close()
   return avg_metrics
 
 
@@ -461,7 +456,6 @@ def train_model(learning_rate: float = None,
     # same place twice.
     shutil.rmtree(model_dir)
   os.makedirs(model_dir)
-  logging_file_name = os.path.join(model_dir, 'logged_examples.txt')
   if jax.host_id() == 0:
     train_summary_writer = tensorboard.SummaryWriter(
         os.path.join(model_dir, 'train'))
@@ -523,7 +517,6 @@ def train_model(learning_rate: float = None,
                                   batches=dev_batches,
                                   data_source=data_source,
                                   predicted_output_length=max_out_len,
-                                  logging_file_name = logging_file_name,
                                   summary_writer=eval_summary_writer,
                                   step=step,
                                   no_logged_examples=no_logged_examples)
@@ -558,7 +551,6 @@ def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
                                  batches=dev_batches,
                                  data_source=data_source,
                                  predicted_output_length=max_out_len,
-                                 logging_file_name = logging_file_name,
                                  no_logged_examples=3)
     logging.info('Loss %.4f, acc %.2f', dev_metrics[LOSS_KEY],
                  dev_metrics[ACC_KEY])
