@@ -350,7 +350,8 @@ def train_model(learning_rate: float = None,
                 batch_size: int = None,
                 bucketing: bool = False,
                 model_dir=None,
-                eval_freq: float = None):
+                eval_freq: float = None,
+                detail_log_freq: float = None)):
   """ Train model for num_train_steps.
 
     Do the training on data_source.train_dataset and evaluate on
@@ -412,15 +413,18 @@ def train_model(learning_rate: float = None,
       train_metrics = []
       # evaluate
       model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
+      no_logged_examples=None
+      if (step + 1) % detail_log_freq ==0:
+        no_logged_examples=3
       dev_metrics = evaluate_model(model=model,
                                   batches=dev_batches,
                                   data_source=data_source,
                                   predicted_output_length=max_out_len,
                                   logging_file_name = logging_file_name,
-                                  no_logged_examples=3)
+                                  no_logged_examples=no_logged_examples)
       log(step, train_summary, dev_metrics)
-      save_to_tensorboard(train_summary_writer, train_summary, step)
-      save_to_tensorboard(eval_summary_writer, dev_metrics, step)
+      save_to_tensorboard(train_summary_writer, train_summary, step + 1)
+      save_to_tensorboard(eval_summary_writer, dev_metrics, step + 1)
 
   logging.info('Done training')
 
