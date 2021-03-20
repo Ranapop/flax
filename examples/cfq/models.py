@@ -22,7 +22,9 @@ import jax.numpy as jnp
 from flax import jax_utils
 from flax import linen as nn
 import functools
-from nodes_stack import create_empty_stack, pop_element_from_stack, push_elements_to_stack
+from nodes_stack import create_empty_stack, pop_element_from_stack, \
+  push_to_stack, apply_action_to_stack, is_empty_stack
+from grammar_info import GrammarInfo
 
 # hyperparams
 LSTM_HIDDEN_SIZE = 512
@@ -359,6 +361,7 @@ class DecoderLSTM(nn.Module):
       context_and_state, deterministic=not self.train)
     attention = jnp.tanh(self.attention_layer(context_and_state))
     logits = self.projection(attention)
+    #TODO: softmax before.
     predicted_tokens = jnp.argmax(logits, axis=-1)
     predicted_tokens_uint8 = jnp.asarray(predicted_tokens, dtype=jnp.uint8)
     new_carry = (states, predicted_tokens_uint8, attention)
@@ -570,14 +573,8 @@ class SyntaxBasedDecoderLSTM(nn.Module):
     encoder_hidden_states: Encoder hidden states.
     projected_keys: Attention keys passed through a dense layer.
     attention_mask: Attention masks.
-    nodes_to_action_types: A mapping from node types to action types. If the
-      node is a head in a rule, the action will be an ApplyRule, and GenToken
-      otherwise.
-    expanded_nodes: A list of lists showing how predicted branches should be
-      expanded into nodes.
-    rule_vocab_size: Number of rules.
+    grammar_info: Grammar information.
     token_vocab_size: Number of tokens.
-    node_vocab_size: Number of AST node types.
     train: Train flag.
     num_layers: NUmber of LSTM layers.
     h_dropout_masks: Horizontal dropout masks.
@@ -588,11 +585,8 @@ class SyntaxBasedDecoderLSTM(nn.Module):
   encoder_hidden_states: jnp.array
   projected_keys: jnp.array
   attention_mask: jnp.array
-  nodes_to_action_types: jnp.array
-  expanded_nodes: Tuple[jnp.array, jnp.array]
-  rule_vocab_size: int
+  grammar_info: GrammarInfo
   token_vocab_size: int
-  node_vocab_size: int
   train: bool
   num_layers: int
   h_dropout_masks: List
@@ -601,14 +595,15 @@ class SyntaxBasedDecoderLSTM(nn.Module):
 
   def setup(self):
     self.multilayer_lstm_cell = MultilayerLSTMCell(num_layers=self.num_layers)
-    self.rule_projection = nn.Dense(features=self.rule_vocab_size)
+    self.rule_projection = nn.Dense(features=self.grammar_info.rule_vocab_size)
     self.token_projection = nn.Dense(features=self.token_vocab_size)
     self.mlp_attention = MlpAttention(
       hidden_size=ATTENTION_SIZE, use_batch_axis=False)
-    self.action_embedding = ActionEmbed(rule_vocab_size=self.rule_vocab_size,
-                                        token_embedding=self.shared_embedding)
+    self.action_embedding = ActionEmbed(
+      rule_vocab_size=self.grammar_info.rule_vocab_size,
+      token_embedding=self.shared_embedding)
     self.node_embedding = nn.Embed(
-      num_embeddings=self.node_vocab_size,
+      num_embeddings=self.grammar_info.node_vocab_size,
       features=NODE_EMBEDDING_SIZE,
       embedding_init=nn.initializers.normal(stddev=1.0))
     self.embed_dropout = nn.Dropout(self.embed_dropout_rate)
@@ -622,14 +617,13 @@ class SyntaxBasedDecoderLSTM(nn.Module):
   def __call__(self, carry, x):
     # action_type = jnp.asarray(x[0], dtype=jnp.uint8)
     nan_error, multilayer_lstm_output, previous_action, frontier_nodes = carry
-    popped_node, frontier_nodes = pop_element_from_stack(frontier_nodes)
-    node_type_x = jnp.asarray(x[2], dtype=jnp.uint8)
-    node_type = jnp.asarray(popped_node, dtype=jnp.uint8)
-    # See if the generated & pre-processed nodes are equal (on train they should
-    # be).
     if self.train:
-      nan_error = jnp.where(jnp.equal(node_type,node_type_x), node_type, jnp.nan)
-    nodes_to_action_types = jnp.asarray(self.nodes_to_action_types, dtype=jnp.uint8)
+      node_type = jnp.asarray(x[2], dtype=jnp.uint8)
+    else:
+      popped_node, frontier_nodes = pop_element_from_stack(frontier_nodes)
+      node_type = jnp.asarray(popped_node, dtype=jnp.uint8)
+    nodes_to_action_types = jnp.asarray(self.grammar_info.nodes_to_action_types,
+                                        dtype=jnp.uint8)
     action_type = nodes_to_action_types[node_type]
     action_value = jnp.asarray(x[1], dtype=jnp.uint8)
     previous_states, h = multilayer_lstm_output
@@ -652,40 +646,34 @@ class SyntaxBasedDecoderLSTM(nn.Module):
       previous_states=previous_states,
       train=self.train)
     rule_logits = self.rule_projection(h)
+    # Only predict valid rules.
+    valid_rules = self.grammar_info.valid_rules_by_nodes[node_type]
+    # Only mask the logits used for predictions (so the loss doesn't get inf).
+    masked_rule_logits = jnp.where(
+      valid_rules,
+      rule_logits,
+      jnp.full(self.grammar_info.rule_vocab_size, -jnp.inf))
     token_logits = self.token_projection(h)
-    predicted_rules = jnp.argmax(rule_logits, axis=-1)
-    predicted_tokens = jnp.argmax(token_logits, axis=-1)
-    prediction = jnp.where(action_type, predicted_tokens, predicted_rules)
-    prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
-    # What should I do if I have a gen token?? -- maybe a special expansion with an empty list?
-    if self.train:
-      idx = jnp.where(
-        action_type, action_value, jnp.array(self.rule_vocab_size))
-    else:
-      idx = jnp.where(
-        action_type, prediction_uint8, jnp.array(self.rule_vocab_size))
-    expanded_nodes_arr, expanded_nodes_lengths = self.expanded_nodes
-    new_nodes = (expanded_nodes_arr[idx], expanded_nodes_lengths[idx])
-    new_frontier = push_elements_to_stack(frontier_nodes, new_nodes)
+    predicted_rules = jnp.argmax(nn.softmax(masked_rule_logits, axis=-1), axis=-1)
+    predicted_tokens = jnp.argmax(nn.softmax(token_logits, axis=-1), axis=-1)
+    pred_action_value = jnp.where(action_type, predicted_tokens, predicted_rules)
+    pred_action_value = jnp.asarray(pred_action_value, dtype=jnp.uint8)
     if not self.train:
-      action_value = prediction_uint8
+      action_value = pred_action_value
     current_action = (action_type, action_value)
+    if not self.train:
+      frontier_nodes = apply_action_to_stack(
+        frontier_nodes, current_action, self.grammar_info)
     new_carry = (nan_error, (jnp.array(states), h), current_action, frontier_nodes)
-    accumulator = (rule_logits, token_logits, prediction_uint8, scores)
+    accumulator = (
+      rule_logits, token_logits, action_type, pred_action_value, scores)
     return new_carry, accumulator
 
 class SyntaxBasedDecoder(nn.Module):
   """LSTM syntax-based decoder.
   Attributes:
     shared_embedding: token embedding module.
-    nodes_to_action_types: A mapping from node types to action types stored as a
-      binary vector. If the node is a head in a rule, the action will be an
-      ApplyRule, and GenToken otherwise.
-    expanded_nodes: A tuple of arrays showing how predicted branches should be
-      expanded into nodes. The first array contains rule -> nodes and is
-      padded with zeroes to have a fixed size while the 2nd array contains the
-      number of nodes for each rule.
-    rule_vocab_size: rule vocab size.
+    grammar_info: grammar information.
     token_vocab_size: token vocab size.
     num_layers: number of LSTM layers.
     horizontal_dropout_rate: LSTM horizontal dropout rate.
@@ -693,11 +681,8 @@ class SyntaxBasedDecoder(nn.Module):
     embed_dropout_rate: embedding dropout rate.
   """
   shared_embedding: nn.Module
-  nodes_to_action_types: jnp.array
-  expanded_nodes: Tuple[jnp.array, jnp.array]
-  rule_vocab_size: int
+  grammar_info: GrammarInfo
   token_vocab_size: int
-  node_vocab_size: int
   num_layers: int
   horizontal_dropout_rate: float
   vertical_dropout_rate: float
@@ -737,11 +722,8 @@ class SyntaxBasedDecoder(nn.Module):
       encoder_hidden_states,
       projected_keys,
       attention_mask,
-      self.nodes_to_action_types,
-      self.expanded_nodes,
-      self.rule_vocab_size,
+      self.grammar_info,
       self.token_vocab_size,
-      self.node_vocab_size,
       train,
       self.num_layers,
       h_dropout_masks,
@@ -755,18 +737,22 @@ class SyntaxBasedDecoder(nn.Module):
     initial_action = (jnp.array(2, dtype=jnp.uint8), jnp.array(0, dtype=jnp.uint8))
     multilayer_lstm_output = (init_states, init_states[-1, 1, :])
     out_seq_len = inputs.shape[1]
-    # print('Out seq len', out_seq_len)
-    # TODO: pass 3 as a parameter (coming from grammar, max expansion or smth).
-    initial_stack = create_empty_stack(out_seq_len * 3)
+    if train:
+      initial_stack = None
+    else:
+      initial_stack = create_empty_stack(
+        out_seq_len * self.grammar_info.max_node_expansion)
+      initial_stack = push_to_stack(initial_stack, self.grammar_info.grammar_entry)
+
     nan_error = 0.
     init_carry = (nan_error, multilayer_lstm_output, initial_action, initial_stack)
 
     # Go from [2, out_seq_len] -> [out_seq_len, 2].
     scan_inputs = jnp.swapaxes(inputs, 0, 1)
 
-    final_carry, (rule_logits, token_logits, predictions, scores) = decoder_lstm(
-        init_carry, scan_inputs)
-    nan_error, _, _, _ = final_carry
+    final_carry, acc = decoder_lstm(init_carry, scan_inputs)
+    nan_error, _, _, inference_info = final_carry
+    rule_logits, token_logits, pred_act_types, pred_act_values, scores = acc
 
     # The attention weights are only examined on the evaluation flow, so this
     # if is used to avoid unnecesary operations.
@@ -777,20 +763,19 @@ class SyntaxBasedDecoder(nn.Module):
       jnp.swapaxes(attention_weights, 0, 1)
     else:
       attention_weights = None
-    return nan_error, rule_logits, token_logits, predictions, attention_weights
+    return nan_error,\
+      rule_logits, token_logits,\
+      pred_act_types, pred_act_values,\
+      attention_weights
 
 
 class Seq2tree(nn.Module):
   """Sequence-to-ast class following Yin and Neubig.
   Attributes:
-    nodes_to_action_types: A mapping from node types to action types. If the
-      node is a head in a rule, the action will be an ApplyRule, and GenToken
-      otherwise.
-    expanded_nodes: A tuple of arrays showing how predicted branches should be
-      expanded into nodes.
-    rule_vocab_size: Number of rules.
+    grammar_info: Information about the grammar (like what how are the nodes
+      expanded, which nodes are associated to an ApplyRule and which to a
+      GenerateToken).
     token_vocab_size: Number of input & output tokens.
-    node_vocab_size: Number of node types.
     train: Train flag.
     emb_dim: Token embedding dimension.
     hidden_size: LSTM hidden size.
@@ -798,11 +783,8 @@ class Seq2tree(nn.Module):
     horizontal_dropout_rate: LSTM horizontal dropout rate (between steps).
     vertical_dropout_rate: LSTM vertical dropout rate (between layers).
   """
-  nodes_to_action_types: jnp.array
-  expanded_nodes: Tuple[jnp.array, jnp.array]
-  rule_vocab_size: int
+  grammar_info: GrammarInfo
   token_vocab_size: int
-  node_vocab_size: int
   train: bool
   emb_dim: int = ACTION_EMBEDDING_SIZE
   hidden_size: int = LSTM_HIDDEN_SIZE
@@ -829,11 +811,8 @@ class Seq2tree(nn.Module):
       vertical_dropout_rate=self.vertical_dropout_rate)
     decoder = SyntaxBasedDecoder(
       shared_embedding=shared_embedding,
-      nodes_to_action_types = self.nodes_to_action_types,
-      expanded_nodes = self.expanded_nodes,
-      rule_vocab_size=self.rule_vocab_size,
+      grammar_info=self.grammar_info,
       token_vocab_size=self.token_vocab_size,
-      node_vocab_size=self.node_vocab_size,
       num_layers=self.num_layers,
       horizontal_dropout_rate=self.horizontal_dropout_rate,
       vertical_dropout_rate=self.vertical_dropout_rate)
@@ -851,13 +830,15 @@ class Seq2tree(nn.Module):
     init_decoder_states = jnp.swapaxes(init_decoder_states, 0, 2)
     # Decode outputs.
     nan_error,\
-    rule_logits,\
-    token_logits,\
-    predictions,\
+    rule_logits, token_logits,\
+    pred_act_types, pred_act_values,\
     attention_weights = vmapped_decoder(init_decoder_states,
                                         hidden_states,
                                         mask,
                                         decoder_inputs)
 
-    return nan_error, rule_logits, token_logits, predictions, attention_weights
+    return nan_error,\
+      rule_logits, token_logits,\
+      pred_act_types, pred_act_values,\
+      attention_weights
 

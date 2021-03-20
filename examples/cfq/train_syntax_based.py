@@ -16,6 +16,8 @@
 """Module for training/evaluation (metrics, loss, train, evaluate)"""
 
 import os
+import time
+import datetime
 import shutil
 from typing import Any, Text, Dict, TextIO, List, Tuple
 from absl import logging
@@ -39,6 +41,8 @@ from flax.metrics import tensorboard
 import input_pipeline as inp
 import input_pipeline_constants as inp_constants
 import models
+from grammar_info import GrammarInfo
+import train_util
 
 BatchType = Dict[Text, jnp.array]
 
@@ -65,30 +69,16 @@ def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
   return jnp.where(mask, sequence_batch, 0)
 
 def get_initial_params(rng: jax.random.PRNGKey,
-                       nodes_to_action_types: flax.core.FrozenDict,
-                       expanded_nodes: Tuple[jnp.array, jnp.array],
-                       rule_vocab_size: int,
-                       token_vocab_size: int,
-                       node_vocab_size: int):
+                       grammar_info: GrammarInfo,
+                       token_vocab_size: int):
   seq2seq = models.Seq2tree(
-    nodes_to_action_types,
-    expanded_nodes,
-    rule_vocab_size,
+    grammar_info,
     token_vocab_size,
-    node_vocab_size,
     train = False
   )
   initial_batch = [
-          jnp.array((1, 1), jnp.uint8),
-          #decoder_inputs
-          # need to pass 2 for decoder length
-          # as the first token is cut off
-          jnp.array((1, 2), jnp.uint8),
-          jnp.array((1,), jnp.uint8)
-      ]
-  initial_batch = [
     jnp.zeros((1, 1), jnp.uint8),
-    jnp.zeros((1, 3, 1), jnp.uint8),
+    jnp.zeros((1, 1, 1), jnp.uint8),
     jnp.ones((1,), jnp.uint8)
   ]
   initial_params = seq2seq.init(rng,
@@ -232,19 +222,32 @@ def log(step: int, train_metrics: Dict, dev_metrics: Dict):
       step + 1, train_metrics[LOSS_KEY], dev_metrics[LOSS_KEY],
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
-
-def write_examples(file: TextIO, no_logged_examples: int,
-                   gold_outputs: jnp.array, inferred_outputs: jnp.array,
+def write_examples(summary_writer: tensorboard.SummaryWriter,
+                   step: int,
+                   no_logged_examples: int,
+                   gold_batch: Dict, inferred_batch: Dict,
                    attention_weights: jnp.array,
                    data_source: inp.CFQDataSource):
-  #log the first examples in the batch
-  gold_seq = indices_to_str(gold_outputs, data_source)
-  inferred_seq = indices_to_str(inferred_outputs, data_source)
+  #Log the first examples in the batch.
   for i in range(0, no_logged_examples):
-    file.write('\nGold seq:\n {0} \nInferred seq:\n {1}\n'.format(gold_seq[i],
-                  inferred_seq[i]))
-    file.write('Attention weights\n')
-    np.savetxt(file, attention_weights[i], fmt='%0.2f')
+    # Log queries.
+    gold_seq, _ = data_source.action_seq_to_query(
+      gold_batch[inp_constants.ACTION_TYPES_KEY][i],
+      gold_batch[inp_constants.ACTION_VALUES_KEY][i])
+    inferred_seq, actions_as_strings = data_source.action_seq_to_query(
+      inferred_batch[inp_constants.ACTION_TYPES_KEY][i],
+      inferred_batch[inp_constants.ACTION_VALUES_KEY][i])
+    logged_text = 'Gold seq:  \n {0}  \nInferred seq:  \n {1}  \n'.format(
+      gold_seq, inferred_seq)
+    summary_writer.text('Example {}'.format(i), logged_text, step)
+    # Log attention scores.
+    question = gold_batch[inp_constants.QUESTION_KEY][i]
+    question = data_source.indices_to_sequence_string(question).split()
+    question_len = len(question)
+    act_seq_len = len(actions_as_strings)
+    attention_weights_no_pad = attention_weights[i][0:question_len][0:act_seq_len]
+    train_util.save_attention_img_to_tensorboard(
+      summary_writer, step, question, actions_as_strings, attention_weights_no_pad)
 
 
 def get_decoder_inputs(batch: BatchType):
@@ -257,15 +260,14 @@ def get_decoder_inputs(batch: BatchType):
 
 # Jit the function instead of just pmapping it to make sure error propagation
 # works (TODO: check to see when fix is part of a jax version).
-@functools.partial(jax.jit, static_argnums=(5,6,7))
+# @functools.partial(jax.jit, static_argnums=(3, 4))
 @functools.partial(jax.pmap, axis_name='batch',
-                   static_broadcasted_argnums=(5, 6, 7))
+                   static_broadcasted_argnums=(3, 4))
 def train_step(optimizer: Any,
                batch: BatchType,
                rng: jax.random.PRNGKey,
-               nodes_to_action_types: np.array,
-               expanded_nodes: Tuple[jnp.array, jnp.array],
-               rule_vocab_size: int, token_vocab_size: int, node_vocab_size: int):
+               grammar_info: GrammarInfo,
+               token_vocab_size: int):
   """Train one step."""
   step_rng = jax.random.fold_in(rng, optimizer.state.step)
 
@@ -279,10 +281,10 @@ def train_step(optimizer: Any,
   def loss_fn(params):
     """Compute cross-entropy loss."""
     seq2tree = models.Seq2tree(
-      nodes_to_action_types,
-      expanded_nodes,
-      rule_vocab_size, token_vocab_size, node_vocab_size, train=True)
-    nan_error, rule_logits, token_logits, predictions, _ = \
+      grammar_info,
+      token_vocab_size,
+      train=True)
+    nan_error, rule_logits, token_logits, pred_act_types, pred_act_values, _ = \
       seq2tree.apply(
         {'params': params}, 
         encoder_inputs=inputs,
@@ -294,34 +296,33 @@ def train_step(optimizer: Any,
                               action_types,
                               action_values,
                               queries_lengths,
-                              rule_vocab_size,
+                              grammar_info.rule_vocab_size,
                               token_vocab_size)
-    return loss, (nan_error, rule_logits, token_logits, predictions)
+    return loss, (nan_error, rule_logits, token_logits, pred_act_types, pred_act_values)
 
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
   (_, output), grad = grad_fn(optimizer.target)
-  nan_error, rule_logits, token_logits, predictions = output
+  nan_error, rule_logits, token_logits, pred_act_types, pred_act_values = output
   grad = jax.lax.pmean(grad, axis_name='batch')
   grad = clip_grads(grad, max_norm=1.0)
   optimizer = optimizer.apply_gradient(grad)
   metrics = {}
   metrics = compute_metrics(rule_logits,
                             token_logits,
-                            predictions,
+                            pred_act_values,
                             action_values,
                             action_types,
                             queries_lengths,
-                            rule_vocab_size,
+                            grammar_info.rule_vocab_size,
                             token_vocab_size)
   metrics = jax.lax.pmean(metrics, axis_name='batch')
   return nan_error, optimizer, metrics
 
 
-@jax.partial(jax.jit, static_argnums=[5, 6, 7, 9])
+@jax.partial(jax.jit, static_argnums=[3, 4, 6])
 def infer(params, inputs: jnp.array, inputs_lengths: jnp.array,
-          nodes_to_action_types: np.array,
-          expanded_nodes,
-          rule_vocab_size: int, token_vocab_size: int, node_vocab_size: int,
+          grammar_info: GrammarInfo,
+          token_vocab_size: int,
           bos_encoding: jnp.array,
           predicted_output_length: int):
   """Apply model on inference flow and return predictions.
@@ -344,23 +345,26 @@ def infer(params, inputs: jnp.array, inputs_lengths: jnp.array,
   # Go from [2, batch_size, seq_len] -> [batch_size, 2, seq_len].
   decoder_inputs = jnp.swapaxes(decoder_inputs, 0, 1)
   seq2tree = models.Seq2tree(
-      nodes_to_action_types,
-      expanded_nodes,
-      rule_vocab_size, token_vocab_size, node_vocab_size, train=False)
-  _, rule_logits, token_logits, predictions, attention_weights = \
+      grammar_info,
+      token_vocab_size,
+      train=False)
+  _, rule_logits, token_logits,\
+     pred_act_types, pred_act_values, attention_weights = \
     seq2tree.apply(
       {'params': params},
       encoder_inputs=inputs,
       decoder_inputs=decoder_inputs,
       encoder_inputs_lengths=inputs_lengths)
-  return rule_logits, token_logits, predictions, attention_weights
+  return rule_logits, token_logits,\
+    pred_act_types, pred_act_values, attention_weights
 
 
 def evaluate_model(params: Any,
                    batches: tf.data.Dataset,
                    data_source: inp.CFQDataSource,
                    predicted_output_length: int,
-                   logging_file_name: str,
+                   summary_writer: tensorboard.SummaryWriter,
+                   step: int,
                    no_logged_examples: int = None):
   """Evaluate the model on the validation/test batches
 
@@ -376,41 +380,43 @@ def evaluate_model(params: Any,
   """
   no_batches = 0
   avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
-  logging_file = open(logging_file_name,'a')
   for batch in tfds.as_numpy(batches):
     inputs = batch[inp_constants.QUESTION_KEY]
     input_lengths = batch[inp_constants.QUESTION_LEN_KEY]
     gold_outputs = batch['action_values']
     gold_action_types = batch['action_types']
     queries_lengths = batch['action_seq_len'] - 1
-    rule_logits, token_logits, inferred_outputs, attention_weights = \
-      infer(params,
-            inputs, input_lengths,
-            data_source.nodes_to_action_types,
-            data_source.expanded_nodes,
-            data_source.rule_vocab_size,
-            data_source.tokens_vocab_size,
-            data_source.node_vocab_size,
-            data_source.bos_idx,
-            predicted_output_length)
+    rule_logits, token_logits,\
+      pred_act_types, pred_act_values, attention_weights = \
+        infer(params,
+              inputs, input_lengths,
+              data_source.grammar_info,
+              data_source.tokens_vocab_size,
+              data_source.bos_idx,
+              predicted_output_length)
     metrics = compute_metrics(
       rule_logits,
       token_logits,
-      inferred_outputs,
+      pred_act_values,
       gold_outputs,
       gold_action_types,
       queries_lengths,
-      data_source.rule_vocab_size,
+      data_source.grammar_info.rule_vocab_size,
       data_source.tokens_vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
+    predicted_batch = {
+      inp_constants.ACTION_TYPES_KEY: pred_act_types,
+      inp_constants.ACTION_VALUES_KEY: pred_act_values
+    }
     if no_logged_examples is not None and no_batches == 0:
-      write_examples(logging_file, no_logged_examples,
-                     gold_outputs, inferred_outputs,
+      write_examples(summary_writer,
+                     step,
+                     no_logged_examples,
+                     batch, predicted_batch,
                      attention_weights,
                      data_source)
     no_batches += 1
   avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
-  logging_file.close()
   return avg_metrics
 
 
@@ -435,12 +441,14 @@ def train_model(learning_rate: float = None,
                 batch_size: int = None,
                 bucketing: bool = False,
                 model_dir=None,
-                eval_freq: float = None):
+                eval_freq: float = None,
+                detail_log_freq: float = None):
   """ Train model for num_train_steps.
 
-    Do the training on data_source.train_dataset and evaluate on
-    data_source.dev_dataset every few steps and log the results.
-    """
+  Do the training on data_source.train_dataset and evaluate on
+  data_source.dev_dataset every few steps and log the results.
+  """
+  start_time = time.time()
   if os.path.isdir(model_dir):
     # If attemptying to save in a directory where the model was saved before,
     # first remove the directory with its contents. This is done mostly
@@ -448,7 +456,6 @@ def train_model(learning_rate: float = None,
     # same place twice.
     shutil.rmtree(model_dir)
   os.makedirs(model_dir)
-  logging_file_name = os.path.join(model_dir, 'logged_examples.txt')
   if jax.host_id() == 0:
     train_summary_writer = tensorboard.SummaryWriter(
         os.path.join(model_dir, 'train'))
@@ -460,12 +467,8 @@ def train_model(learning_rate: float = None,
   rng, init_rng = jax.random.split(rng)
   initial_params = get_initial_params(
     init_rng,
-    data_source.nodes_to_action_types,
-    data_source.expanded_nodes,
-    data_source.rule_vocab_size,
-    data_source.tokens_vocab_size,
-    data_source.node_vocab_size 
-  )
+    data_source.grammar_info,
+    data_source.tokens_vocab_size)
   optimizer = flax.optim.Adam(learning_rate=learning_rate).create(initial_params)
   optimizer = jax_utils.replicate(optimizer)
 
@@ -496,16 +499,9 @@ def train_model(learning_rate: float = None,
     rng, step_key = jax.random.split(rng)
     # Shard the step PRNG key
     sharded_keys = common_utils.shard_prng_key(step_key)
-    node_to_action_types = np.repeat([data_source.nodes_to_action_types], jax.device_count(), axis=0)
-    expanded_nodes_arr = np.repeat([data_source.expanded_nodes[0]], jax.device_count(), axis=0)
-    expanded_nodes_lengths = np.repeat([data_source.expanded_nodes[1]], jax.device_count(), axis=0)
-    expanded_nodes = (expanded_nodes_arr, expanded_nodes_lengths)
     nan_error, optimizer, metrics = train_step(optimizer, batch, sharded_keys,
-                                    node_to_action_types,
-                                    expanded_nodes,
-                                    data_source.rule_vocab_size,
-                                    data_source.tokens_vocab_size,
-                                    data_source.node_vocab_size)
+                                    data_source.grammar_info,
+                                    data_source.tokens_vocab_size)
     
     train_metrics.append(metrics)
     if (step + 1) % eval_freq == 0:
@@ -514,16 +510,22 @@ def train_model(learning_rate: float = None,
       train_metrics = []
       # evaluate
       params = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
+      no_logged_examples=None
+      if (step + 1) % detail_log_freq ==0:
+        no_logged_examples=3
       dev_metrics = evaluate_model(params=params,
                                   batches=dev_batches,
                                   data_source=data_source,
                                   predicted_output_length=max_out_len,
-                                  logging_file_name = logging_file_name,
-                                  no_logged_examples=3)
+                                  summary_writer=eval_summary_writer,
+                                  step=step,
+                                  no_logged_examples=no_logged_examples)
       log(step, train_summary, dev_metrics)
       save_to_tensorboard(train_summary_writer, train_summary, step)
       save_to_tensorboard(eval_summary_writer, dev_metrics, step)
-  logging.info('Done training')
+  end_time = time.time()
+  time_passed = datetime.timedelta(seconds=end_time - start_time) 
+  logging.info('Done training. Training took {}'.format(time_passed))
 
   logging.info('Saving model at %s', model_dir)
   checkpoints.save_checkpoint(model_dir, optimizer, num_train_steps)
@@ -549,7 +551,6 @@ def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
                                  batches=dev_batches,
                                  data_source=data_source,
                                  predicted_output_length=max_out_len,
-                                 logging_file_name = logging_file_name,
                                  no_logged_examples=3)
     logging.info('Loss %.4f, acc %.2f', dev_metrics[LOSS_KEY],
                  dev_metrics[ACC_KEY])
