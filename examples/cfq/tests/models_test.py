@@ -20,7 +20,7 @@ config.parse_flags_with_absl()
 
 class ModelsTest(parameterized.TestCase):
 
-  def est_encoder(self):
+  def test_encoder(self):
     rng1, rng2 = random.split(random.PRNGKey(0))
     rngs = {'params': rng1, 'dropout': rng2}
     seq1 = [1, 0, 3]
@@ -61,7 +61,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(c.shape, (batch_size, hidden_size))
       self.assertEqual(h.shape, (batch_size, hidden_size))
 
-  def est_mlp_attenntion(self):
+  def test_mlp_attenntion(self):
     rng = dict(params=random.PRNGKey(0))
 
     batch_size = 2
@@ -85,7 +85,7 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(context.shape, (batch_size, values_size))
     self.assertEqual(scores.shape, (batch_size, seq_len))
 
-  def est_recurrent_dropout_masks(self):
+  def test_recurrent_dropout_masks(self):
     rng1, rng2 = random.split(random.PRNGKey(0))
     rngs = {'params': rng1, 'dropout': rng2}
     dropout = RecurrentDropoutMasks(3, 0.3)
@@ -94,7 +94,7 @@ class ModelsTest(parameterized.TestCase):
     for mask in masks:
       self.assertEqual(mask.shape, (2, 10))
 
-  def est_multilayer_LSTM_cell(self):
+  def test_multilayer_LSTM_cell(self):
     rng = dict(params=random.PRNGKey(0))
     num_layers = 3
     batch_size = 7
@@ -129,7 +129,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(h.shape, (batch_size, hidden_size))
     self.assertEqual(y.shape, (batch_size, hidden_size))
 
-  def est_multilayer_LSTM(self):
+  def test_multilayer_LSTM(self):
     rng = dict(params=random.PRNGKey(0))
     num_layers = 5
     batch_size = 10
@@ -159,7 +159,7 @@ class ModelsTest(parameterized.TestCase):
       self.assertEqual(c.shape, (batch_size, hidden_size))
       self.assertEqual(h.shape, (batch_size, hidden_size))
 
-  def est_compute_attention_masks(self):
+  def test_compute_attention_masks(self):
     shape = (2, 7)
     lengths = jnp.array([5, 7])
     mask = models.compute_attention_masks(shape, lengths)
@@ -167,7 +167,7 @@ class ModelsTest(parameterized.TestCase):
                                [True, True, True, True, True, True, True]])
     self.assertEqual(True, jnp.array_equal(mask, expected_mask))
 
-  def est_decoder_train(self):
+  def test_decoder_train(self):
     rng1, rng2 = random.split(random.PRNGKey(0))
     rngs = {'params': rng1, 'dropout': rng2}
     seq1 = [1, 0, 2, 4]
@@ -211,7 +211,7 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(predictions.shape, (batch_size, seq_len))
     self.assertEqual(scores, None)
 
-  def est_decoder_inference(self):
+  def test_decoder_inference(self):
     rng = dict(params=random.PRNGKey(0))
     max_len = 4
     input_seq_len = 5
@@ -255,7 +255,7 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(scores.shape, (batch_size, max_len, input_seq_len))
 
 
-  def est_seq_2_seq(self):
+  def test_seq_2_seq(self):
     rng1, rng2 = random.split(random.PRNGKey(0))
     rngs = {'params': rng1, 'dropout': rng2}
     vocab_size = 10
@@ -274,7 +274,7 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(predictions.shape, (batch_size, max_len - 1))
     self.assertEqual(scores, None)
 
-  def est_seq_2_seq_inference_apply(self):
+  def test_seq_2_seq_inference_apply(self):
     vocab_size = 10
     batch_size = 2
     max_len = 5
@@ -392,7 +392,7 @@ class ModelsTest(parameterized.TestCase):
 
     nan_error = apply_model()
   
-  def est_seq_2_tree_inference_apply(self):
+  def test_seq_2_tree_inference_apply(self):
     rule_vocab_size = 20
     token_vocab_size = 100
     node_vocab_size = 15
