@@ -221,7 +221,9 @@ def log(step: int, train_metrics: Dict, dev_metrics: Dict):
       step + 1, train_metrics[LOSS_KEY], dev_metrics[LOSS_KEY],
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
-def write_examples(file: TextIO, no_logged_examples: int,
+def write_examples(summary_writer: tensorboard.SummaryWriter,
+                   step: int,
+                   file: TextIO, no_logged_examples: int,
                    gold_batch: Dict, inferred_batch: Dict,
                    attention_weights: jnp.array,
                    data_source: inp.CFQDataSource):
@@ -235,8 +237,10 @@ def write_examples(file: TextIO, no_logged_examples: int,
       inferred_batch[inp_constants.ACTION_TYPES_KEY][i],
       inferred_batch[inp_constants.ACTION_VALUES_KEY][i],
       inferred_batch[inp_constants.ACTION_SEQ_LEN_KEY][i])
-    file.write('\nGold seq:\n {0} \nInferred seq:\n {1}\n'.format(gold_seq,
-                  inferred_seq))
+    logged_text = 'Gold seq:  \n {0}  \nInferred seq:  \n {1}  \n'.format(
+      gold_seq, inferred_seq)
+    print(logged_text)
+    summary_writer.text('Example {}'.format(i), logged_text, step)
     file.write('Attention weights\n')
     np.savetxt(file, attention_weights[i], fmt='%0.2f')
 
@@ -355,6 +359,8 @@ def evaluate_model(params: Any,
                    data_source: inp.CFQDataSource,
                    predicted_output_length: int,
                    logging_file_name: str,
+                   summary_writer: tensorboard.SummaryWriter,
+                   step: int,
                    no_logged_examples: int = None):
   """Evaluate the model on the validation/test batches
 
@@ -401,7 +407,9 @@ def evaluate_model(params: Any,
       inp_constants.ACTION_SEQ_LEN_KEY: predicted_len
     }
     if no_logged_examples is not None and no_batches == 0:
-      write_examples(logging_file, no_logged_examples,
+      write_examples(summary_writer,
+                     step,
+                     logging_file, no_logged_examples,
                      batch, predicted_batch,
                      attention_weights,
                      data_source)
@@ -432,7 +440,8 @@ def train_model(learning_rate: float = None,
                 batch_size: int = None,
                 bucketing: bool = False,
                 model_dir=None,
-                eval_freq: float = None):
+                eval_freq: float = None,
+                detail_log_freq: float = None):
   """ Train model for num_train_steps.
 
   Do the training on data_source.train_dataset and evaluate on
@@ -506,6 +515,8 @@ def train_model(learning_rate: float = None,
                                   data_source=data_source,
                                   predicted_output_length=max_out_len,
                                   logging_file_name = logging_file_name,
+                                  summary_writer=eval_summary_writer,
+                                  step=step,
                                   no_logged_examples=3)
       log(step, train_summary, dev_metrics)
       save_to_tensorboard(train_summary_writer, train_summary, step)
