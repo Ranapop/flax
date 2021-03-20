@@ -42,6 +42,10 @@ def pop_element_from_stack(stack: Tuple[jnp.array, int]):
   new_stack = (stack_array, stack_pointer)
   return popped_element, new_stack
 
+def is_empty_stack(stack: Tuple[jnp.array, int]):
+  _, stack_pointer = stack
+  return stack_pointer == 0
+
 def apply_action_to_stack(stack: Tuple[jnp.array, int],
                           action: Tuple[jnp.array, jnp.array],
                           grammar_info: GrammarInfo):

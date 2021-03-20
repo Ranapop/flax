@@ -23,7 +23,7 @@ from flax import jax_utils
 from flax import linen as nn
 import functools
 from nodes_stack import create_empty_stack, pop_element_from_stack, \
-  push_to_stack, apply_action_to_stack
+  push_to_stack, apply_action_to_stack, is_empty_stack
 from grammar_info import GrammarInfo
 
 # hyperparams
@@ -616,10 +616,11 @@ class SyntaxBasedDecoderLSTM(nn.Module):
       out_axes = 0)
   def __call__(self, carry, x):
     # action_type = jnp.asarray(x[0], dtype=jnp.uint8)
-    nan_error, multilayer_lstm_output, previous_action, frontier_nodes = carry
+    nan_error, multilayer_lstm_output, previous_action, inference_info = carry
     if self.train:
       node_type = jnp.asarray(x[2], dtype=jnp.uint8)
     else:
+      frontier_nodes, step, predicted_len = inference_info
       popped_node, frontier_nodes = pop_element_from_stack(frontier_nodes)
       node_type = jnp.asarray(popped_node, dtype=jnp.uint8)
     nodes_to_action_types = jnp.asarray(self.grammar_info.nodes_to_action_types,
@@ -659,16 +660,23 @@ class SyntaxBasedDecoderLSTM(nn.Module):
                              jnp.full(self.token_vocab_size, -jnp.inf))
     predicted_rules = jnp.argmax(nn.softmax(rule_logits, axis=-1), axis=-1)
     predicted_tokens = jnp.argmax(nn.softmax(token_logits, axis=-1), axis=-1)
-    prediction = jnp.where(action_type, predicted_tokens, predicted_rules)
-    prediction_uint8 = jnp.asarray(prediction, dtype=jnp.uint8)
+    pred_action_value = jnp.where(action_type, predicted_tokens, predicted_rules)
+    pred_action_value = jnp.asarray(pred_action_value, dtype=jnp.uint8)
     if not self.train:
-      action_value = prediction_uint8
+      action_value = pred_action_value
     current_action = (action_type, action_value)
     if not self.train:
+      previously_empty_stack = is_empty_stack(frontier_nodes)
       frontier_nodes = apply_action_to_stack(
         frontier_nodes, current_action, self.grammar_info)
-    new_carry = (nan_error, (jnp.array(states), h), current_action, frontier_nodes)
-    accumulator = (rule_logits, token_logits, prediction_uint8, scores)
+      stack_was_not_empty = jnp.logical_not(previously_empty_stack)
+      prediction_done_now = jnp.logical_and(
+        stack_was_not_empty, is_empty_stack(frontier_nodes))
+      predicted_len = jnp.where(prediction_done_now, step, predicted_len)
+      inference_info = frontier_nodes, step, predicted_len
+    new_carry = (nan_error, (jnp.array(states), h), current_action, inference_info)
+    accumulator = (
+      rule_logits, token_logits, action_type, pred_action_value, scores)
     return new_carry, accumulator
 
 class SyntaxBasedDecoder(nn.Module):
@@ -740,21 +748,27 @@ class SyntaxBasedDecoder(nn.Module):
     multilayer_lstm_output = (init_states, init_states[-1, 1, :])
     out_seq_len = inputs.shape[1]
     if train:
-      initial_stack = None
+      inference_info = None
     else:
       initial_stack = create_empty_stack(
         out_seq_len * self.grammar_info.max_node_expansion)
       initial_stack = push_to_stack(initial_stack, self.grammar_info.grammar_entry)
+      # stack, step, predicted length.
+      # The predicted length is the max length by default.
+      inference_info = (initial_stack, 0, out_seq_len)
 
     nan_error = 0.
-    init_carry = (nan_error, multilayer_lstm_output, initial_action, initial_stack)
+    init_carry = (nan_error, multilayer_lstm_output, initial_action, inference_info)
 
     # Go from [2, out_seq_len] -> [out_seq_len, 2].
     scan_inputs = jnp.swapaxes(inputs, 0, 1)
 
-    final_carry, (rule_logits, token_logits, predictions, scores) = decoder_lstm(
-        init_carry, scan_inputs)
-    nan_error, _, _, _ = final_carry
+    final_carry, acc = decoder_lstm(init_carry, scan_inputs)
+    nan_error, _, _, inference_info = final_carry
+    rule_logits, token_logits, pred_act_types, pred_act_values, scores = acc
+    predicted_len = None
+    if not train:
+      _, _, predicted_len = inference_info
 
     # The attention weights are only examined on the evaluation flow, so this
     # if is used to avoid unnecesary operations.
@@ -765,7 +779,10 @@ class SyntaxBasedDecoder(nn.Module):
       jnp.swapaxes(attention_weights, 0, 1)
     else:
       attention_weights = None
-    return nan_error, rule_logits, token_logits, predictions, attention_weights
+    return nan_error,\
+      rule_logits, token_logits,\
+      pred_act_types, pred_act_values,\
+      attention_weights, predicted_len
 
 
 class Seq2tree(nn.Module):
@@ -829,13 +846,16 @@ class Seq2tree(nn.Module):
     init_decoder_states = jnp.swapaxes(init_decoder_states, 0, 2)
     # Decode outputs.
     nan_error,\
-    rule_logits,\
-    token_logits,\
-    predictions,\
-    attention_weights = vmapped_decoder(init_decoder_states,
+    rule_logits, token_logits,\
+    pred_act_types, pred_act_values,\
+    attention_weights,\
+    predicted_len = vmapped_decoder(init_decoder_states,
                                         hidden_states,
                                         mask,
                                         decoder_inputs)
 
-    return nan_error, rule_logits, token_logits, predictions, attention_weights
+    return nan_error,\
+      rule_logits, token_logits,\
+      pred_act_types, pred_act_values,\
+      attention_weights, predicted_len
 

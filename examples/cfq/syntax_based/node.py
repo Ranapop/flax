@@ -93,6 +93,9 @@ def extract_query(root: Node, grammar: Grammar):
     # leaf/token node
     return root.token
   children_substrings = []
+  if root.rule_id is None:
+    # This means the sequence of actions was incomplete.
+    return ''
   rule_branch = grammar.branches[root.rule_id]
   child_idx = 0
   for term in rule_branch.body:

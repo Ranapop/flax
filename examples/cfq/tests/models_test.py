@@ -374,8 +374,9 @@ class ModelsTest(parameterized.TestCase):
       nan_error,\
       rule_logits,\
       token_logits,\
-      predictions,\
-      attention_weights = seq2tree.apply(
+      pred_act_types, pred_act_values,\
+      attention_weights,\
+      predicted_out_len = seq2tree.apply(
         {'params': initial_params['params']},
         encoder_inputs=enc_inputs,
         decoder_inputs=dec_inputs,
@@ -385,8 +386,10 @@ class ModelsTest(parameterized.TestCase):
                         (batch_size, predicted_length, rule_vocab_size))
       self.assertEqual(token_logits.shape,
                         (batch_size, predicted_length, token_vocab_size))
-      self.assertEqual(predictions.shape, (batch_size, predicted_length))
+      self.assertEqual(pred_act_types.shape, (batch_size, predicted_length))
+      self.assertEqual(pred_act_values.shape, (batch_size, predicted_length))
       self.assertEqual(attention_weights, None)
+      self.assertEqual(predicted_out_len, None)
       return nan_error
 
     nan_error = apply_model()
@@ -421,8 +424,9 @@ class ModelsTest(parameterized.TestCase):
     nan_error,\
     rule_logits,\
     token_logits,\
-    predictions,\
-    attention_weights = seq2tree.apply(
+    pred_act_types, pred_act_values,\
+    attention_weights,\
+    predicted_out_len = seq2tree.apply(
       {'params': initial_params['params']},
       encoder_inputs=enc_inputs,
       decoder_inputs=dec_inputs,
@@ -431,9 +435,11 @@ class ModelsTest(parameterized.TestCase):
                       (batch_size, max_len, rule_vocab_size))
     self.assertEqual(token_logits.shape,
                       (batch_size, max_len, token_vocab_size))
-    self.assertEqual(predictions.shape, (batch_size, max_len))
+    self.assertEqual(pred_act_types.shape, (batch_size, max_len))
+    self.assertEqual(pred_act_values.shape, (batch_size, max_len))
     self.assertEqual(
       attention_weights.shape, (batch_size, predicted_length, input_length))
+    self.assertNotEqual(predicted_out_len, None)
 
 
 if __name__ == '__main__':

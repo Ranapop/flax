@@ -221,17 +221,22 @@ def log(step: int, train_metrics: Dict, dev_metrics: Dict):
       step + 1, train_metrics[LOSS_KEY], dev_metrics[LOSS_KEY],
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
-
 def write_examples(file: TextIO, no_logged_examples: int,
-                   gold_outputs: jnp.array, inferred_outputs: jnp.array,
+                   gold_batch: Dict, inferred_batch: Dict,
                    attention_weights: jnp.array,
                    data_source: inp.CFQDataSource):
-  #log the first examples in the batch
-  gold_seq = indices_to_str(gold_outputs, data_source)
-  inferred_seq = indices_to_str(inferred_outputs, data_source)
+  #Log the first examples in the batch.
   for i in range(0, no_logged_examples):
-    file.write('\nGold seq:\n {0} \nInferred seq:\n {1}\n'.format(gold_seq[i],
-                  inferred_seq[i]))
+    gold_seq = data_source.action_seq_to_query(
+      gold_batch[inp_constants.ACTION_TYPES_KEY][i],
+      gold_batch[inp_constants.ACTION_VALUES_KEY][i],
+      gold_batch[inp_constants.ACTION_SEQ_LEN_KEY][i])
+    inferred_seq = data_source.action_seq_to_query(
+      inferred_batch[inp_constants.ACTION_TYPES_KEY][i],
+      inferred_batch[inp_constants.ACTION_VALUES_KEY][i],
+      inferred_batch[inp_constants.ACTION_SEQ_LEN_KEY][i])
+    file.write('\nGold seq:\n {0} \nInferred seq:\n {1}\n'.format(gold_seq,
+                  inferred_seq))
     file.write('Attention weights\n')
     np.savetxt(file, attention_weights[i], fmt='%0.2f')
 
@@ -270,7 +275,7 @@ def train_step(optimizer: Any,
       grammar_info,
       token_vocab_size,
       train=True)
-    nan_error, rule_logits, token_logits, predictions, _ = \
+    nan_error, rule_logits, token_logits, pred_act_types, pred_act_values, _, _ = \
       seq2tree.apply(
         {'params': params}, 
         encoder_inputs=inputs,
@@ -284,18 +289,18 @@ def train_step(optimizer: Any,
                               queries_lengths,
                               grammar_info.rule_vocab_size,
                               token_vocab_size)
-    return loss, (nan_error, rule_logits, token_logits, predictions)
+    return loss, (nan_error, rule_logits, token_logits, pred_act_types, pred_act_values)
 
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
   (_, output), grad = grad_fn(optimizer.target)
-  nan_error, rule_logits, token_logits, predictions = output
+  nan_error, rule_logits, token_logits, pred_act_types, pred_act_values = output
   grad = jax.lax.pmean(grad, axis_name='batch')
   grad = clip_grads(grad, max_norm=1.0)
   optimizer = optimizer.apply_gradient(grad)
   metrics = {}
   metrics = compute_metrics(rule_logits,
                             token_logits,
-                            predictions,
+                            pred_act_values,
                             action_values,
                             action_types,
                             queries_lengths,
@@ -334,13 +339,15 @@ def infer(params, inputs: jnp.array, inputs_lengths: jnp.array,
       grammar_info,
       token_vocab_size,
       train=False)
-  _, rule_logits, token_logits, predictions, attention_weights = \
+  _, rule_logits, token_logits,\
+     pred_act_types, pred_act_values, attention_weights, predicted_len = \
     seq2tree.apply(
       {'params': params},
       encoder_inputs=inputs,
       decoder_inputs=decoder_inputs,
       encoder_inputs_lengths=inputs_lengths)
-  return rule_logits, token_logits, predictions, attention_weights
+  return rule_logits, token_logits,\
+    pred_act_types, pred_act_values, attention_weights, predicted_len
 
 
 def evaluate_model(params: Any,
@@ -370,26 +377,32 @@ def evaluate_model(params: Any,
     gold_outputs = batch['action_values']
     gold_action_types = batch['action_types']
     queries_lengths = batch['action_seq_len'] - 1
-    rule_logits, token_logits, inferred_outputs, attention_weights = \
-      infer(params,
-            inputs, input_lengths,
-            data_source.grammar_info,
-            data_source.tokens_vocab_size,
-            data_source.bos_idx,
-            predicted_output_length)
+    rule_logits, token_logits,\
+      pred_act_types, pred_act_values, attention_weights, predicted_len = \
+        infer(params,
+              inputs, input_lengths,
+              data_source.grammar_info,
+              data_source.tokens_vocab_size,
+              data_source.bos_idx,
+              predicted_output_length)
     metrics = compute_metrics(
       rule_logits,
       token_logits,
-      inferred_outputs,
+      pred_act_values,
       gold_outputs,
       gold_action_types,
       queries_lengths,
       data_source.grammar_info.rule_vocab_size,
       data_source.tokens_vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
+    predicted_batch = {
+      inp_constants.ACTION_TYPES_KEY: pred_act_types,
+      inp_constants.ACTION_VALUES_KEY: pred_act_values,
+      inp_constants.ACTION_SEQ_LEN_KEY: predicted_len
+    }
     if no_logged_examples is not None and no_batches == 0:
       write_examples(logging_file, no_logged_examples,
-                     gold_outputs, inferred_outputs,
+                     batch, predicted_batch,
                      attention_weights,
                      data_source)
     no_batches += 1
