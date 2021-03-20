@@ -126,7 +126,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 0: ApplyRule query -> select_query
     current_node_value = frontier_nodes[-1].value
     expected_node_value = 'query'
-    frontier_nodes = apply_action(frontier_nodes, actions[0], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[0], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['select_query']
     self.assertEqual(current_node_value, expected_node_value)
@@ -134,7 +134,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 1: ApplyRule select_query -> select_clause "WHERE" "{" where_clause "}"
     current_node_value = frontier_nodes[-1].value
     expected_node_value = 'select_query'
-    frontier_nodes = apply_action(frontier_nodes, actions[1], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[1], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['where_clause', 'select_clause']
     self.assertEqual(current_node_value, expected_node_value)
@@ -142,7 +142,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 2: ApplyRule select_clause -> "SELECT" "DISTINCT" "?x0"
     current_node_value = frontier_nodes[-1].value
     expected_node_value = 'select_clause'
-    frontier_nodes = apply_action(frontier_nodes, actions[2], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[2], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['where_clause']
     self.assertEqual(current_node_value, expected_node_value)
@@ -150,7 +150,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 3: ApplyRule where_clause -> where_entry
     current_node_value = frontier_nodes[-1].value
     expected_node_value = 'where_clause'
-    frontier_nodes = apply_action(frontier_nodes, actions[3], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[3], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['where_entry']
     self.assertEqual(current_node_value, expected_node_value)
@@ -158,7 +158,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 4: ApplyRule where_entry -> triples_block
     current_node_value = frontier_nodes[-1].value
     expected_node_value = 'where_entry'
-    frontier_nodes = apply_action(frontier_nodes, actions[4], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[4], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['triples_block']
     self.assertEqual(current_node_value, expected_node_value)
@@ -166,7 +166,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 5: ApplyRule triples_block -> var_token TOKEN var_token
     current_node_value = frontier_nodes[-1].value
     expected_node_value = 'triples_block'
-    frontier_nodes = apply_action(frontier_nodes, actions[5], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[5], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['var_token', 'TOKEN', 'var_token']
     self.assertEqual(current_node_value, expected_node_value)
@@ -174,7 +174,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 6: ApplyRule var_token -> VAR
     current_node_value = frontier_nodes[-1].value
     expected_node_value = 'var_token'
-    frontier_nodes = apply_action(frontier_nodes, actions[6], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[6], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['var_token', 'TOKEN', 'VAR']
     self.assertEqual(current_node_value, expected_node_value)
@@ -182,7 +182,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 7: ApplyRule VAR -> "?x0"
     current_node_value = frontier_nodes[-1].value
     expected_node_value = 'VAR'
-    frontier_nodes = apply_action(frontier_nodes, actions[7], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[7], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['var_token', 'TOKEN']
     self.assertEqual(current_node_value, expected_node_value)
@@ -190,7 +190,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 8: ApplyRule TOKEN -> /[^\s]+/
     current_node_value = frontier_nodes[-1].value
     expected_node_value = 'TOKEN'
-    frontier_nodes = apply_action(frontier_nodes, actions[8], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[8], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['var_token', '[^\s]+']
     self.assertEqual(current_node_value, expected_node_value)
@@ -198,7 +198,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 9: GenerateToken 'a'
     current_node_value = frontier_nodes[-1].value
     expected_node_value = '[^\s]+'
-    frontier_nodes = apply_action(frontier_nodes, actions[9], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[9], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['var_token']
     self.assertEqual(current_node_value, expected_node_value)
@@ -206,7 +206,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 10: ApplyRule var_token -> TOKEN
     current_node_value = frontier_nodes[-1].value
     expected_node_value = 'var_token'
-    frontier_nodes = apply_action(frontier_nodes, actions[10], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[10], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['TOKEN']
     self.assertEqual(current_node_value, expected_node_value)
@@ -214,7 +214,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 11: ApplyRule TOKEN -> /[^\s]+/
     current_node_value = frontier_nodes[-1].value
     expected_node_value = 'TOKEN'
-    frontier_nodes = apply_action(frontier_nodes, actions[11], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[11], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['[^\s]+']
     self.assertEqual(current_node_value, expected_node_value)
@@ -222,7 +222,7 @@ class GrammarTest(parameterized.TestCase):
     # Step 12: GenerateToken 'people.person'
     current_node_value = frontier_nodes[-1].value
     expected_node_value = '[^\s]+'
-    frontier_nodes = apply_action(frontier_nodes, actions[12], grammar)
+    frontier_nodes, _ = apply_action(frontier_nodes, actions[12], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = []
     self.assertEqual(current_node_value, expected_node_value)
