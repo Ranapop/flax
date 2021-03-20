@@ -76,7 +76,8 @@ def get_initial_params(rng: jax.random.PRNGKey, vocab_size: int):
   initial_batch = [
       jnp.zeros((1, 1), jnp.uint8),
       jnp.zeros((1, 2), jnp.uint8),
-      jnp.zeros((1,), jnp.uint8)
+      # Avoid nans in the attention softmax by masking everything out.
+      jnp.ones((1,), jnp.uint8)
     ]
   initial_params = seq2seq.init(rng,
       initial_batch[0],

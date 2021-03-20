@@ -29,6 +29,8 @@ import train_syntax_based
 # stage out as much as possible to XLA, not only computations depending
 # on arguments, see https://github.com/google/jax/pull/3370
 config.enable_omnistaging()
+# To be able to pass --jax_debug_nans=True for enabling debugging.
+config.parse_flags_with_absl()
 # "magic commands" to make sure jax doesn't take too much memory
 # that cuBLAS can't load its kernels into memory.
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # or pass as env var
@@ -55,6 +57,12 @@ flags.DEFINE_integer('eval_frequency',
                      short_name='e',
                      default=100,
                      help=('At how many steps evaluation is performed.'))
+
+flags.DEFINE_integer('detail_log_frequency',
+                     short_name='l',
+                     default=1000,
+                     help=("""At how many steps detailed logging is performed
+                           for example logging queries or attention scores"""))
 
 flags.DEFINE_integer(
     'max_query_length',
@@ -127,7 +135,8 @@ def main(_):
                              batch_size=FLAGS.batch_size,
                              bucketing=FLAGS.use_bucketing,
                              model_dir=FLAGS.model_dir,
-                             eval_freq=FLAGS.eval_frequency)
+                             eval_freq=FLAGS.eval_frequency,
+                             detail_log_freq=FLAGS.detail_log_frequency)
 
 
 if __name__ == '__main__':

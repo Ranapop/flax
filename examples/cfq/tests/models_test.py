@@ -3,6 +3,7 @@ from absl.testing import parameterized
 
 import jax
 from jax import random
+from jax.config import config
 import jax.numpy as jnp
 import flax
 from flax import nn
@@ -12,6 +13,10 @@ import models
 from models import Encoder, MlpAttention, RecurrentDropoutMasks, Decoder,\
   Seq2seq, MultilayerLSTMCell, MultilayerLSTM, Seq2tree
 
+# To be able to pass --jax_debug_nans=True for enabling debugging.
+config.parse_flags_with_absl()
+# Deactivate jitting for better debugging.
+# config.update('jax_disable_jit', True)
 
 class ModelsTest(parameterized.TestCase):
 
@@ -178,7 +183,8 @@ class ModelsTest(parameterized.TestCase):
         (batch_size, hidden_size)), jnp.zeros((batch_size, hidden_size)))
     initial_states = [initial_state] * num_layers
     enc_hidden_states = jnp.zeros((batch_size, input_seq_len, hidden_size))
-    mask = jnp.zeros((batch_size, input_seq_len), dtype=bool)
+    # If the mask is all False it leads to nan in the softmax.
+    mask = jnp.ones((batch_size, input_seq_len), dtype=bool)
     class DummyModule(nn.Module):
 
       @nn.compact
@@ -221,7 +227,7 @@ class ModelsTest(parameterized.TestCase):
         (batch_size, hidden_size)), jnp.zeros((batch_size, hidden_size)))
     initial_states = [initial_state] * num_layers
     enc_hidden_states = jnp.zeros((batch_size, input_seq_len, hidden_size))
-    mask = jnp.zeros((batch_size, input_seq_len), dtype=bool)
+    mask = jnp.ones((batch_size, input_seq_len), dtype=bool)
 
     class DummyModule(nn.Module):
 
@@ -281,7 +287,8 @@ class ModelsTest(parameterized.TestCase):
     init_batch = [
       jnp.zeros((1, 1), jnp.uint8),
       jnp.zeros((1, 2), jnp.uint8),
-      jnp.zeros((1,), jnp.uint8)
+      # To make sure the mask is not zero-valued.
+      jnp.ones((1,), jnp.uint8)
     ]
     initial_params = seq2seq.init(random.PRNGKey(0),
       init_batch[0],
@@ -299,7 +306,24 @@ class ModelsTest(parameterized.TestCase):
     self.assertEqual(
       attention_weights.shape, (batch_size, predicted_length, input_length))
 
-  
+  class FakeGrammarInfo():
+
+    def __init__(self, node_vocab_size, rule_vocab_size):
+      self.node_vocab_size = node_vocab_size
+      self.rule_vocab_size = rule_vocab_size
+      nodes_to_action_types = jnp.zeros((node_vocab_size))
+      expanded_nodes_list = [[0] for i in range(rule_vocab_size+1)]
+      expanded_nodes_arr = jnp.array(expanded_nodes_list)
+      expanded_lengths = jnp.zeros(rule_vocab_size+1)
+      expanded_nodes = (expanded_nodes_arr, expanded_lengths)
+      valid_rules_by_nodes = jnp.ones(
+        (node_vocab_size, rule_vocab_size), dtype=bool)
+      self.nodes_to_action_types = nodes_to_action_types
+      self.expanded_nodes = expanded_nodes
+      self.max_node_expansion = 3
+      self.grammar_entry = 0
+      self.valid_rules_by_nodes = valid_rules_by_nodes
+
   def test_seq_2_tree_train_apply(self):
     rule_vocab_size = 10
     token_vocab_size = 100
@@ -322,20 +346,18 @@ class ModelsTest(parameterized.TestCase):
       ]
     ]
     dec_inputs = jnp.array(dec_inputs)
-    nodes_to_action_types = jnp.zeros((node_vocab_size))
     input_length = 3
     predicted_length = 4
+    grammar_info = self.FakeGrammarInfo(node_vocab_size, rule_vocab_size)
 
     seq2tree = models.Seq2tree(
-      nodes_to_action_types=nodes_to_action_types,
-      rule_vocab_size=rule_vocab_size,
+      grammar_info=grammar_info,
       token_vocab_size=token_vocab_size,
-      node_vocab_size=node_vocab_size,
       train=False)
     init_batch = [
       jnp.zeros((1, 1), jnp.uint8),
-      jnp.zeros((1, 3, 1), jnp.uint8),
-      jnp.zeros((1,), jnp.uint8)
+      jnp.zeros((1, 1, 1), jnp.uint8),
+      jnp.ones((1,), jnp.uint8)
     ]
     initial_params = seq2tree.init(random.PRNGKey(0),
       init_batch[0],
@@ -343,26 +365,32 @@ class ModelsTest(parameterized.TestCase):
       init_batch[2])
 
     seq2tree = models.Seq2tree(
-      nodes_to_action_types=nodes_to_action_types,
-      rule_vocab_size=rule_vocab_size,
+      grammar_info=grammar_info,
       token_vocab_size=token_vocab_size,
-      node_vocab_size=node_vocab_size,
       train=True)
-    rule_logits,\
-    token_logits,\
-    predictions,\
-    attention_weights = seq2tree.apply(
-      {'params': initial_params['params']},
-      encoder_inputs=enc_inputs,
-      decoder_inputs=dec_inputs,
-      encoder_inputs_lengths=lengths,
-      rngs={'dropout': random.PRNGKey(0)})
-    self.assertEqual(rule_logits.shape,
-                      (batch_size, predicted_length, rule_vocab_size))
-    self.assertEqual(token_logits.shape,
-                      (batch_size, predicted_length, token_vocab_size))
-    self.assertEqual(predictions.shape, (batch_size, predicted_length))
-    self.assertEqual(attention_weights, None)
+
+    @jax.jit
+    def apply_model():
+      nan_error,\
+      rule_logits,\
+      token_logits,\
+      pred_act_types, pred_act_values,\
+      attention_weights = seq2tree.apply(
+        {'params': initial_params['params']},
+        encoder_inputs=enc_inputs,
+        decoder_inputs=dec_inputs,
+        encoder_inputs_lengths=lengths,
+        rngs={'dropout': random.PRNGKey(0)})
+      self.assertEqual(rule_logits.shape,
+                        (batch_size, predicted_length, rule_vocab_size))
+      self.assertEqual(token_logits.shape,
+                        (batch_size, predicted_length, token_vocab_size))
+      self.assertEqual(pred_act_types.shape, (batch_size, predicted_length))
+      self.assertEqual(pred_act_values.shape, (batch_size, predicted_length))
+      self.assertEqual(attention_weights, None)
+      return nan_error
+
+    nan_error = apply_model()
   
   def test_seq_2_tree_inference_apply(self):
     rule_vocab_size = 20
@@ -375,27 +403,26 @@ class ModelsTest(parameterized.TestCase):
     dec_inputs = jnp.zeros((batch_size, 3, max_len), dtype=jnp.uint8)
     input_length = 3
     predicted_length = 4
-    nodes_to_action_types = jnp.zeros((node_vocab_size))
+    grammar_info = self.FakeGrammarInfo(node_vocab_size, rule_vocab_size)
 
     seq2tree = models.Seq2tree(
-      nodes_to_action_types=nodes_to_action_types,
-      rule_vocab_size=rule_vocab_size,
+      grammar_info=grammar_info,
       token_vocab_size=token_vocab_size,
-      node_vocab_size=node_vocab_size,
       train=False)
     init_batch = [
       jnp.zeros((1, 1), jnp.uint8),
-      jnp.zeros((1, 3, 1), jnp.uint8),
-      jnp.zeros((1,), jnp.uint8)
+      jnp.zeros((1, 1, 1), jnp.uint8),
+      jnp.ones((1,), jnp.uint8)
     ]
     initial_params = seq2tree.init(random.PRNGKey(0),
       init_batch[0],
       init_batch[1],
       init_batch[2])
 
+    nan_error,\
     rule_logits,\
     token_logits,\
-    predictions,\
+    pred_act_types, pred_act_values,\
     attention_weights = seq2tree.apply(
       {'params': initial_params['params']},
       encoder_inputs=enc_inputs,
@@ -405,7 +432,8 @@ class ModelsTest(parameterized.TestCase):
                       (batch_size, max_len, rule_vocab_size))
     self.assertEqual(token_logits.shape,
                       (batch_size, max_len, token_vocab_size))
-    self.assertEqual(predictions.shape, (batch_size, max_len))
+    self.assertEqual(pred_act_types.shape, (batch_size, max_len))
+    self.assertEqual(pred_act_values.shape, (batch_size, max_len))
     self.assertEqual(
       attention_weights.shape, (batch_size, predicted_length, input_length))
 
