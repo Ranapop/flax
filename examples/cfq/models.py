@@ -645,19 +645,16 @@ class SyntaxBasedDecoderLSTM(nn.Module):
       input=lstm_input,
       previous_states=previous_states,
       train=self.train)
-    # Rule logits are the projection when the action type is 0 (ApplyRule).
-    neg_inf_rule_logits = jnp.full(self.grammar_info.rule_vocab_size, -jnp.inf)
-    rule_logits = jnp.where(action_type,
-                            neg_inf_rule_logits,
-                            self.rule_projection(h))
+    rule_logits = self.rule_projection(h)
     # Only predict valid rules.
     valid_rules = self.grammar_info.valid_rules_by_nodes[node_type]
-    rule_logits = jnp.where(valid_rules, rule_logits, neg_inf_rule_logits)
-    # Token logits are the projection when the action type is 1 (GenerateToken).
-    token_logits = jnp.where(action_type,
-                             self.token_projection(h),
-                             jnp.full(self.token_vocab_size, -jnp.inf))
-    predicted_rules = jnp.argmax(nn.softmax(rule_logits, axis=-1), axis=-1)
+    # Only mask the logits used for predictions (so the loss doesn't get inf).
+    masked_rule_logits = jnp.where(
+      valid_rules,
+      rule_logits,
+      jnp.full(self.grammar_info.rule_vocab_size, -jnp.inf))
+    token_logits = self.token_projection(h)
+    predicted_rules = jnp.argmax(nn.softmax(masked_rule_logits, axis=-1), axis=-1)
     predicted_tokens = jnp.argmax(nn.softmax(token_logits, axis=-1), axis=-1)
     pred_action_value = jnp.where(action_type, predicted_tokens, predicted_rules)
     pred_action_value = jnp.asarray(pred_action_value, dtype=jnp.uint8)
