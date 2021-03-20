@@ -42,6 +42,7 @@ import input_pipeline as inp
 import input_pipeline_constants as inp_constants
 import models
 from grammar_info import GrammarInfo
+import train_util
 
 BatchType = Dict[Text, jnp.array]
 
@@ -229,15 +230,24 @@ def write_examples(summary_writer: tensorboard.SummaryWriter,
                    data_source: inp.CFQDataSource):
   #Log the first examples in the batch.
   for i in range(0, no_logged_examples):
-    gold_seq = data_source.action_seq_to_query(
+    # Log queries.
+    gold_seq, _ = data_source.action_seq_to_query(
       gold_batch[inp_constants.ACTION_TYPES_KEY][i],
       gold_batch[inp_constants.ACTION_VALUES_KEY][i])
-    inferred_seq = data_source.action_seq_to_query(
+    inferred_seq, actions_as_strings = data_source.action_seq_to_query(
       inferred_batch[inp_constants.ACTION_TYPES_KEY][i],
       inferred_batch[inp_constants.ACTION_VALUES_KEY][i])
     logged_text = 'Gold seq:  \n {0}  \nInferred seq:  \n {1}  \n'.format(
       gold_seq, inferred_seq)
     summary_writer.text('Example {}'.format(i), logged_text, step)
+    # Log attention scores.
+    question = gold_batch[inp_constants.QUESTION_KEY][i]
+    question = data_source.indices_to_sequence_string(question).split()
+    question_len = len(question)
+    act_seq_len = len(actions_as_strings)
+    attention_weights_no_pad = attention_weights[i][0:question_len][0:act_seq_len]
+    train_util.save_attention_img_to_tensorboard(
+      summary_writer, step, question, actions_as_strings, attention_weights_no_pad)
     file.write('Attention weights\n')
     np.savetxt(file, attention_weights[i], fmt='%0.2f')
 
@@ -506,6 +516,9 @@ def train_model(learning_rate: float = None,
       train_metrics = []
       # evaluate
       params = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
+      no_logged_examples=None
+      if (step + 1) % detail_log_freq ==0:
+        no_logged_examples=3
       dev_metrics = evaluate_model(params=params,
                                   batches=dev_batches,
                                   data_source=data_source,
@@ -513,7 +526,7 @@ def train_model(learning_rate: float = None,
                                   logging_file_name = logging_file_name,
                                   summary_writer=eval_summary_writer,
                                   step=step,
-                                  no_logged_examples=3)
+                                  no_logged_examples=no_logged_examples)
       log(step, train_summary, dev_metrics)
       save_to_tensorboard(train_summary_writer, train_summary, step)
       save_to_tensorboard(eval_summary_writer, dev_metrics, step)

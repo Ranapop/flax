@@ -392,7 +392,7 @@ class ModelsTest(parameterized.TestCase):
 
     nan_error = apply_model()
   
-  def test_seq_2_tree_inference_apply(self):
+  def est_seq_2_tree_inference_apply(self):
     rule_vocab_size = 20
     token_vocab_size = 100
     node_vocab_size = 15

@@ -211,6 +211,16 @@ class CFQDataSource:
         shuffle=shuffle,
         drop_remainder=drop_remainder)
 
+  def indices_to_sequence_string(self,
+                                 indices: jnp.ndarray,
+                                 keep_padding: bool = False) -> Text:
+    """Transforms a list of vocab indices into a string
+    (e.g. from token indices to question/query). When keep_padding is False,
+    the padding tokens are filtered out (zero-valued indices)."""
+    tokens = [self.i2w[i].decode() for i in indices if keep_padding or i!=0]
+    str_seq = ' '.join(tokens)
+    return str_seq
+
 
 class Seq2SeqCfqDataSource(CFQDataSource):
   """Provides the cfq data for a seq2seq model (tokenized input and output
@@ -249,16 +259,6 @@ class Seq2SeqCfqDataSource(CFQDataSource):
   def get_output_length(self, example: ExampleType) -> tf.Tensor:
     """Function that takes a dataset entry and returns the query length."""
     return example[QUERY_LEN_KEY]
-
-  def indices_to_sequence_string(self,
-                                 indices: jnp.ndarray,
-                                 keep_padding: bool = False) -> Text:
-    """Transforms a list of vocab indices into a string
-    (e.g. from token indices to question/query). When keep_padding is False,
-    the padding tokens are filtered out (zero-valued indices)."""
-    tokens = [self.i2w[i].decode() for i in indices if keep_padding or i!=0]
-    str_seq = ' '.join(tokens)
-    return str_seq
 
 
 class Seq2TreeCfqDataSource(CFQDataSource):
@@ -318,7 +318,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     query = query.numpy()
     query = query.decode()
     act_sequence = asg.generate_action_sequence(query, self.grammar)
-    root = node.apply_sequence_of_actions(act_sequence, self.grammar)
+    root, _ = node.apply_sequence_of_actions(act_sequence, self.grammar)
     parent_steps = node.get_parent_time_steps(root)
     node_types = node.get_node_types(root)
     node_types = [self.grammar_info.node_vocab[node_type] for node_type in node_types]
@@ -376,8 +376,8 @@ class Seq2TreeCfqDataSource(CFQDataSource):
       action = (action_type, action_value)
       actions.append(action)
     # Construct tree and extract query.
-    tree = node.apply_sequence_of_actions(actions, self.grammar)
-    return node.extract_query(tree, self.grammar)
+    tree, applied_actions = node.apply_sequence_of_actions(actions, self.grammar)
+    return node.extract_query(tree, self.grammar), applied_actions
   
 
 
