@@ -51,6 +51,7 @@ TRAIN_LOSSES = 'train loss'
 TEST_ACCURACIES = 'test acc'
 TEST_LOSSES = 'test loss'
 
+EARLY_STOPPING_STEPS = 10
 
 def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
   """Set positions beyond the length of each sequence to 0."""
@@ -434,10 +435,28 @@ def train_model(learning_rate: float = None,
       save_to_tensorboard(train_summary_writer, train_summary, step + 1)
       save_to_tensorboard(eval_summary_writer, dev_metrics, step + 1)
 
-  logging.info('Done training')
+      # Save best model.
+      dev_acc = dev_metrics[ACC_KEY]
+      if best_acc < dev_acc:
+        best_acc = dev_acc
+        checkpoints.save_checkpoint(model_dir, optimizer, num_train_steps, keep=1)
 
-  logging.info('Saving model at %s', model_dir)
-  checkpoints.save_checkpoint(model_dir, optimizer, num_train_steps)
+      
+      if early_stopping:
+        # Early stopping (stop when model dev acc avg decreases).
+        if len(last_dev_accuracies) == 2 * EARLY_STOPPING_STEPS:
+          # remove the oldest stored accuracy.
+          del last_dev_accuracies[0]
+        # Store the most recent accuracy.
+        last_dev_accuracies.append(dev_metrics[ACC_KEY])
+        if len(last_dev_accuracies) == 2 * EARLY_STOPPING_STEPS:
+          old_avg = sum(last_dev_accuracies[0:EARLY_STOPPING_STEPS])/EARLY_STOPPING_STEPS
+          new_avg = sum(last_dev_accuracies[EARLY_STOPPING_STEPS:])/EARLY_STOPPING_STEPS
+          if new_avg < old_avg:
+            # Stop training
+            break
+
+  logging.info('Done training')
 
 
   return optimizer.target
