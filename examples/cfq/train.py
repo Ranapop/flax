@@ -463,25 +463,35 @@ def train_model(learning_rate: float = None,
 
   return optimizer.target
 
-
-#TODO: migrate to linen.
 def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
                seed: int, batch_size: int):
   """Evaluate model at model_dir on dev subset"""
   rng = jax.random.PRNGKey(seed)
-  logging_file_name = os.path.join(model_dir, 'eval_logged_examples.txt')
-  model = create_model(data_source.tokens_vocab_size)
-  optimizer = flax.optim.Adam().create(model)
+  rng, init_rng = jax.random.split(rng)
+  initial_params = get_initial_params(
+    init_rng,
+    data_source.tokens_vocab_size)
+  optimizer = flax.optim.Adam().create(initial_params)
   optimizer = checkpoints.restore_checkpoint(model_dir, optimizer)
   dev_batches = data_source.get_batches(split = 'dev',
                                         batch_size=batch_size,
                                         shuffle=True)
+  tensorboard_dir = os.path.join(model_dir, 'test')
+  if os.path.isdir(tensorboard_dir):
+    # Remove old tensorboard logs.
+    shutil.rmtree(tensorboard_dir)
+  summary_writer = tensorboard.SummaryWriter(tensorboard_dir)
   # evaluate
-  dev_metrics = evaluate_model(model=optimizer.target,
-                                batches=dev_batches,
-                                data_source=data_source,
-                                predicted_output_length=max_out_len,
-                                logging_file_name = logging_file_name,
-                                no_logged_examples=3)
-  logging.info('Loss %.4f, acc %.2f', dev_metrics[LOSS_KEY],
-                dev_metrics[ACC_KEY])
+  params = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
+  dev_metrics = evaluate_model(params=params,
+                               batches=dev_batches,
+                               data_source=data_source,
+                               predicted_output_length=max_out_len,
+                               summary_writer=summary_writer,
+                               step=1,
+                               no_logged_examples=10)
+  loss = dev_metrics[LOSS_KEY]
+  acc = dev_metrics[ACC_KEY]
+  summary_writer.text('Loss',  '{:.4f}'.format(loss), step=1)
+  summary_writer.text('Acc',  '{:.4f}'.format(acc), step=1)
+  logging.info('Loss %.4f, acc %.4f', loss, acc)
