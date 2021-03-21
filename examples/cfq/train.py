@@ -405,6 +405,7 @@ def train_model(learning_rate: float = None,
 
   train_iter = iter(train_batches)
   train_metrics = []
+  best_acc = 0
   for step, batch in zip(range(num_train_steps), train_iter):
     if batch_size % jax.device_count() > 0:
       raise ValueError('Batch size must be divisible by the number of devices')
