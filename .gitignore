@@ -1,6 +1,7 @@
 *~
 \#*\#
 *.pyc
+.tfds
 .DS_Store
 docs/_autosummary
 docs/_build
@@ -8,4 +9,4 @@ dist/
 build/
 *.egg-info
 *.rej
-examples/cfq/temp/*
+.pytype

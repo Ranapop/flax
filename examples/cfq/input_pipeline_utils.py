@@ -25,7 +25,7 @@ import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 from absl import logging
 
-import constants
+import input_pipeline_constants as inp_constants
 
 tf.config.experimental.set_visible_devices([], "GPU")
 
@@ -42,8 +42,8 @@ def create_reversed_dataset(no_examples: int, min_len: int, max_len: int):
   data = list(zip(inputs, outputs))
   tf_data = tf.data.Dataset.from_tensor_slices(data)
   tf_data = tf_data.map(lambda ex: {
-      constants.QUESTION_KEY: ex[0],
-      constants.QUERY_KEY: ex[1]
+      inp_constants.QUESTION_KEY: ex[0],
+      inp_constants.QUERY_KEY: ex[1]
   })
   return tf_data
 
@@ -87,7 +87,7 @@ def _get_tokens(input_features: Dict, tokenizer: text.Tokenizer,
   for dataset in datasets:
     # Apply the tokenizer to all input features.
     tokenized_dataset = dataset.map(_tokenize_input_features,
-                                    num_parallel_calls=constants.AUTOTUNE)
+                                    num_parallel_calls=inp_constants.AUTOTUNE)
     # Yield all tokenized input features (i.e., tokenized input sentences).
     for example in tfds.as_numpy(tokenized_dataset):
       for feature in input_features:
@@ -98,10 +98,10 @@ def build_vocabulary(file_name: Text,
                      input_features: Dict,
                      tokenizer: text.Tokenizer,
                      datasets: Iterable[tf.data.Dataset],
-                     special_tokens: Sequence[bytes] = (constants.PAD,
-                                                        constants.UNK,
-                                                        constants.BOS,
-                                                        constants.EOS),
+                     special_tokens: Sequence[bytes] = (inp_constants.PAD,
+                                                        inp_constants.UNK,
+                                                        inp_constants.BOS,
+                                                        inp_constants.EOS),
                      preprocessing_fun: Any = lambda x: x,
                      force_generation: bool = False) -> Dict[bytes, int]:
   """Returns a vocabulary of tokens with optional minimum frequency.
@@ -278,4 +278,4 @@ def get_bucketed_batches(dataset: tf.data.Dataset,
     dataset = dataset.apply(bucket_fn)
   if training:
     dataset = dataset.repeat()
-  return dataset.prefetch(constants.AUTOTUNE)
+  return dataset.prefetch(inp_constants.AUTOTUNE)

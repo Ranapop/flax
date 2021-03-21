@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 # pylint: disable=g-multiple-import
 # re-export commonly used modules and functions
 from .adam import Adam
+from .adafactor import Adafactor
 from .adagrad import Adagrad
 from .base import OptimizerState, OptimizerDef, Optimizer, MultiOptimizer, ModelParamTraversal
 from .dynamic_scale import DynamicScale
@@ -29,6 +30,7 @@ from .weight_norm import WeightNorm
 
 __all__ = [
     "Adam",
+    "Adafactor",
     "Adagrad",
     "OptimizerState",
     "OptimizerDef",

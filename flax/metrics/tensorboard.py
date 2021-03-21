@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,6 +27,8 @@ with warnings.catch_warnings():
     mpl.use('Agg')
 # pylint: disable=g-import-not-at-top
 import numpy as onp
+
+from tensorboard.plugins.hparams import api as hparams_api
 import tensorflow.compat.v2 as tf
 
 
@@ -163,3 +165,12 @@ class SummaryWriter(object):
           tensor=tensor,
           step=step,
           metadata=metadata)
+
+  def hparams(self, hparams):
+    """Saves hyper parameters.
+
+    Args:
+      hparams: Flat mapping from hyper parameter name to value.
+    """
+    with self._event_writer.as_default():
+      hparams_api.hparams(hparams=hparams)

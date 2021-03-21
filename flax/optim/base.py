@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Flax Optimizer api.
 
 Flax optimizers are defined using the OptimizerDef class which specifies the
@@ -63,7 +62,6 @@ Distributed training only requires a few extra additions::
 
 """
 
-import abc
 from typing import Any
 import warnings
 
@@ -77,10 +75,12 @@ import jax.numpy as jnp
 
 from ..nn import base
 
+from ..core import FrozenDict, unfreeze
+
 
 @struct.dataclass
 class OptimizerState:
-  step: int
+  step: jnp.ndarray
   param_states: Any
 
 
@@ -90,7 +90,6 @@ class OptimizerDef:
   def __init__(self, hyper_params):
     self.hyper_params = hyper_params
 
-  @abc.abstractmethod
   def apply_param_gradient(self, step, hyper_params, param, state, grad):
     """Apply a gradient for a single parameter.
 
@@ -103,9 +102,8 @@ class OptimizerDef:
     Returns:
       A tuple containing the new parameter and the new state.
     """
-    pass
+    raise NotImplementedError()
 
-  @abc.abstractmethod
   def init_param_state(self, param):
     """Initializes the state for a parameter.
 
@@ -114,7 +112,7 @@ class OptimizerDef:
     Returns:
       A named tuple containing the initial optimization state for the parameter.
     """
-    pass
+    raise NotImplementedError()
 
   def apply_gradient(self, hyper_params, params, state, grads):
     """Applies a gradient for a set of parameters.
@@ -142,7 +140,7 @@ class OptimizerDef:
 
   def init_state(self, params):
     param_states = jax.tree_map(self.init_param_state, params)
-    state = OptimizerState(0, param_states)
+    state = OptimizerState(jnp.asarray(0, dtype=jnp.int32), param_states)
     return state
 
   def update_hyper_params(self, **hyper_param_overrides):
@@ -216,13 +214,12 @@ class _NoAux:
   pass
 
 
-@struct.dataclass
-class Optimizer:
+class Optimizer(struct.PyTreeNode):
   """Wraps an optimizer with its hyper_params, state, and model parameters."""
 
   optimizer_def: OptimizerDef = struct.field(pytree_node=False)
-  state: Any
-  target: Any
+  state: Any = struct.field(pytree_node=True)
+  target: Any = struct.field(pytree_node=True)
 
   def apply_gradient(self, grads, **hyper_param_overrides):
     """Applies a pytree of gradients to the target.
@@ -477,6 +474,15 @@ class ModelParamTraversal(traverse_util.Traversal):
   def __init__(self, filter_fn):
     """Constructor a new ModelParamTraversal.
 
+    This traversal operates on a nested dictionary of paramaters and selects a subset
+    based on the `filter_fn` argument.
+
+    See `MultiOptimizer` for an example of how to use `ModelParamTraversal` to update
+    subsets of the paramater tree with a specific optimizer.
+
+    Backward compatibility:
+    When using the old api the paramaters can be encapsulated in a `flax.nn.Model` instance.
+
     Args:
       filter_fn: a function that takes a parameters full name and its value and
         returns whether this parameter should be selected or not. The name of a
@@ -486,27 +492,39 @@ class ModelParamTraversal(traverse_util.Traversal):
     self._filter_fn = filter_fn
 
   @staticmethod
-  def _check_inputs(inputs):
-    if not isinstance(inputs, base.Model):
+  def _get_params_dict(inputs):
+    if isinstance(inputs, base.Model):
+      return inputs.params
+    elif isinstance(inputs, (dict, FrozenDict)):
+      return unfreeze(inputs)
+    else:
       raise ValueError(
-          'ModelParamTraversal can only traverse a flax Model instance.')
+          'ModelParamTraversal can only traverse a flax Model instance or a nested dict.')
 
   def iterate(self, inputs):
-    self._check_inputs(inputs)
-    flat_dict = traverse_util.flatten_dict(inputs.params)
+    params = self._get_params_dict(inputs)
+    flat_dict = traverse_util.flatten_dict(params)
     for key, value in _sorted_items(flat_dict):
       path = '/' + '/'.join(key)
       if self._filter_fn(path, value):
         yield value
 
   def update(self, fn, inputs):
-    self._check_inputs(inputs)
-    flat_dict = traverse_util.flatten_dict(inputs.params)
+    params = self._get_params_dict(inputs)
+    flat_dict = traverse_util.flatten_dict(params, keep_empty_nodes=True)
     new_dict = {}
     for key, value in _sorted_items(flat_dict):
-      path = '/' + '/'.join(key)
-      if self._filter_fn(path, value):
-        value = fn(value)
+      # empty_node is not an actual leave. It's just a stub for empty nodes
+      # in the nested dict.
+      if value is not traverse_util.empty_node:
+        path = '/' + '/'.join(key)
+        if self._filter_fn(path, value):
+          value = fn(value)
       new_dict[key] = value
     new_params = traverse_util.unflatten_dict(new_dict)
-    return inputs.replace(params=new_params)
+    if isinstance(inputs, base.Model):
+      return inputs.replace(params=new_params)
+    elif isinstance(inputs, FrozenDict):
+      return FrozenDict(new_params)
+    else:
+      return new_params
