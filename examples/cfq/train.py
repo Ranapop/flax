@@ -40,6 +40,7 @@ from flax.metrics import tensorboard
 import input_pipeline as inp
 import input_pipeline_constants as inp_constants
 from models import Seq2seq
+import train_util
 
 BatchType = Dict[Text, jnp.array]
 
@@ -50,13 +51,7 @@ TRAIN_LOSSES = 'train loss'
 TEST_ACCURACIES = 'test acc'
 TEST_LOSSES = 'test loss'
 
-
-# vmap?
-def indices_to_str(batch_inputs: jnp.ndarray, data_source: inp.CFQDataSource):
-  """Decode a batch of one-hot encoding to strings."""
-  return np.array(
-      [data_source.indices_to_sequence_string(seq) for seq in batch_inputs])
-
+EARLY_STOPPING_STEPS = 10
 
 def mask_sequences(sequence_batch: jnp.array, lengths: jnp.array):
   """Set positions beyond the length of each sequence to 0."""
@@ -76,7 +71,8 @@ def get_initial_params(rng: jax.random.PRNGKey, vocab_size: int):
   initial_batch = [
       jnp.zeros((1, 1), jnp.uint8),
       jnp.zeros((1, 2), jnp.uint8),
-      jnp.zeros((1,), jnp.uint8)
+      # Avoid nans in the attention softmax by masking everything out.
+      jnp.ones((1,), jnp.uint8)
     ]
   initial_params = seq2seq.init(rng,
       initial_batch[0],
@@ -190,18 +186,30 @@ def log(step: int, train_metrics: Dict, dev_metrics: Dict):
       train_metrics[ACC_KEY], dev_metrics[ACC_KEY])
 
 
-def write_examples(file: TextIO, no_logged_examples: int,
+def write_examples(summary_writer: tensorboard.SummaryWriter,
+                   step: int,
+                   no_logged_examples,
+                   inputs: jnp.array,
                    gold_outputs: jnp.array, inferred_outputs: jnp.array,
                    attention_weights: jnp.array,
                    data_source: inp.CFQDataSource):
-  #log the first examples in the batch
-  gold_seq = indices_to_str(gold_outputs, data_source)
-  inferred_seq = indices_to_str(inferred_outputs, data_source)
+  #Log the first examples in the batch.
   for i in range(0, no_logged_examples):
-    file.write('\nGold seq:\n {0} \nInferred seq:\n {1}\n'.format(gold_seq[i],
-                  inferred_seq[i]))
-    file.write('Attention weights\n')
-    np.savetxt(file, attention_weights[i], fmt='%0.2f')
+    # Log queries.
+    gold_seq = data_source.indices_to_sequence_string(
+      gold_outputs[i]).split()
+    inferred_seq = data_source.indices_to_sequence_string(
+      inferred_outputs[i]).split()
+    logged_text = 'Gold seq:  \n {0}  \nInferred seq:  \n {1}  \n'.format(
+      gold_seq, inferred_seq)
+    summary_writer.text('Example {}'.format(i), logged_text, step)
+    # Log attention scores.
+    question = data_source.indices_to_sequence_string(inputs[i]).split()
+    question_len = len(question)
+    query_len = len(inferred_seq)
+    attention_weights_no_pad = attention_weights[i][0:question_len][0:query_len]
+    train_util.save_attention_img_to_tensorboard(
+      summary_writer, step, question, inferred_seq, attention_weights_no_pad)
 
 
 @functools.partial(jax.pmap, axis_name='batch', static_broadcasted_argnums=(3))
@@ -283,7 +291,8 @@ def evaluate_model(model: nn.Module,
                    batches: tf.data.Dataset,
                    data_source: inp.CFQDataSource,
                    predicted_output_length: int,
-                   logging_file_name: str,
+                   summary_writer: tensorboard.SummaryWriter,
+                   step: int,
                    no_logged_examples: int = None):
   """Evaluate the model on the validation/test batches
 
@@ -299,7 +308,6 @@ def evaluate_model(model: nn.Module,
     """
   no_batches = 0
   avg_metrics = {ACC_KEY: 0, LOSS_KEY: 0}
-  logging_file = open(logging_file_name,'a')
   for batch in tfds.as_numpy(batches):
     inputs = batch[inp_constants.QUESTION_KEY]
     input_lengths = batch[inp_constants.QUESTION_LEN_KEY]
@@ -318,13 +326,15 @@ def evaluate_model(model: nn.Module,
         data_source.tokens_vocab_size)
     avg_metrics = {key: avg_metrics[key] + metrics[key] for key in avg_metrics}
     if no_logged_examples is not None and no_batches == 0:
-      write_examples(logging_file, no_logged_examples,
+      write_examples(summary_writer,
+                     step + 1,
+                     no_logged_examples,
+                     inputs,
                      gold_outputs, inferred_outputs,
                      attention_weights,
                      data_source)
     no_batches += 1
   avg_metrics = {key: avg_metrics[key] / no_batches for key in avg_metrics}
-  logging_file.close()
   return avg_metrics
 
 
@@ -349,7 +359,9 @@ def train_model(learning_rate: float = None,
                 batch_size: int = None,
                 bucketing: bool = False,
                 model_dir=None,
-                eval_freq: float = None):
+                eval_freq: float = None,
+                detail_log_freq: float = None,
+                early_stopping: bool = False):
   """ Train model for num_train_steps.
 
     Do the training on data_source.train_dataset and evaluate on
@@ -362,7 +374,6 @@ def train_model(learning_rate: float = None,
     # same place twice.
     shutil.rmtree(model_dir)
   os.makedirs(model_dir)
-  logging_file_name = os.path.join(model_dir, 'logged_examples.txt')
   if jax.host_id() == 0:
     train_summary_writer = tensorboard.SummaryWriter(
         os.path.join(model_dir, 'train'))
@@ -395,6 +406,7 @@ def train_model(learning_rate: float = None,
 
   train_iter = iter(train_batches)
   train_metrics = []
+  best_acc = 0
   for step, batch in zip(range(num_train_steps), train_iter):
     if batch_size % jax.device_count() > 0:
       raise ValueError('Batch size must be divisible by the number of devices')
@@ -411,20 +423,42 @@ def train_model(learning_rate: float = None,
       train_metrics = []
       # evaluate
       model = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
+      no_logged_examples=None
+      if (step + 1) % detail_log_freq ==0:
+        no_logged_examples=3
       dev_metrics = evaluate_model(model=model,
                                   batches=dev_batches,
                                   data_source=data_source,
                                   predicted_output_length=max_out_len,
-                                  logging_file_name = logging_file_name,
-                                  no_logged_examples=3)
+                                  summary_writer=eval_summary_writer,
+                                  step=step,
+                                  no_logged_examples=no_logged_examples)
       log(step, train_summary, dev_metrics)
-      save_to_tensorboard(train_summary_writer, train_summary, step)
-      save_to_tensorboard(eval_summary_writer, dev_metrics, step)
+      save_to_tensorboard(train_summary_writer, train_summary, step + 1)
+      save_to_tensorboard(eval_summary_writer, dev_metrics, step + 1)
+
+      # Save best model.
+      dev_acc = dev_metrics[ACC_KEY]
+      if best_acc < dev_acc:
+        best_acc = dev_acc
+        checkpoints.save_checkpoint(model_dir, optimizer, num_train_steps, keep=1)
+
+      
+      if early_stopping:
+        # Early stopping (stop when model dev acc avg decreases).
+        if len(last_dev_accuracies) == 2 * EARLY_STOPPING_STEPS:
+          # remove the oldest stored accuracy.
+          del last_dev_accuracies[0]
+        # Store the most recent accuracy.
+        last_dev_accuracies.append(dev_metrics[ACC_KEY])
+        if len(last_dev_accuracies) == 2 * EARLY_STOPPING_STEPS:
+          old_avg = sum(last_dev_accuracies[0:EARLY_STOPPING_STEPS])/EARLY_STOPPING_STEPS
+          new_avg = sum(last_dev_accuracies[EARLY_STOPPING_STEPS:])/EARLY_STOPPING_STEPS
+          if new_avg < old_avg:
+            # Stop training
+            break
 
   logging.info('Done training')
-
-  logging.info('Saving model at %s', model_dir)
-  checkpoints.save_checkpoint(model_dir, optimizer, num_train_steps)
 
 
   return optimizer.target
