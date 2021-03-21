@@ -53,6 +53,10 @@ TRAIN_LOSSES = 'train loss'
 TEST_ACCURACIES = 'test acc'
 TEST_LOSSES = 'test loss'
 
+# The number of evaluation steps for which the accuracy has been decreasing.
+# For example, the accuracy in the past 10 steps has been smaller than the
+# accuracy before (the 10 steps avg before that).
+EARLY_STOPPING_STEPS = 10
 
 # vmap?
 def indices_to_str(batch_inputs: jnp.ndarray, data_source: inp.CFQDataSource):
@@ -442,7 +446,8 @@ def train_model(learning_rate: float = None,
                 bucketing: bool = False,
                 model_dir=None,
                 eval_freq: float = None,
-                detail_log_freq: float = None):
+                detail_log_freq: float = None,
+                early_stopping = False):
   """ Train model for num_train_steps.
 
   Do the training on data_source.train_dataset and evaluate on
@@ -492,6 +497,8 @@ def train_model(learning_rate: float = None,
 
   train_iter = iter(train_batches)
   train_metrics = []
+  last_dev_accuracies = []
+  best_acc = 0
   for step, batch in zip(range(num_train_steps), train_iter):
     if batch_size % jax.device_count() > 0:
       raise ValueError('Batch size must be divisible by the number of devices')
@@ -523,13 +530,31 @@ def train_model(learning_rate: float = None,
       log(step, train_summary, dev_metrics)
       save_to_tensorboard(train_summary_writer, train_summary, step + 1)
       save_to_tensorboard(eval_summary_writer, dev_metrics, step + 1)
+
+      # Save best model.
+      dev_acc = dev_metrics[ACC_KEY]
+      if best_acc < dev_acc:
+        best_acc = dev_acc
+        checkpoints.save_checkpoint(model_dir, optimizer, num_train_steps, keep=1)
+
+      
+      if early_stopping:
+        # Early stopping (stop when model dev acc avg decreases).
+        if len(last_dev_accuracies) == 2 * EARLY_STOPPING_STEPS:
+          # remove the oldest stored accuracy.
+          del last_dev_accuracies[0]
+        # Store the most recent accuracy.
+        last_dev_accuracies.append(dev_metrics[ACC_KEY])
+        if len(last_dev_accuracies) == 2 * EARLY_STOPPING_STEPS:
+          old_avg = sum(last_dev_accuracies[0:EARLY_STOPPING_STEPS])/EARLY_STOPPING_STEPS
+          new_avg = sum(last_dev_accuracies[EARLY_STOPPING_STEPS:])/EARLY_STOPPING_STEPS
+          if new_avg < old_avg:
+            # Stop training
+            break
+
   end_time = time.time()
   time_passed = datetime.timedelta(seconds=end_time - start_time) 
   logging.info('Done training. Training took {}'.format(time_passed))
-
-  logging.info('Saving model at %s', model_dir)
-  checkpoints.save_checkpoint(model_dir, optimizer, num_train_steps)
-
 
   return optimizer.target
 
