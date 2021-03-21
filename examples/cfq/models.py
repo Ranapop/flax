@@ -539,6 +539,7 @@ class Seq2seq(nn.Module):
 
 ACTION_EMBEDDING_SIZE = 128
 NODE_EMBEDDING_SIZE = 32
+SYNTAX_BASED_HORIZONTAL_DROPOUT = 0.4
 
 class ActionEmbed(nn.Module):
   """
@@ -714,7 +715,7 @@ class SyntaxBasedDecoder(nn.Module):
                                           self.horizontal_dropout_rate)
     hidden_size = encoder_hidden_states.shape[-1]
     h_dropout_masks = dropout_masks(
-      shape=(hidden_size),
+      shape=(hidden_size,),
       train=train)
     
     decoder_lstm = SyntaxBasedDecoderLSTM(
@@ -789,7 +790,7 @@ class Seq2tree(nn.Module):
   emb_dim: int = ACTION_EMBEDDING_SIZE
   hidden_size: int = LSTM_HIDDEN_SIZE
   num_layers=NUM_LAYERS
-  horizontal_dropout_rate=HORIZONTAL_DROPOUT
+  horizontal_dropout_rate=SYNTAX_BASED_HORIZONTAL_DROPOUT
   vertical_dropout_rate=VERTICAL_DROPOUT
 
   @nn.compact

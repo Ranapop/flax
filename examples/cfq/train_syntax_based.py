@@ -18,6 +18,7 @@
 import os
 import time
 import datetime
+import random
 import shutil
 from typing import Any, Text, Dict, TextIO, List, Tuple
 from absl import logging
@@ -57,6 +58,7 @@ TEST_LOSSES = 'test loss'
 # For example, the accuracy in the past 10 steps has been smaller than the
 # accuracy before (the 10 steps avg before that).
 EARLY_STOPPING_STEPS = 10
+SCHEDULED_SAMPLING_RATE = 0.1
 
 # vmap?
 def indices_to_str(batch_inputs: jnp.ndarray, data_source: inp.CFQDataSource):
@@ -116,8 +118,7 @@ def cross_entropy_loss(rule_logits: jnp.array,
   scores = scores_rules + scores_tokens
   masked_logged_scores = jnp.sum(mask_sequences(jnp.log(scores), lengths),
                                  axis=-1)
-  mean_losses = jnp.divide(masked_logged_scores, lengths)
-  mean_loss = jnp.mean(mean_losses)
+  mean_loss = jnp.mean(masked_logged_scores)
   return -mean_loss
 
 
@@ -282,12 +283,14 @@ def train_step(optimizer: Any,
   decoder_inputs = get_decoder_inputs(batch)
   queries_lengths = batch[inp_constants.ACTION_SEQ_LEN_KEY]
 
+  train = random.random() >= SCHEDULED_SAMPLING_RATE
+
   def loss_fn(params):
     """Compute cross-entropy loss."""
     seq2tree = models.Seq2tree(
       grammar_info,
       token_vocab_size,
-      train=True)
+      train=train)
     nan_error, rule_logits, token_logits, pred_act_types, pred_act_values, _ = \
       seq2tree.apply(
         {'params': params}, 
