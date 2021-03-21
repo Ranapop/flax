@@ -441,7 +441,7 @@ def train_model(learning_rate: float = None,
       dev_acc = dev_metrics[ACC_KEY]
       if best_acc < dev_acc:
         best_acc = dev_acc
-        checkpoints.save_checkpoint(model_dir, optimizer, num_train_steps, keep=1)
+        checkpoints.save_checkpoint(model_dir, optimizer, step + 1, keep=1)
 
       
       if early_stopping:
