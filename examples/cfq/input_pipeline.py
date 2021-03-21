@@ -20,11 +20,15 @@ from absl import logging
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 import tensorflow_text as text
+import jax
 import jax.numpy as jnp
 import numpy as np
 
+import flax
+
 import input_pipeline_utils as inp_utils
 import preprocessing
+from grammar_info import GrammarInfo
 import input_pipeline_constants as inp_constants
 from input_pipeline_constants import QUESTION_KEY, QUESTION_LEN_KEY, QUERY_KEY, QUERY_LEN_KEY,\
   ACTION_TYPES_KEY, ACTION_VALUES_KEY, NODE_TYPES_KEY, PARENT_STEPS_KEY,\
@@ -207,6 +211,16 @@ class CFQDataSource:
         shuffle=shuffle,
         drop_remainder=drop_remainder)
 
+  def indices_to_sequence_string(self,
+                                 indices: jnp.ndarray,
+                                 keep_padding: bool = False) -> Text:
+    """Transforms a list of vocab indices into a string
+    (e.g. from token indices to question/query). When keep_padding is False,
+    the padding tokens are filtered out (zero-valued indices)."""
+    tokens = [self.i2w[i].decode() for i in indices if keep_padding or i!=0]
+    str_seq = ' '.join(tokens)
+    return str_seq
+
 
 class Seq2SeqCfqDataSource(CFQDataSource):
   """Provides the cfq data for a seq2seq model (tokenized input and output
@@ -246,16 +260,6 @@ class Seq2SeqCfqDataSource(CFQDataSource):
     """Function that takes a dataset entry and returns the query length."""
     return example[QUERY_LEN_KEY]
 
-  def indices_to_sequence_string(self,
-                                 indices: jnp.ndarray,
-                                 keep_padding: bool = False) -> Text:
-    """Transforms a list of vocab indices into a string
-    (e.g. from token indices to question/query). When keep_padding is False,
-    the padding tokens are filtered out (zero-valued indices)."""
-    tokens = [self.i2w[i].decode() for i in indices if keep_padding or i!=0]
-    str_seq = ' '.join(tokens)
-    return str_seq
-
 
 class Seq2TreeCfqDataSource(CFQDataSource):
   """Provides the cfq data for a seq2tree model."""
@@ -268,23 +272,12 @@ class Seq2TreeCfqDataSource(CFQDataSource):
                grammar: Grammar = Grammar(GRAMMAR_STR),
                load_data: bool = True):
     self.grammar = grammar
-    node_types = grammar.collect_node_types()
-    self.node_vocab = self.construct_vocab(node_types)
-    self.node_vocab_size = len(node_types)
-    self.rule_vocab_size = len(grammar.branches)
+    self.grammar_info = GrammarInfo(grammar)
     if load_data:
       super().__init__(seed,
                        fixed_output_len,
                        tokenizer,
                        cfq_split)
-
-  def construct_vocab(self, items_list: List[str]):
-    """Constructs vocabulary from list (word -> index). Assumes list contains no
-    duplicates."""
-    vocab = {}
-    for i in range(len(items_list)):
-      vocab[items_list[i]] = i
-    return vocab
 
   def build_tokens_vocab(self, vocab_file, tokenizer, dataset, dummy):
     """Build tokens vocabulary by extracting the tokens from the questions and
@@ -325,10 +318,10 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     query = query.numpy()
     query = query.decode()
     act_sequence = asg.generate_action_sequence(query, self.grammar)
-    root = node.apply_sequence_of_actions(act_sequence, self.grammar)
+    root, _ = node.apply_sequence_of_actions(act_sequence, self.grammar)
     parent_steps = node.get_parent_time_steps(root)
     node_types = node.get_node_types(root)
-    node_types = [self.node_vocab[node_type] for node_type in node_types]
+    node_types = [self.grammar_info.node_vocab[node_type] for node_type in node_types]
     action_types, action_values = self.extract_data_from_act_seq(act_sequence)
     if len(action_types) != len(parent_steps):
       raise Exception(
@@ -367,6 +360,25 @@ class Seq2TreeCfqDataSource(CFQDataSource):
         PARENT_STEPS_KEY: [output_pad],
         ACTION_SEQ_LEN_KEY: []
     }
+
+  def action_seq_to_query(self,
+                          action_types: jnp.array,
+                          action_values: jnp.array):
+    # Extract sequence of actions (python data structure).
+    action_types_list = action_types.tolist()
+    action_values_list = action_values.tolist()
+    actions = []
+    for i in range(len(action_types_list)):
+      action_type = action_types_list[i]
+      action_value = action_values_list[i]
+      if action_type == asg.GENERATE_TOKEN:
+        action_value = self.i2w[action_value].decode()
+      action = (action_type, action_value)
+      actions.append(action)
+    # Construct tree and extract query.
+    tree, applied_actions = node.apply_sequence_of_actions(actions, self.grammar)
+    return node.extract_query(tree, self.grammar), applied_actions
+  
 
 
 if __name__ == '__main__':

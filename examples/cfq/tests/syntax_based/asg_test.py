@@ -15,7 +15,7 @@
 # Lint as: python3
 """Module for unit tests for asg.py
 Should be run from cfq with:
-python -m syntax_based.tests.grammar_test
+python -m tests.syntax_based.grammar_test
 """
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -24,6 +24,44 @@ from syntax_based.grammar import Grammar, GRAMMAR_STR
 
 
 class AsgTest(parameterized.TestCase):
+
+  def test_enerate_action_sequence_simple(self):
+    grammar_str = """
+      query: select_query
+      select_query: select_clause "WHERE" "{" where_clause "}"
+      select_clause: "SELECT" "DISTINCT" "?x0"
+                  | "SELECT" "count(*)"     
+      where_clause: where_entry 
+                  | where_clause "." where_entry
+      where_entry: triples_block
+                | filter_clause
+      filter_clause: "FILTER" "(" var_token "!=" var_token ")"
+      triples_block: var_token TOKEN var_token
+      var_token: VAR
+              | TOKEN 
+      VAR: "?x0" | "?x1" | "?x2" | "?x3" | "?x4" | "?x5"
+      TOKEN: /[^\s]+/
+    """
+    query = """SELECT DISTINCT ?x0 WHERE {
+      ?x0 a people.person }"""
+    grammar = Grammar(grammar_str)
+    generated_action_sequence = generate_action_sequence(query, grammar)
+    expected_action_sequence = [
+      (0, 0), # query -> select_query
+      (0, 1), # select_query -> select_clause "WHERE" "{" where_clause "}"
+      (0, 2), # select_clause -> "SELECT" "DISTINCT" "?x0"
+      (0, 4), # where_clause -> where_entry
+      (0, 6), # where_entry -> triples_block
+      (0, 9), # triples_block -> var_token TOKEN var_token
+      (0, 10), # var_token -> VAR
+      (0, 12), # VAR -> "?x0"
+      (0, 18), # TOKEN -> /[^\s]+/
+      (1, 'a'),
+      (0, 11), # var_token -> TOKEN
+      (0, 18), # TOKEN -> /[^\s]+/
+      (1, 'people.person')
+    ]
+    self.assertEqual(generated_action_sequence, expected_action_sequence)
 
   def test_enerate_action_sequence_muliple(self):
     grammar_str = """
