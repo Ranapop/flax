@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,6 +30,10 @@
 
 """Flax API."""
 
+from .version import __version__
+
 # Allow `import flax`; `flax.nn.[...]`, and the same for `flax.optim.[...]`
+from . import core
+from . import linen
 from . import nn
 from . import optim

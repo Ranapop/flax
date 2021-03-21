@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Linear modules."""
 
 from collections.abc import Iterable  # pylint: disable=g-importing-member
@@ -193,7 +192,9 @@ class Conv(base.Module):
     Args:
       inputs: input data with dimensions (batch, spatial_dims..., features).
       features: number of convolution filters.
-      kernel_size: shape of the convolutional kernel.
+      kernel_size: shape of the convolutional kernel. For 1D convolution,
+        the kernel size can be passed as an integer. For all other cases, it must
+        be a sequence of integers.
       strides: a sequence of `n` integers, representing the inter-window
         strides.
       padding: either the string `'SAME'`, the string `'VALID'`, or a sequence
@@ -220,6 +221,13 @@ class Conv(base.Module):
     """
 
     inputs = jnp.asarray(inputs, dtype)
+    if isinstance(kernel_size, int):
+      kernel_size = (kernel_size,)
+
+    is_single_input = False
+    if inputs.ndim == len(kernel_size) + 1:
+      is_single_input = True
+      inputs = jnp.expand_dims(inputs, axis=0)
 
     if strides is None:
       strides = (1,) * (inputs.ndim - 2)
@@ -242,6 +250,8 @@ class Conv(base.Module):
         feature_group_count=feature_group_count,
         precision=precision)
 
+    if is_single_input:
+      y = jnp.squeeze(y, axis=0)
     if bias:
       bias = self.param('bias', (features,), bias_init)
       bias = jnp.asarray(bias, dtype)
@@ -270,7 +280,9 @@ class ConvTranspose(base.Module):
     Args:
       inputs: input data with dimensions (batch, spatial_dims..., features).
       features: number of convolution filters.
-      kernel_size: shape of the convolutional kernel.
+      kernel_size: shape of the convolutional kernel. For 1D convolution,
+        the kernel size can be passed as an integer. For all other cases, it must
+        be a sequence of integers.
       strides: a sequence of `n` integers, representing the inter-window
         strides.
       padding: either the string `'SAME'`, the string `'VALID'`, or a sequence
@@ -290,6 +302,14 @@ class ConvTranspose(base.Module):
       The convolved data.
     """
     inputs = jnp.asarray(inputs, dtype)
+    if isinstance(kernel_size, int):
+      kernel_size = (kernel_size,)
+    
+    is_single_input = False
+    if inputs.ndim == len(kernel_size) + 1:
+      is_single_input = True
+      inputs = jnp.expand_dims(inputs, axis=0)
+
     strides = strides or (1,) * (inputs.ndim - 2)
 
     in_features = inputs.shape[-1]
@@ -300,6 +320,8 @@ class ConvTranspose(base.Module):
     y = lax.conv_transpose(inputs, kernel, strides, padding,
                            rhs_dilation=kernel_dilation, precision=precision)
 
+    if is_single_input:
+      y = jnp.squeeze(y, axis=0)
     if bias:
       bias = self.param('bias', (features,), bias_init)
       bias = jnp.asarray(bias, dtype)
@@ -334,7 +356,7 @@ class Embed(base.Module):
       Output which is embedded input data.  The output shape follows the input,
       with an additional `features` dimension appended.
     """
-    if inputs.dtype not in [jnp.int32, jnp.int64, jnp.uint32, jnp.uint64, jnp.uint8]:
+    if not jnp.issubdtype(inputs.dtype, jnp.integer):
       raise ValueError('Input type must be an integer or unsigned integer.')
     embedding = self.param('embedding', (num_embeddings, features),
                            embedding_init)

@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,79 +14,52 @@
 
 """MNIST example.
 
-This script trains a simple Convolutional Neural Net on the MNIST dataset.
+Library file which executes the training and evaluation loop for MNIST.
 The data is loaded using tensorflow_datasets.
-
 """
 
-from absl import app
-from absl import flags
-from absl import logging
+# See issue #620.
+# pytype: disable=wrong-keyword-args
 
-from flax import nn
+from absl import logging
+from flax import linen as nn
 from flax import optim
 from flax.metrics import tensorboard
-
 import jax
-from jax import random
-
 import jax.numpy as jnp
-
-import numpy as onp
-
+import ml_collections
+import numpy as np
 import tensorflow_datasets as tfds
-
-
-FLAGS = flags.FLAGS
-
-flags.DEFINE_float(
-    'learning_rate', default=0.1,
-    help=('The learning rate for the momentum optimizer.'))
-
-flags.DEFINE_float(
-    'momentum', default=0.9,
-    help=('The decay rate used for the momentum optimizer.'))
-
-flags.DEFINE_integer(
-    'batch_size', default=128,
-    help=('Batch size for training.'))
-
-flags.DEFINE_integer(
-    'num_epochs', default=10,
-    help=('Number of training epochs.'))
-
-flags.DEFINE_string(
-    'model_dir', default=None,
-    help=('Directory to store model data.'))
 
 
 class CNN(nn.Module):
   """A simple CNN model."""
 
-  def apply(self, x):
-    x = nn.Conv(x, features=32, kernel_size=(3, 3))
+  @nn.compact
+  def __call__(self, x):
+    x = nn.Conv(features=32, kernel_size=(3, 3))(x)
     x = nn.relu(x)
     x = nn.avg_pool(x, window_shape=(2, 2), strides=(2, 2))
-    x = nn.Conv(x, features=64, kernel_size=(3, 3))
+    x = nn.Conv(features=64, kernel_size=(3, 3))(x)
     x = nn.relu(x)
     x = nn.avg_pool(x, window_shape=(2, 2), strides=(2, 2))
     x = x.reshape((x.shape[0], -1))  # flatten
-    x = nn.Dense(x, features=256)
+    x = nn.Dense(features=256)(x)
     x = nn.relu(x)
-    x = nn.Dense(x, features=10)
+    x = nn.Dense(features=10)(x)
     x = nn.log_softmax(x)
     return x
 
 
-def create_model(key):
-  _, initial_params = CNN.init_by_shape(key, [((1, 28, 28, 1), jnp.float32)])
-  model = nn.Model(CNN, initial_params)
-  return model
+def get_initial_params(key):
+  init_val = jnp.ones((1, 28, 28, 1), jnp.float32)
+  initial_params = CNN().init(key, init_val)['params']
+  return initial_params
 
 
-def create_optimizer(model, learning_rate, beta):
+def create_optimizer(params, learning_rate, beta):
   optimizer_def = optim.Momentum(learning_rate=learning_rate, beta=beta)
-  optimizer = optimizer_def.create(model)
+  optimizer = optimizer_def.create(params)
   return optimizer
 
 
@@ -112,8 +85,8 @@ def compute_metrics(logits, labels):
 @jax.jit
 def train_step(optimizer, batch):
   """Train for a single step."""
-  def loss_fn(model):
-    logits = model(batch['image'])
+  def loss_fn(params):
+    logits = CNN().apply({'params': params}, batch['image'])
     loss = cross_entropy_loss(logits, batch['label'])
     return loss, logits
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
@@ -124,8 +97,8 @@ def train_step(optimizer, batch):
 
 
 @jax.jit
-def eval_step(model, batch):
-  logits = model(batch['image'])
+def eval_step(params, batch):
+  logits = CNN().apply({'params': params}, batch['image'])
   return compute_metrics(logits, batch['label'])
 
 
@@ -134,19 +107,19 @@ def train_epoch(optimizer, train_ds, batch_size, epoch, rng):
   train_ds_size = len(train_ds['image'])
   steps_per_epoch = train_ds_size // batch_size
 
-  perms = random.permutation(rng, len(train_ds['image']))
+  perms = jax.random.permutation(rng, len(train_ds['image']))
   perms = perms[:steps_per_epoch * batch_size]  # skip incomplete batch
   perms = perms.reshape((steps_per_epoch, batch_size))
   batch_metrics = []
   for perm in perms:
-    batch = {k: v[perm] for k, v in train_ds.items()}
+    batch = {k: v[perm, ...] for k, v in train_ds.items()}
     optimizer, metrics = train_step(optimizer, batch)
     batch_metrics.append(metrics)
 
   # compute mean of metrics across each batch in epoch.
   batch_metrics_np = jax.device_get(batch_metrics)
   epoch_metrics_np = {
-      k: onp.mean([metrics[k] for metrics in batch_metrics_np])
+      k: np.mean([metrics[k] for metrics in batch_metrics_np])
       for k in batch_metrics_np[0]}
 
   logging.info('train epoch: %d, loss: %.4f, accuracy: %.2f', epoch,
@@ -155,8 +128,8 @@ def train_epoch(optimizer, train_ds, batch_size, epoch, rng):
   return optimizer, epoch_metrics_np
 
 
-def eval_model(model, test_ds):
-  metrics = eval_step(model, test_ds)
+def eval_model(params, test_ds):
+  metrics = eval_step(params, test_ds)
   metrics = jax.device_get(metrics)
   summary = jax.tree_map(lambda x: x.item(), metrics)
   return summary['loss'], summary['accuracy']
@@ -173,39 +146,40 @@ def get_datasets():
   return train_ds, test_ds
 
 
-def train(train_ds, test_ds):
-  """Train MNIST to completion."""
-  rng = random.PRNGKey(0)
+def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str):
+  """Execute model training and evaluation loop.
 
-  batch_size = FLAGS.batch_size
-  num_epochs = FLAGS.num_epochs
-  model_dir = FLAGS.model_dir
+  Args:
+    config: Hyperparameter configuration for training and evaluation.
+    workdir: Directory where the tensorboard summaries are written to.
 
-  summary_writer = tensorboard.SummaryWriter(model_dir)
+  Returns:
+    The trained optimizer.
+  """
+  train_ds, test_ds = get_datasets()
+  rng = jax.random.PRNGKey(0)
 
-  rng, init_rng = random.split(rng)
-  model = create_model(init_rng)
-  optimizer = create_optimizer(model, FLAGS.learning_rate, FLAGS.momentum)
+  summary_writer = tensorboard.SummaryWriter(workdir)
+  summary_writer.hparams(dict(config))
 
-  for epoch in range(1, num_epochs + 1):
-    rng, input_rng = random.split(rng)
+  rng, init_rng = jax.random.split(rng)
+  params = get_initial_params(init_rng)
+  optimizer = create_optimizer(
+      params, config.learning_rate, config.momentum)
+
+  for epoch in range(1, config.num_epochs + 1):
+    rng, input_rng = jax.random.split(rng)
     optimizer, train_metrics = train_epoch(
-        optimizer, train_ds, batch_size, epoch, input_rng)
+        optimizer, train_ds, config.batch_size, epoch, input_rng)
     loss, accuracy = eval_model(optimizer.target, test_ds)
+
     logging.info('eval epoch: %d, loss: %.4f, accuracy: %.2f',
                  epoch, loss, accuracy * 100)
+
     summary_writer.scalar('train_loss', train_metrics['loss'], epoch)
     summary_writer.scalar('train_accuracy', train_metrics['accuracy'], epoch)
     summary_writer.scalar('eval_loss', loss, epoch)
     summary_writer.scalar('eval_accuracy', accuracy, epoch)
+
   summary_writer.flush()
   return optimizer
-
-
-def main(_):
-  train_ds, test_ds = get_datasets()
-  train(train_ds, test_ds)
-
-
-if __name__ == '__main__':
-  app.run(main)

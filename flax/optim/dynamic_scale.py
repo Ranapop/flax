@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Dynamic loss scaling for mixed precision gradients.
 """
 
@@ -28,15 +27,17 @@ import jax.numpy as jnp
 import numpy as onp
 
 
+Array = Any
+
+
 class DynamicScaleResult(NamedTuple):
   dynamic_scale: 'DynamicScale'
-  finite: onp.ndarray
+  finite: Array
   aux: Any
   grad: Any
 
 
-@struct.dataclass
-class DynamicScale:
+class DynamicScale(struct.PyTreeNode):
   """Dynamic loss scaling for mixed precision gradients.
 
   For many models gradient computations in float16 will result in numerical
@@ -79,8 +80,8 @@ class DynamicScale:
   growth_factor: float = struct.field(pytree_node=False, default=2.0)
   backoff_factor: float = struct.field(pytree_node=False, default=0.5)
   growth_interval: int = struct.field(pytree_node=False, default=2000)
-  fin_steps: onp.ndarray = 0
-  scale: onp.ndarray = 65536.0
+  fin_steps: Array = 0
+  scale: Array = 65536.0
 
   def value_and_grad(self, fun: Callable[..., Any],
                      argnums: Union[int, Sequence[int]] = 0,

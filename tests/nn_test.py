@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,8 +21,10 @@ from flax import nn
 
 import jax
 from jax import random
+from jax import test_util as jtu
 from jax.nn import initializers
 import jax.numpy as jnp
+
 
 import numpy as onp
 
@@ -168,7 +170,7 @@ class ModuleTest(absltest.TestCase):
     class SubModule(nn.Module):
 
       def apply(self):
-        self.param('param', (), initializers.zeros)
+        self.param('params', (), initializers.zeros)
 
     class UseSharedModule(nn.Module):
 
@@ -184,7 +186,7 @@ class ModuleTest(absltest.TestCase):
 
     _, params = TopLevel.init(random.PRNGKey(0))
     self.assertEqual({
-        'shared': {'param': jnp.zeros(())},
+        'shared': {'params': jnp.zeros(())},
         'use_shared': {},
     }, params)
 
@@ -663,6 +665,52 @@ class RecurrentTest(absltest.TestCase):
         'hz': {'kernel': (4, 4)},
         'hn': {'kernel': (4, 4), 'bias': (4,)},
     })
+
+  def test_conv2dlstm(self):
+    rng = random.PRNGKey(0)
+    key1, key2 = random.split(rng)
+    x = random.normal(key1, (2, 4, 4, 3))
+    c0, h0 = nn.ConvLSTM.initialize_carry(rng, (2,), (4, 4, 6))
+    self.assertEqual(c0.shape, (2, 4, 4, 6))
+    self.assertEqual(h0.shape, (2, 4, 4, 6))
+    (carry, y), initial_params = nn.ConvLSTM.init(
+        key2, (c0, h0), x, features=6, kernel_size=(3, 3))
+    lstm = nn.Model(nn.ConvLSTM, initial_params)
+    self.assertEqual(carry[0].shape, (2, 4, 4, 6))
+    self.assertEqual(carry[1].shape, (2, 4, 4, 6))
+    onp.testing.assert_allclose(y, carry[1])
+    param_shapes = jax.tree_map(onp.shape, lstm.params)
+    self.assertEqual(param_shapes, {
+        'hh': {'bias': (6*4,), 'kernel': (3, 3, 6, 6*4)},
+        'ih': {'bias': (6*4,), 'kernel': (3, 3, 3, 6*4)},
+    })
+
+  def test_optimized_lstm_cell_matches_regular(self):
+
+    # Create regular LSTMCell.
+    rng = random.PRNGKey(0)
+    key1, key2 = random.split(rng)
+    x = random.normal(key1, (2, 3))
+    c0, h0 = nn.LSTMCell.initialize_carry(rng, (2,), 4)
+    self.assertEqual(c0.shape, (2, 4))
+    self.assertEqual(h0.shape, (2, 4))
+    (carry, y), initial_params = nn.LSTMCell.init(key2, (c0, h0), x)
+    lstm = nn.Model(nn.LSTMCell, initial_params)      
+    
+    # Create OptimizedLSTMCell.
+    rng = random.PRNGKey(0)
+    key1, key2 = random.split(rng)
+    x = random.normal(key1, (2, 3))
+    c0, h0 = nn.OptimizedLSTMCell.initialize_carry(rng, (2,), 4)
+    self.assertEqual(c0.shape, (2, 4))
+    self.assertEqual(h0.shape, (2, 4))
+    (carry, y_opt), initial_params = nn.OptimizedLSTMCell.partial(
+        name='LSTMCell').init(key2, (c0, h0), x)
+    lstm_opt = nn.Model(nn.OptimizedLSTMCell.partial(name='LSTMCell'), 
+      initial_params)
+    
+    onp.testing.assert_allclose(y, y_opt, rtol=1e-6)
+    jtu.check_eq(lstm.params, lstm_opt.params)
 
 
 class StochasticTest(absltest.TestCase):

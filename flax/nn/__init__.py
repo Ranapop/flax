@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 # re-export commonly used modules and functions
 from .activation import (celu, elu, gelu, glu, leaky_relu, log_sigmoid,
                          log_softmax, relu, sigmoid, soft_sign, softmax,
-                         softplus, swish, tanh)
+                         softplus, swish, silu, tanh)
 from .attention import (dot_product_attention, MultiHeadDotProductAttention,
                         SelfAttention)
 from .base import (Module, Model, Collection, capture_module_outputs,
@@ -26,6 +26,6 @@ from .base import (Module, Model, Collection, capture_module_outputs,
 from .linear import Dense, DenseGeneral, Conv, ConvTranspose, Embed
 from .normalization import BatchNorm, LayerNorm, GroupNorm
 from .pooling import max_pool, avg_pool
-from .recurrent import LSTMCell, GRUCell, LSTM
+from .recurrent import LSTMCell, GRUCell, ConvLSTM, OptimizedLSTMCell
 from .stochastic import make_rng, stochastic, dropout, is_stochastic
 # pylint: enable=g-multiple-import

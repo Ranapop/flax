@@ -20,16 +20,21 @@ from absl import logging
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 import tensorflow_text as text
+import jax
 import jax.numpy as jnp
 import numpy as np
 
+import flax
+
 import input_pipeline_utils as inp_utils
 import preprocessing
-import constants
-from constants import QUESTION_KEY, QUESTION_LEN_KEY, QUERY_KEY, QUERY_LEN_KEY,\
-  ACTION_TYPES_KEY, ACTION_VALUES_KEY, PARENT_STEPS_KEY, ACTION_SEQ_LEN_KEY
+from grammar_info import GrammarInfo
+import input_pipeline_constants as inp_constants
+from input_pipeline_constants import QUESTION_KEY, QUESTION_LEN_KEY, QUERY_KEY, QUERY_LEN_KEY,\
+  ACTION_TYPES_KEY, ACTION_VALUES_KEY, NODE_TYPES_KEY, PARENT_STEPS_KEY,\
+  ACTION_SEQ_LEN_KEY
 from syntax_based.grammar import Grammar, GRAMMAR_STR
-import syntax_based.node as node
+import syntax_based.node as node 
 import syntax_based.asg as asg
 
 ExampleType = Dict[Text, tf.Tensor]
@@ -62,7 +67,7 @@ class CFQDataSource:
     test_raw = data['test']
 
     # Print an example.
-    logging.info('Data sample: %s', next(tfds.as_numpy(train_raw.skip(4))))
+    logging.info('Data sample: %s', next(iter(tfds.as_numpy(train_raw.skip(4)))))
 
     self.tokenizer = tokenizer
     self.seed = seed
@@ -72,9 +77,9 @@ class CFQDataSource:
                           train_raw,
                           replace_with_dummy)
 
-    self.unk_idx = self.tokens_vocab[constants.UNK]
-    self.bos_idx = np.dtype('uint8').type(self.tokens_vocab[constants.BOS])
-    self.eos_idx = self.tokens_vocab[constants.EOS]
+    self.unk_idx = self.tokens_vocab[inp_constants.UNK]
+    self.bos_idx = np.dtype('uint8').type(self.tokens_vocab[inp_constants.BOS])
+    self.eos_idx = self.tokens_vocab[inp_constants.EOS]
     self.tf_tokens_vocab = inp_utils.build_tf_hashtable(
                              self.tokens_vocab, self.unk_idx)
     self.tokens_vocab_size = len(self.tokens_vocab)
@@ -86,11 +91,11 @@ class CFQDataSource:
 
     self.splits = {
       'train': train_raw.map(
-        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache(),
+        self.prepare_example, num_parallel_calls=inp_constants.AUTOTUNE).cache(),
       'dev': dev_raw.map(
-        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache(),
+        self.prepare_example, num_parallel_calls=inp_constants.AUTOTUNE).cache(),
       'test': test_raw.map(
-        self.prepare_example, num_parallel_calls=constants.AUTOTUNE).cache()
+        self.prepare_example, num_parallel_calls=inp_constants.AUTOTUNE).cache()
     }
 
   def build_tokens_vocab(self, vocab_file, tokenizer, dataset, dummy):
@@ -181,7 +186,7 @@ class CFQDataSource:
                                    drop_remainder=drop_remainder)
     if split=='train':
       dataset = dataset.repeat()
-    return dataset.prefetch(constants.AUTOTUNE)
+    return dataset.prefetch(inp_constants.AUTOTUNE)
 
   def get_bucketed_batches(self,
                            split: Text,
@@ -205,6 +210,16 @@ class CFQDataSource:
         seed=self.seed,
         shuffle=shuffle,
         drop_remainder=drop_remainder)
+
+  def indices_to_sequence_string(self,
+                                 indices: jnp.ndarray,
+                                 keep_padding: bool = False) -> Text:
+    """Transforms a list of vocab indices into a string
+    (e.g. from token indices to question/query). When keep_padding is False,
+    the padding tokens are filtered out (zero-valued indices)."""
+    tokens = [self.i2w[i].decode() for i in indices if keep_padding or i!=0]
+    str_seq = ' '.join(tokens)
+    return str_seq
 
 
 class Seq2SeqCfqDataSource(CFQDataSource):
@@ -245,16 +260,6 @@ class Seq2SeqCfqDataSource(CFQDataSource):
     """Function that takes a dataset entry and returns the query length."""
     return example[QUERY_LEN_KEY]
 
-  def indices_to_sequence_string(self,
-                                 indices: jnp.ndarray,
-                                 keep_padding: bool = False) -> Text:
-    """Transforms a list of vocab indices into a string
-    (e.g. from token indices to question/query). When keep_padding is False,
-    the padding tokens are filtered out (zero-valued indices)."""
-    tokens = [self.i2w[i].decode() for i in indices if keep_padding or i!=0]
-    str_seq = ' '.join(tokens)
-    return str_seq
-
 
 class Seq2TreeCfqDataSource(CFQDataSource):
   """Provides the cfq data for a seq2tree model."""
@@ -267,7 +272,7 @@ class Seq2TreeCfqDataSource(CFQDataSource):
                grammar: Grammar = Grammar(GRAMMAR_STR),
                load_data: bool = True):
     self.grammar = grammar
-    self.rule_vocab_size = len(grammar.branches)
+    self.grammar_info = GrammarInfo(grammar)
     if load_data:
       super().__init__(seed,
                        fixed_output_len,
@@ -313,14 +318,16 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     query = query.numpy()
     query = query.decode()
     act_sequence = asg.generate_action_sequence(query, self.grammar)
-    root = node.apply_sequence_of_actions(act_sequence, self.grammar)
+    root, _ = node.apply_sequence_of_actions(act_sequence, self.grammar)
     parent_steps = node.get_parent_time_steps(root)
+    node_types = node.get_node_types(root)
+    node_types = [self.grammar_info.node_vocab[node_type] for node_type in node_types]
     action_types, action_values = self.extract_data_from_act_seq(act_sequence)
     if len(action_types) != len(parent_steps):
       raise Exception(
               'action types and parent time steps should be of the same length,\
               got {0} and {1}'.format(len(action_types), len(parent_steps)))
-    return (action_types, action_values, parent_steps)
+    return (action_types, action_values, node_types, parent_steps)
 
   def construct_new_fields(self, example: ExampleType) -> ExampleType:
     """Populate the example with the 'question', 'question_len', 'action_types',
@@ -330,9 +337,10 @@ class Seq2TreeCfqDataSource(CFQDataSource):
     new_example[QUESTION_LEN_KEY] = tf.size(new_example[QUESTION_KEY])
     output_fields = tf.py_function(self.construct_output_fields,
                                    [example[QUERY_KEY]],
-                                   Tout=(tf.int64, tf.int64, tf.int64))
+                                   Tout=(tf.int64, tf.int64, tf.int64, tf.int64))
     new_example[ACTION_TYPES_KEY],\
       new_example[ACTION_VALUES_KEY],\
+      new_example[NODE_TYPES_KEY],\
       new_example[PARENT_STEPS_KEY] = output_fields
     new_example[ACTION_SEQ_LEN_KEY] = tf.size(new_example[ACTION_TYPES_KEY])
     return new_example
@@ -348,9 +356,29 @@ class Seq2TreeCfqDataSource(CFQDataSource):
         QUESTION_LEN_KEY: [],
         ACTION_TYPES_KEY: [output_pad],
         ACTION_VALUES_KEY: [output_pad],
+        NODE_TYPES_KEY: [output_pad],
         PARENT_STEPS_KEY: [output_pad],
         ACTION_SEQ_LEN_KEY: []
     }
+
+  def action_seq_to_query(self,
+                          action_types: jnp.array,
+                          action_values: jnp.array):
+    # Extract sequence of actions (python data structure).
+    action_types_list = action_types.tolist()
+    action_values_list = action_values.tolist()
+    actions = []
+    for i in range(len(action_types_list)):
+      action_type = action_types_list[i]
+      action_value = action_values_list[i]
+      if action_type == asg.GENERATE_TOKEN:
+        action_value = self.i2w[action_value].decode()
+      action = (action_type, action_value)
+      actions.append(action)
+    # Construct tree and extract query.
+    tree, applied_actions = node.apply_sequence_of_actions(actions, self.grammar)
+    return node.extract_query(tree, self.grammar), applied_actions
+  
 
 
 if __name__ == '__main__':
@@ -367,7 +395,7 @@ if __name__ == '__main__':
   print('vocab')
   print(data_source.tokens_vocab)
   for batch in tfds.as_numpy(train_batches):
-    action_values_batch = batch[constants.ACTION_VALUES_KEY]
+    action_values_batch = batch[inp_constants.ACTION_VALUES_KEY]
     print('Batch no ',batch_no)
     for action_values in action_values_batch:
       print(action_values)
