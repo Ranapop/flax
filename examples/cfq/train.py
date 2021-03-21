@@ -483,7 +483,7 @@ def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
   summary_writer = tensorboard.SummaryWriter(tensorboard_dir)
   # evaluate
   params = jax_utils.unreplicate(optimizer.target)  # Fetch from 1st device
-  dev_metrics = evaluate_model(params=params,
+  dev_metrics = evaluate_model(model=params,
                                batches=dev_batches,
                                data_source=data_source,
                                predicted_output_length=max_out_len,
