@@ -414,7 +414,7 @@ def evaluate_model(params: Any,
     }
     if no_logged_examples is not None and no_batches == 0:
       write_examples(summary_writer,
-                     step,
+                     step + 1,
                      no_logged_examples,
                      batch, predicted_batch,
                      attention_weights,
@@ -528,8 +528,8 @@ def train_model(learning_rate: float = None,
                                   step=step,
                                   no_logged_examples=no_logged_examples)
       log(step, train_summary, dev_metrics)
-      save_to_tensorboard(train_summary_writer, train_summary, step)
-      save_to_tensorboard(eval_summary_writer, dev_metrics, step)
+      save_to_tensorboard(train_summary_writer, train_summary, step + 1)
+      save_to_tensorboard(eval_summary_writer, dev_metrics, step + 1)
 
       # Save best model.
       dev_acc = dev_metrics[ACC_KEY]
