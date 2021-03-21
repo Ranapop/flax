@@ -360,7 +360,8 @@ def train_model(learning_rate: float = None,
                 bucketing: bool = False,
                 model_dir=None,
                 eval_freq: float = None,
-                detail_log_freq: float = None):
+                detail_log_freq: float = None,
+                early_stopping: bool = False):
   """ Train model for num_train_steps.
 
     Do the training on data_source.train_dataset and evaluate on
