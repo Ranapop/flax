@@ -19,14 +19,14 @@ python -m tests.syntax_based.grammar_test
 """
 from absl.testing import absltest
 from absl.testing import parameterized
-from syntax_based.asg import apply_rule_act, generate_act, generate_action_sequence
-from syntax_based.grammar import Grammar, GRAMMAR_STR
+from examples.cfq.syntax_based.asg import apply_rule_act, generate_act, generate_action_sequence
+from examples.cfq.syntax_based.grammar import Grammar, GRAMMAR_STR
 
 
 class AsgTest(parameterized.TestCase):
 
   def test_enerate_action_sequence_simple(self):
-    grammar_str = """
+    grammar_str = r"""
       query: select_query
       select_query: select_clause "WHERE" "{" where_clause "}"
       select_clause: "SELECT" "DISTINCT" "?x0"
@@ -64,7 +64,7 @@ class AsgTest(parameterized.TestCase):
     self.assertEqual(generated_action_sequence, expected_action_sequence)
 
   def test_enerate_action_sequence_muliple(self):
-    grammar_str = """
+    grammar_str = r"""
       query: select_query
       select_query: select_clause "WHERE" "{" where_clause "}"
       select_clause: "SELECT" "DISTINCT" "?x0"
@@ -121,7 +121,7 @@ class AsgTest(parameterized.TestCase):
     self.assertEqual(generated_action_sequence, expected_action_sequence)
 
   def test_generate_action_sequence_filter(self):
-    grammar_str = """
+    grammar_str = r"""
       query: select_query
       select_query: select_clause "WHERE" "{" where_clause "}"
       select_clause: "SELECT" "DISTINCT" "?x0"

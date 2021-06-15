@@ -19,66 +19,68 @@ python -m tests.syntax_based.node_test
 """
 from absl.testing import absltest
 from absl.testing import parameterized
-from syntax_based.node import Node, get_parent_time_steps, apply_action
-from syntax_based.grammar import RuleBranch
+from examples.cfq.syntax_based.node import Node, get_parent_time_steps, apply_action
+from examples.cfq.syntax_based.grammar import RuleBranch
 from collections import deque
 
 def add_child_to_parent(parent: Node, child: Node):
     child.parent = parent
     parent.add_child(child)
 
-class GrammarTest(parameterized.TestCase):
+class FakeGrammar():
+  r"""
+  Class with fields for the follwing grammar:
+  query: select_query
+  select_query: select_clause "WHERE" "{" where_clause "}"
+  select_clause: "SELECT" "DISTINCT" "?x0"
+              | "SELECT" "count(*)"     
+  where_clause: where_entry 
+              | where_clause "." where_entry
+  where_entry: triples_block
+            | filter_clause
+  filter_clause: "FILTER" "(" var_token "!=" var_token ")"
+  triples_block: var_token TOKEN var_token
+  var_token: VAR
+          | TOKEN 
+  VAR: "?x0" | "?x1" | "?x2" | "?x3" | "?x4" | "?x5"
+  TOKEN: /[^\s]+/
 
-  class FakeGrammar():
-    """
-    Class with fields for the follwing grammar:
-    query: select_query
-    select_query: select_clause "WHERE" "{" where_clause "}"
-    select_clause: "SELECT" "DISTINCT" "?x0"
-                | "SELECT" "count(*)"     
-    where_clause: where_entry 
-                | where_clause "." where_entry
-    where_entry: triples_block
-              | filter_clause
-    filter_clause: "FILTER" "(" var_token "!=" var_token ")"
-    triples_block: var_token TOKEN var_token
-    var_token: VAR
-            | TOKEN 
-    VAR: "?x0" | "?x1" | "?x2" | "?x3" | "?x4" | "?x5"
-    TOKEN: /[^\s]+/
-    """
+  Note: r prefaces the comment for running with pytest.
+  """
     
-    def __init__(self):
-      self.branches = [
-        RuleBranch(0, 'select_query'),
-        RuleBranch(1, 'select_clause "WHERE" "{" where_clause "}"'),
-        RuleBranch(2, '"SELECT" "DISTINCT" "?x0"'),
-        RuleBranch(3, '"SELECT" "count(*)"'),
-        RuleBranch(4, 'where_entry'),
-        RuleBranch(5, 'where_clause "." where_entry'),
-        RuleBranch(6, 'triples_block'),
-        RuleBranch(7, 'filter_clause'),
-        RuleBranch(8, '"FILTER" "(" var_token "!=" var_token ")"'),
-        RuleBranch(9, 'var_token TOKEN var_token'),
-        RuleBranch(10, 'VAR'),
-        RuleBranch(11, 'TOKEN'),
-        RuleBranch(12, '"?x0"'),
-        RuleBranch(13, '"?x1"'),
-        RuleBranch(14, '"?x2"'),
-        RuleBranch(15, '"?x3"'),
-        RuleBranch(16, '"?x4"'),
-        RuleBranch(17, '"?x5"'),
-        RuleBranch(18, '/[^\s]+/')
-      ]
-      self.rules = {
-        'query': [0], 'select_query': [1], 'select_clause': [2, 3],
-        'where_clause': [4, 5], 'where_entry': [6, 7],
-        'triples_block': [9], 'filter_clause': [8],
-        'var_token': [10, 11],
-        'VAR': [12, 13, 14, 15, 16, 17],
-        'TOKEN': [18]
-      }
-      self.grammar_entry = 'query'
+  def __init__(self):
+    self.branches = [
+      RuleBranch(0, 'select_query'),
+      RuleBranch(1, 'select_clause "WHERE" "{" where_clause "}"'),
+      RuleBranch(2, '"SELECT" "DISTINCT" "?x0"'),
+      RuleBranch(3, '"SELECT" "count(*)"'),
+      RuleBranch(4, 'where_entry'),
+      RuleBranch(5, 'where_clause "." where_entry'),
+      RuleBranch(6, 'triples_block'),
+      RuleBranch(7, 'filter_clause'),
+      RuleBranch(8, '"FILTER" "(" var_token "!=" var_token ")"'),
+      RuleBranch(9, 'var_token TOKEN var_token'),
+      RuleBranch(10, 'VAR'),
+      RuleBranch(11, 'TOKEN'),
+      RuleBranch(12, '"?x0"'),
+      RuleBranch(13, '"?x1"'),
+      RuleBranch(14, '"?x2"'),
+      RuleBranch(15, '"?x3"'),
+      RuleBranch(16, '"?x4"'),
+      RuleBranch(17, '"?x5"'),
+      RuleBranch(18, r'/[^\s]+/')
+    ]
+    self.rules = {
+      'query': [0], 'select_query': [1], 'select_clause': [2, 3],
+      'where_clause': [4, 5], 'where_entry': [6, 7],
+      'triples_block': [9], 'filter_clause': [8],
+      'var_token': [10, 11],
+      'VAR': [12, 13, 14, 15, 16, 17],
+      'TOKEN': [18]
+    }
+    self.grammar_entry = 'query'
+
+class GrammarTest(parameterized.TestCase):
 
   def test_get_parent_time_steps(self):
     a = Node(None, 'a')
@@ -117,7 +119,7 @@ class GrammarTest(parameterized.TestCase):
       (0, 18), # TOKEN -> /[^\s]+/
       (1, 'people.person')
     ]
-    grammar = self.FakeGrammar()
+    grammar = FakeGrammar()
     # Initial frontier: query
     root = Node(None, grammar.grammar_entry)
     frontier_nodes = deque()
@@ -192,12 +194,12 @@ class GrammarTest(parameterized.TestCase):
     expected_node_value = 'TOKEN'
     frontier_nodes, _ = apply_action(frontier_nodes, actions[8], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
-    expected_frontier_nodes = ['var_token', '[^\s]+']
+    expected_frontier_nodes = ['var_token', r'[^\s]+']
     self.assertEqual(current_node_value, expected_node_value)
     self.assertEqual(frontier_nodes_values, expected_frontier_nodes)
     # Step 9: GenerateToken 'a'
     current_node_value = frontier_nodes[-1].value
-    expected_node_value = '[^\s]+'
+    expected_node_value = r'[^\s]+'
     frontier_nodes, _ = apply_action(frontier_nodes, actions[9], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = ['var_token']
@@ -216,12 +218,12 @@ class GrammarTest(parameterized.TestCase):
     expected_node_value = 'TOKEN'
     frontier_nodes, _ = apply_action(frontier_nodes, actions[11], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
-    expected_frontier_nodes = ['[^\s]+']
+    expected_frontier_nodes = [r'[^\s]+']
     self.assertEqual(current_node_value, expected_node_value)
     self.assertEqual(frontier_nodes_values, expected_frontier_nodes)
     # Step 12: GenerateToken 'people.person'
     current_node_value = frontier_nodes[-1].value
-    expected_node_value = '[^\s]+'
+    expected_node_value = r'[^\s]+'
     frontier_nodes, _ = apply_action(frontier_nodes, actions[12], grammar)
     frontier_nodes_values = [n.value for n in frontier_nodes]
     expected_frontier_nodes = []

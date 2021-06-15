@@ -19,13 +19,13 @@ python -m tests.syntax_based.grammar_test
 """
 from absl.testing import absltest
 from absl.testing import parameterized
-from syntax_based.grammar import Grammar, RuleBranch, Term, TermType
+from examples.cfq.syntax_based.grammar import Grammar, RuleBranch, Term, TermType
 
 
 class GrammarTest(parameterized.TestCase):
 
   def test_generate_grammar(self):
-    grammar_str = """
+    grammar_str = r"""
       query: select_query
       select_query: select_clause "WHERE" "{" where_clause "}"
       select_clause: "SELECT" "DISTINCT" "?x0"
@@ -61,7 +61,7 @@ class GrammarTest(parameterized.TestCase):
       RuleBranch(15, '"?x3"'),
       RuleBranch(16, '"?x4"'),
       RuleBranch(17, '"?x5"'),
-      RuleBranch(18, '/[^\s]+/')
+      RuleBranch(18, r'/[^\s]+/')
     ]
     expected_rules = {
       'query': [0], 'select_query': [1], 'select_clause': [2, 3],
@@ -99,12 +99,12 @@ class GrammarTest(parameterized.TestCase):
     self.assertEqual(grammar.rules, expected_rules)
 
   def test_regex_rule_branch(self):
-    rule_branch = RuleBranch(0, '/[^\s]+/')
+    rule_branch = RuleBranch(0, r'/[^\s]+/')
     term = rule_branch.body[0]
     self.assertEqual(term.term_type, TermType.REGEX_TERM)
 
   def test_collect_node_types(self):
-    grammar_str = """
+    grammar_str = r"""
       query: select_query
       select_query: select_clause "WHERE" "{" where_clause "}"
       select_clause: "SELECT" "DISTINCT" "?x0"
@@ -132,7 +132,7 @@ class GrammarTest(parameterized.TestCase):
     self.assertEqual(node_types, (expected_nodes, expected_action_types))
 
   def test_get_expanded_nodes(self):
-    grammar_str = """
+    grammar_str = r"""
       query: select_query
       select_query: select_clause "WHERE" "{" where_clause "}"
       select_clause: "SELECT" "DISTINCT" "?x0"
