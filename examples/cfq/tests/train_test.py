@@ -21,12 +21,12 @@ import jax
 import jax.numpy as jnp
 
 
-from train import get_initial_params
-from train import mask_sequences
-from train import cross_entropy_loss
-from train import compute_perfect_match_accuracy
-from train import compute_metrics
-from models import Seq2seq
+from examples.cfq.train import get_initial_params
+from examples.cfq.train import mask_sequences
+from examples.cfq.train import cross_entropy_loss
+from examples.cfq.train import compute_perfect_match_accuracy
+from examples.cfq.train import compute_metrics
+from examples.cfq.models import Seq2seq
 
 class TrainTest(parameterized.TestCase):
 

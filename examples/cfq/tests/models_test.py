@@ -9,8 +9,8 @@ import flax
 from flax import nn
 from flax import linen as nn
 
-import models
-from models import Encoder, MlpAttention, RecurrentDropoutMasks, Decoder,\
+import examples.cfq.models as models
+from examples.cfq.models import Encoder, MlpAttention, RecurrentDropoutMasks, Decoder,\
   Seq2seq, MultilayerLSTMCell, MultilayerLSTM, Seq2tree
 
 # To be able to pass --jax_debug_nans=True for enabling debugging.

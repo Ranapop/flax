@@ -22,9 +22,9 @@ import jax.numpy as jnp
 from flax import jax_utils
 from flax import linen as nn
 import functools
-from nodes_stack import create_empty_stack, pop_element_from_stack, \
+from examples.cfq.nodes_stack import create_empty_stack, pop_element_from_stack, \
   push_to_stack, apply_action_to_stack, is_empty_stack
-from grammar_info import GrammarInfo
+from examples.cfq.grammar_info import GrammarInfo
 
 # hyperparams
 LSTM_HIDDEN_SIZE = 512

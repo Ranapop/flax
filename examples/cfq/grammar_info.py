@@ -4,8 +4,8 @@ import numpy as np
 import jax
 from jax import numpy as jnp
 
-from syntax_based.grammar import Grammar
-import syntax_based.asg as asg
+from examples.cfq.syntax_based.grammar import Grammar
+import examples.cfq.syntax_based.asg as asg
 
 class GrammarInfo():
   """

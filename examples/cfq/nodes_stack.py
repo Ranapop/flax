@@ -1,7 +1,7 @@
 from typing import Tuple, List
 import jax
 import jax.numpy as jnp
-from grammar_info import GrammarInfo
+from examples.cfq.grammar_info import GrammarInfo
 
 def create_empty_stack(stack_capacity):
   stack_array = jnp.zeros((stack_capacity), dtype=jnp.int32)

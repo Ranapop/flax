@@ -4,13 +4,13 @@ from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
 
-from syntax_based.grammar import Grammar
-from grammar_info import GrammarInfo
+from examples.cfq.syntax_based.grammar import Grammar
+from examples.cfq.grammar_info import GrammarInfo
 
 class GrammarInfoTest(parameterized.TestCase):
 
   def test_grammar_info_nodes_to_action_types(self):
-    grammar_str = """
+    grammar_str = r"""
       query: select_query
       select_query: select_clause "WHERE" "{" where_clause "}"
       select_clause: "SELECT" "DISTINCT" "?x0"
@@ -92,7 +92,7 @@ class GrammarInfoTest(parameterized.TestCase):
     self.assertEqual(grammar_info.grammar_entry, expected_grammar_entry)
 
   def test_get_expanded_nodes_array(self):
-    grammar_str = """
+    grammar_str = r"""
       query: select_query
       select_query: select_clause "WHERE" "{" where_clause "}"
       select_clause: "SELECT" "DISTINCT" "?x0"

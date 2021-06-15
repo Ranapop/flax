@@ -17,8 +17,8 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 import tensorflow.compat.v2 as tf
-from syntax_based.grammar import Grammar, GRAMMAR_STR
-from input_pipeline import Seq2TreeCfqDataSource
+from examples.cfq.syntax_based.grammar import Grammar, GRAMMAR_STR
+from examples.cfq.input_pipeline import Seq2TreeCfqDataSource
 import jax.numpy as jnp
 
 class InputPipelineTest(parameterized.TestCase):
