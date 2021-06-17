@@ -26,9 +26,6 @@ import input_pipeline as inp
 import train
 import train_syntax_based
 
-# stage out as much as possible to XLA, not only computations depending
-# on arguments, see https://github.com/google/jax/pull/3370
-config.enable_omnistaging()
 # To be able to pass --jax_debug_nans=True for enabling debugging.
 config.parse_flags_with_absl()
 # "magic commands" to make sure jax doesn't take too much memory
