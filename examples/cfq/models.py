@@ -165,7 +165,7 @@ class MultilayerLSTMCell(nn.Module):
       # Apply dropout to the hidden state from lower layer.
       if train and layer_idx != 0 and vertical_dropout_rate > 0:
         dropout = nn.Dropout(rate=vertical_dropout_rate)
-        input = dropout(input)
+        input = dropout(input, deterministic=not train)
       state, output = cell((c, h), input)
       states.append(state)
       input = output
