@@ -28,6 +28,7 @@ For a quick introduction and short example snippets, see our `README
 
    notebooks/jax_for_the_impatient
    notebooks/flax_basics
+   notebooks/annotated_mnist
 
 .. toctree::
    :maxdepth: 1
@@ -35,7 +36,11 @@ For a quick introduction and short example snippets, see our `README
    :glob:
    :titlesonly:
 
-   howtos/*
+   howtos/state_params
+   howtos/ensembling
+   howtos/lr_schedule
+   howtos/extracting_intermediates
+   howtos/model_surgery
 
 .. toctree::
    :maxdepth: 1
@@ -44,6 +49,7 @@ For a quick introduction and short example snippets, see our `README
    :titlesonly:
 
    design_notes/*
+   FLIPs <https://github.com/google/flax/tree/master/docs/flip>
 
 .. toctree::
    :maxdepth: 1
@@ -59,9 +65,12 @@ For a quick introduction and short example snippets, see our `README
    flax.linen
    flax.optim
    flax.serialization
+   flax.core.frozen_dict
    flax.struct
    flax.jax_utils
    flax.traverse_util
+   flax.training
+   flax.errors
 
 .. toctree::
    :maxdepth: 1
