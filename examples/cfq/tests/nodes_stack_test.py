@@ -3,7 +3,7 @@ from absl.testing import parameterized
 
 import jax.numpy as jnp
 
-from nodes_stack import push_to_stack, push_elements_to_stack, \
+from ..nodes_stack import push_to_stack, push_elements_to_stack, \
   pop_element_from_stack, create_empty_stack, apply_action_to_stack
 
 class NodesStackTest(parameterized.TestCase):
