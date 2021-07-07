@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Any
 import io
 
 import numpy as np
@@ -12,9 +12,11 @@ MAX_ROWS = 15
 MAX_COLUMNS = 15
 SHOW_NUMBERS = False
 
+Dtype = Any
+
 def plot_attention(input_sequence: List[str],
                    output_sequence: List[str],
-                   scores: np.array):
+                   scores: Dtype = np.array):
 
   title = 'Attention'
   if len(output_sequence) > MAX_COLUMNS:
@@ -66,7 +68,7 @@ def save_attention_img_to_tensorboard(summary_writer: tensorboard.SummaryWriter,
                                       step: int,
                                       input_sequence: List[str],
                                       output_sequence: List[str],
-                                      scores: np.array):
+                                      scores: Dtype = np.array):
 
   attention_image = plot_attention(input_sequence, output_sequence, scores)
   summary_writer.image('Attention', attention_image, step)
