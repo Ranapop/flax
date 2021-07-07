@@ -21,7 +21,7 @@ to ensure comparable results with the CFQ paper
 from typing import Dict, Text, Callable
 import string
 import tensorflow.compat.v2 as tf
-import examples.cfq.input_pipeline_constants as inp_constants
+import cfq.input_pipeline_constants as inp_constants
 
 ExampleType = Dict[Text, tf.Tensor]
 
