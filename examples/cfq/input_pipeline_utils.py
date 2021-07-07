@@ -25,7 +25,7 @@ import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 from absl import logging
 
-import examples.cfq.input_pipeline_constants as inp_constants
+import cfq.input_pipeline_constants as inp_constants
 
 tf.config.experimental.set_visible_devices([], "GPU")
 
