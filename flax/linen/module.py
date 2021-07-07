@@ -170,7 +170,7 @@ def _map_over_modules_in_tree(fn, tree_or_leaf):
 
 def _all_names_on_object(obj: Any) -> Set[str]:
   """Gets all names of attributes on `obj` and its classes throughout MRO.
-  
+
   Args:
     obj: The object to get names for.
   Returns:
@@ -185,10 +185,14 @@ def _all_names_on_object(obj: Any) -> Set[str]:
 def _freeze_attr(val: Any) -> Any:
   if isinstance(val, (dict, FrozenDict)):
     return FrozenDict({k: _freeze_attr(v) for k, v in val.items()})
-  elif  isinstance(val, tuple) and hasattr(val, '_fields'):
-    # Special case named tuple otherwise they would be downgraded to normal tuples.
-    return type(val)(*[_freeze_attr(v) for v in val])
-  elif isinstance(val, (list, tuple)):
+  elif isinstance(val, tuple):
+    # Special case namedtuples and special JAX tuple structures otherwise they
+    # would be downgraded to normal tuples.
+    if hasattr(val, '_fields') or type(val).__name__ == 'PartitionSpec':
+      return type(val)(*[_freeze_attr(v) for v in val])
+    else:
+      return tuple(_freeze_attr(v) for v in val)
+  elif isinstance(val, list):
     return tuple(_freeze_attr(v) for v in val)
   else:
     return val
@@ -198,7 +202,7 @@ def _freeze_attr(val: Any) -> Any:
 # -----------------------------------------------------------------------------
 def compact(fun: _CallableT) -> _CallableT:
   """Marks the given module method allowing inlined submodules.
-  
+
   Methods wrapped in @compact can define submodules directly within the method.
 
   For instance::
@@ -207,7 +211,7 @@ def compact(fun: _CallableT) -> _CallableT:
     __call__(self, x, features):
       x = nn.Dense(features)(x)
       ...
-  
+
   At most one method in each Module may be wrapped with @compact.
 
   Args:
@@ -221,7 +225,7 @@ def compact(fun: _CallableT) -> _CallableT:
 
 def _get_local_method_names(cls: Any, exclude: Iterable[str] = ()) -> Tuple[str]:
   """Gets method names of a class, excluding class and static methods.
-  
+
   Args:
     cls: The class to get method names for.
     excludes: Names to exclude from output.
@@ -239,7 +243,7 @@ def _get_local_method_names(cls: Any, exclude: Iterable[str] = ()) -> Tuple[str]
 
 def wrap_method_once(fun: Callable[..., Any]) -> Callable[..., Any]:
   """Manages Module state for a given user-defined method.
-  
+
   Args:
     fun: User-defined Module method to manage state for.
   Returns:
@@ -299,14 +303,14 @@ def _wrap_hash(hash_fn: Callable[..., Any]) -> Callable[..., Any]:
   @functools.wraps(hash_fn)
   def wrapped(self):
     if self.scope is not None:
-      raise ValueError('Can\'t call __hash__ on modules that hold variables.')
+      raise TypeError('Can\'t call __hash__ on modules that hold variables.')
     return hash_fn(self)
   return wrapped
 
 
 def _get_unbound_fn(method_or_fn: Callable[..., Any]) -> Callable[..., Any]:
   """Returns an unbound function from a method that is possibly bound.
-  
+
   This means that if the passed function belongs of an instance of a class, then
   the returned function does no longer depend on the instance, which is passed
   as the first argument to the function.
@@ -345,7 +349,7 @@ class _ModuleInternalState:
 
   def reset(self):
     """Resets transient state.
-    
+
     This function is called after each module method, so only attributes that
     are method-dependent are reset.
     """
@@ -420,7 +424,7 @@ class Module:
       def __call__(self, x):
         return self.dense2(nn.relu(self.dense1(x)))
 
-  Optionally, for more concise module implementations where submodules 
+  Optionally, for more concise module implementations where submodules
   definitions are co-located with their usage, you can use the
   :meth:`compact` wrapper.
   """
@@ -435,8 +439,9 @@ class Module:
       pass
 
   @classmethod
-  def __init_subclass__(cls):
+  def __init_subclass__(cls, **kwargs):
     """Automatically initializes all subclasses as custom dataclasses."""
+    super().__init_subclass__(**kwargs)
     # All Flax Modules are dataclasses.  We force this convention since
     # it encourages the stateless behavior needed to clone module instances for
     # functional transformation.  Instead of using a python metaclass, we
@@ -456,7 +461,12 @@ class Module:
     """Handles final optional dataclass attributes: `parent` and `name`."""
     # Use cls.__dict__ to get annotations of cls itself (no parent class).
     annotations = dict(cls.__dict__.get('__annotations__', {}))
-    if 'parent' in annotations or 'name' in annotations:
+    parent_annotation = Union[Type["Module"], Type["Scope"],
+                              Type["_Sentinel"], None]
+    if ('parent' in annotations
+        and annotations['parent'] != parent_annotation):
+      raise errors.ReservedModuleAttributeError(annotations)
+    if 'name' in annotations and annotations['name'] != str:
       raise errors.ReservedModuleAttributeError(annotations)
     # Add `parent` and `name` default fields at end.
     # We temporarily modify base class __dataclass_fields__ to force desired
@@ -473,8 +483,7 @@ class Module:
       if 'name' in pdf:
         clz.__dataclass_fields__.pop('name')  # pytype: disable=attribute-error
 
-    annotations['parent'] = Union[Type["Module"], Type["Scope"],
-                                  Type["_Sentinel"], None]
+    annotations['parent'] = parent_annotation
     cls.parent = dataclasses.field(repr=False, default=_unspecified_parent)
     annotations['name'] = str
     cls.name = None  # default value of name is None.
@@ -516,7 +525,7 @@ class Module:
 
   def __setattr__(self, name: str, val: Any):
     """Sets an attribute on this Module.
-    
+
     We overload setattr solely to support pythonic naming via assignment of
     submodules in the special :meth:`setup` function::
 
@@ -708,9 +717,9 @@ class Module:
             parent: Optional[Union[Scope, 'Module']] = None,
             **updates) -> 'Module':
     """Creates a clone of this Module, with optionally updated arguments.
-    
+
     Args:
-      parent: The parent of the clone. The clone will have no parent if no 
+      parent: The parent of the clone. The clone will have no parent if no
         explicit parent is specified.
       **updates: Attribute updates.
     Returns:
@@ -800,7 +809,7 @@ class Module:
 
     See :mod:`flax.core.variables` for more explanation on variables and
     collections.
-    
+
     Args:
       col: The variable collection name.
       name: The name of the variable.
@@ -819,7 +828,7 @@ class Module:
 
   def make_rng(self, name: str) -> PRNGKey:
     """Returns a new RNG key from a given RNG sequence for this Module.
-    
+
     The new RNG key is split from the previous one. Thus, every call to
     `make_rng` returns a new RNG key, while still guaranteeing full
     reproducibility.
@@ -908,7 +917,7 @@ class Module:
 
       model = Transformer()
       encoded = model.apply({'params': params}, x, method=Transformer.encode)
-  
+
     If a function instance is provided, the unbound function is used. For
     instance, the example below is equivalent to the one above::
 
@@ -1071,7 +1080,7 @@ class Module:
       variables = model.init(jax.random.PRNGKey(0), x)
       y, state = model.apply(variables, x, mutable=['intermediates'])
       print(state['intermediates'])  # {'h': (...,)}
-    
+
     By default the values are stored in a tuple and each stored value
     is appended at the end. This way all intermediates can be tracked when
     the same module is called multiple times. Alternatively, a custom
@@ -1175,7 +1184,7 @@ def apply(fn: Callable[..., Any], module: Module,
       y = foo.decode(z)
       # ...
       return y
-    
+
     foo = Foo()
     f_jitted = jax.jit(nn.apply(f, foo))
     f_jitted(variables, x)
@@ -1233,7 +1242,7 @@ def init_with_output(fn: Callable[..., Any], module: Module,
       y = foo.decode(z)
       # ...
       return y
-    
+
     foo = Foo()
     f_jitted = jax.jit(nn.init_with_output(f, foo))
     y, variables = f_jitted(rng, x)
@@ -1277,7 +1286,7 @@ def init(fn: Callable[..., Any], module: Module,
       y = foo.decode(z)
       # ...
       return y
-    
+
     foo = Foo()
     f_jitted = jax.jit(nn.init(f, foo))
     variables = f_jitted(rng, x)
