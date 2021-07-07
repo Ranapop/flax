@@ -17,8 +17,8 @@
 
 import re
 from typing import List
-from examples.cfq.syntax_based.grammar import Grammar, GRAMMAR_STR, TermType
-from examples.cfq.syntax_based.asg import generate_action_sequence, Action, APPLY_RULE, GENERATE_TOKEN
+from cfq.syntax_based.grammar import Grammar, GRAMMAR_STR, TermType
+from cfq.syntax_based.asg import generate_action_sequence, Action, APPLY_RULE, GENERATE_TOKEN
 from collections import deque
 class Node:
 

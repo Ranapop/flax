@@ -19,8 +19,8 @@ python -m tests.syntax_based.node_test
 """
 from absl.testing import absltest
 from absl.testing import parameterized
-from examples.cfq.syntax_based.node import Node, get_parent_time_steps, apply_action
-from examples.cfq.syntax_based.grammar import RuleBranch
+from cfq.syntax_based.node import Node, get_parent_time_steps, apply_action
+from cfq.syntax_based.grammar import RuleBranch
 from collections import deque
 
 def add_child_to_parent(parent: Node, child: Node):

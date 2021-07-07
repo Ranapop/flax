@@ -19,8 +19,8 @@ python -m tests.syntax_based.grammar_test
 """
 from absl.testing import absltest
 from absl.testing import parameterized
-from examples.cfq.syntax_based.asg import apply_rule_act, generate_act, generate_action_sequence
-from examples.cfq.syntax_based.grammar import Grammar, GRAMMAR_STR
+from cfq.syntax_based.asg import apply_rule_act, generate_act, generate_action_sequence
+from cfq.syntax_based.grammar import Grammar, GRAMMAR_STR
 
 
 class AsgTest(parameterized.TestCase):

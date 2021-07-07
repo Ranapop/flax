@@ -37,10 +37,10 @@ from flax.training import checkpoints
 from flax.training import common_utils
 from flax.metrics import tensorboard
 
-import examples.cfq.input_pipeline as inp
-import examples.cfq.input_pipeline_constants as inp_constants
-from examples.cfq.models import Seq2seq
-import examples.cfq.train_util as train_util
+import cfq.input_pipeline as inp
+import cfq.input_pipeline_constants as inp_constants
+from cfq.models import Seq2seq
+import cfq.train_util as train_util
 
 BatchType = Dict[Text, jnp.array]
 

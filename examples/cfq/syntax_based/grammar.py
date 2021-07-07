@@ -19,7 +19,7 @@ import collections
 from typing import Dict, List
 from enum import Enum
 
-GRAMMAR_STR = """
+GRAMMAR_STR = r"""
   query: select_query
   select_query: select_clause "WHERE" "{" where_clause "}"
   select_clause: "SELECT" "DISTINCT" "?x0"
@@ -68,7 +68,7 @@ def extract_sub_rules(grammar_str: str):
   rules = []
   current_rule = ""
   for line in split_lines:
-    if re.match('\s+\|', line):
+    if re.match(r'\s+\|', line):
       current_rule += line
     else:
       rules.append(current_rule)
@@ -86,7 +86,7 @@ class TermType(Enum):
   RULE_TERM = 2
 
 class Term:
-  """
+  r"""
   Class describing a term (token on the right side of a rule). It contains a
   type and a value. If the term is a syntax token, eg. "SELECT", the value
   contains the string "SELECT", if the term is a regex term, it also contains a

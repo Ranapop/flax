@@ -19,9 +19,9 @@ python -m tests.syntax_based.action_sequence_test"""
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from examples.cfq.syntax_based.grammar import Grammar, GRAMMAR_STR
-from examples.cfq.syntax_based.asg import generate_action_sequence
-from examples.cfq.syntax_based.node import apply_sequence_of_actions, extract_query
+from cfq.syntax_based.grammar import Grammar, GRAMMAR_STR
+from cfq.syntax_based.asg import generate_action_sequence
+from cfq.syntax_based.node import apply_sequence_of_actions, extract_query, pretty_print_tree
 
 class ActionSequenceTest(parameterized.TestCase):
 

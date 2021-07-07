@@ -21,10 +21,9 @@ from absl import flags
 
 import tensorflow.compat.v2 as tf
 from jax.config import config
-
-import input_pipeline as inp
-import train
-import train_syntax_based
+import cfq.input_pipeline as inp
+import cfq.train as train
+import cfq.train_syntax_based as train_syntax_based
 
 # To be able to pass --jax_debug_nans=True for enabling debugging.
 config.parse_flags_with_absl()

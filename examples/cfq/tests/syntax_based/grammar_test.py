@@ -19,7 +19,7 @@ python -m tests.syntax_based.grammar_test
 """
 from absl.testing import absltest
 from absl.testing import parameterized
-from examples.cfq.syntax_based.grammar import Grammar, RuleBranch, Term, TermType
+from cfq.syntax_based.grammar import Grammar, RuleBranch, Term, TermType
 
 
 class GrammarTest(parameterized.TestCase):

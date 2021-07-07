@@ -4,8 +4,8 @@ from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
 
-from examples.cfq.syntax_based.grammar import Grammar
-from examples.cfq.grammar_info import GrammarInfo
+from cfq.syntax_based.grammar import Grammar
+from cfq.grammar_info import GrammarInfo
 
 class GrammarInfoTest(parameterized.TestCase):
 

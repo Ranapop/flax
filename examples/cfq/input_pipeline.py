@@ -26,17 +26,17 @@ import numpy as np
 
 import flax
 
-import examples.cfq.input_pipeline_utils as inp_utils
-import examples.cfq.preprocessing
-from examples.cfq.grammar_info import GrammarInfo
-import examples.cfq.input_pipeline_constants as inp_constants
-from examples.cfq.input_pipeline_constants import \
+import cfq.input_pipeline_utils as inp_utils
+import cfq.preprocessing
+from cfq.grammar_info import GrammarInfo
+import cfq.input_pipeline_constants as inp_constants
+from cfq.input_pipeline_constants import \
   QUESTION_KEY, QUESTION_LEN_KEY, QUERY_KEY, QUERY_LEN_KEY,\
   ACTION_TYPES_KEY, ACTION_VALUES_KEY, NODE_TYPES_KEY, PARENT_STEPS_KEY,\
   ACTION_SEQ_LEN_KEY
-from examples.cfq.syntax_based.grammar import Grammar, GRAMMAR_STR
-import examples.cfq.syntax_based.node as node 
-import examples.cfq.syntax_based.asg as asg
+from cfq.syntax_based.grammar import Grammar, GRAMMAR_STR
+import cfq.syntax_based.node as node 
+import cfq.syntax_based.asg as asg
 
 ExampleType = Dict[Text, tf.Tensor]
 
