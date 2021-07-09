@@ -16,7 +16,7 @@ import os
 import pickle
 import random
 import string
-from typing import Iterable, List, Sequence, Dict, Text, Any, Tuple
+from typing import Iterable, List, Sequence, Dict, Text, Any, Tuple, Set
 import collections
 
 import numpy as np
@@ -70,7 +70,7 @@ def create_dummy_data(no_examples: Tuple[int, int, int] = (10000, 500, 500),
   return {'train': train_data, 'validation': validation_data, 'test': test_data}
 
 
-def _get_tokens(input_features: Dict, tokenizer: text.Tokenizer,
+def _get_tokens(input_features: Set, tokenizer: text.Tokenizer,
                 datasets: Iterable[tf.data.Dataset],
                 preprocessing_fun: Any) -> Iterable[List[bytes]]:
   """Returns a list of tokens for all input fields in the given datasets."""
@@ -95,7 +95,7 @@ def _get_tokens(input_features: Dict, tokenizer: text.Tokenizer,
 
 
 def build_vocabulary(file_name: Text,
-                     input_features: Dict,
+                     input_features: Set,
                      tokenizer: text.Tokenizer,
                      datasets: Iterable[tf.data.Dataset],
                      special_tokens: Sequence[bytes] = (inp_constants.PAD,

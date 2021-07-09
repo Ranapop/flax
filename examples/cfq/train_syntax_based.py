@@ -39,11 +39,11 @@ from flax.training import checkpoints
 from flax.training import common_utils
 from flax.metrics import tensorboard
 
-import input_pipeline as inp
-import input_pipeline_constants as inp_constants
-import models
-from grammar_info import GrammarInfo
-import train_util
+import cfq.input_pipeline as inp
+import cfq.input_pipeline_constants as inp_constants
+import cfq.models as models
+from cfq.grammar_info import GrammarInfo
+import cfq.train_util as train_util
 
 BatchType = Dict[Text, jnp.array]
 
@@ -61,7 +61,7 @@ EARLY_STOPPING_STEPS = 10
 SCHEDULED_SAMPLING_RATE = 0.1
 
 # vmap?
-def indices_to_str(batch_inputs: jnp.ndarray, data_source: inp.CFQDataSource):
+def indices_to_str(batch_inputs: jnp.ndarray, data_source: inp.Seq2TreeCfqDataSource):
   """Decode a batch of one-hot encoding to strings."""
   #TODO: implement when implementing inference flow.
   return np.array(
@@ -232,7 +232,7 @@ def write_examples(summary_writer: tensorboard.SummaryWriter,
                    no_logged_examples: int,
                    gold_batch: Dict, inferred_batch: Dict,
                    attention_weights: jnp.array,
-                   data_source: inp.CFQDataSource):
+                   data_source: inp.Seq2TreeCfqDataSource):
   #Log the first examples in the batch.
   for i in range(0, no_logged_examples):
     # Log queries.
@@ -368,7 +368,7 @@ def infer(params, inputs: jnp.array, inputs_lengths: jnp.array,
 
 def evaluate_model(params: Any,
                    batches: tf.data.Dataset,
-                   data_source: inp.CFQDataSource,
+                   data_source: inp.Seq2TreeCfqDataSource,
                    predicted_output_length: int,
                    summary_writer: tensorboard.SummaryWriter,
                    step: int,
@@ -444,7 +444,7 @@ def train_model(learning_rate: float = None,
                 num_train_steps: int = None,
                 max_out_len: int = None,
                 seed: int = None,
-                data_source: inp.CFQDataSource = None,
+                data_source: inp.Seq2TreeCfqDataSource = None,
                 batch_size: int = None,
                 bucketing: bool = False,
                 model_dir=None,
@@ -562,7 +562,7 @@ def train_model(learning_rate: float = None,
   return optimizer.target
 
 
-def test_model(model_dir, data_source: inp.CFQDataSource, max_out_len: int,
+def test_model(model_dir, data_source: inp.Seq2TreeCfqDataSource, max_out_len: int,
                seed: int, batch_size: int):
   """Evaluate model at model_dir on dev subset"""
   rng = jax.random.PRNGKey(seed)

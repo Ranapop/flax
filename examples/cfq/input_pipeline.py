@@ -14,7 +14,7 @@
 """CFQ input pipeline."""
 
 # pylint: disable=too-many-arguments,import-error,too-many-instance-attributes,too-many-locals
-from typing import Dict, Text, List, Tuple
+from typing import Dict, Text, List, Tuple, Union
 
 from absl import logging
 import tensorflow.compat.v2 as tf
@@ -27,7 +27,7 @@ import numpy as np
 import flax
 
 import cfq.input_pipeline_utils as inp_utils
-import cfq.preprocessing
+import cfq.preprocessing as preprocessing
 from cfq.grammar_info import GrammarInfo
 import cfq.input_pipeline_constants as inp_constants
 from cfq.input_pipeline_constants import \
@@ -35,8 +35,10 @@ from cfq.input_pipeline_constants import \
   ACTION_TYPES_KEY, ACTION_VALUES_KEY, NODE_TYPES_KEY, PARENT_STEPS_KEY,\
   ACTION_SEQ_LEN_KEY
 from cfq.syntax_based.grammar import Grammar, GRAMMAR_STR
+# pytype: disable=import-error
 import cfq.syntax_based.node as node 
 import cfq.syntax_based.asg as asg
+# pytype: enable=import-error
 
 ExampleType = Dict[Text, tf.Tensor]
 
@@ -307,12 +309,14 @@ class Seq2TreeCfqDataSource(CFQDataSource):
       action_type, action_value = action
       action_types.append(action_type)
       if action_type == asg.GENERATE_TOKEN:
-        action_value = self.tokens_vocab[action_value.encode()]
+        # Done for pytype checking (should be str already).
+        token = str(action_value)
+        action_value = self.tokens_vocab[token.encode()]
       action_values.append(action_value)
     return (action_types, action_values)
 
-  def construct_output_fields(self, query: str
-                             ) -> Tuple[List[int],List[int],List[int]]:
+  def construct_output_fields(self, query: tf.Tensor
+      ) -> Tuple[List[int],List[Union[int,str]],List[int],List[int]]:
     """Construct the output fields (action types, action values and parent
     steps) from the query.
     """

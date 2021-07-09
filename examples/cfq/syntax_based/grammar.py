@@ -195,7 +195,7 @@ class Grammar:
               node_flags.append(0)
     return list(node_types), node_flags
 
-  def get_expanded_nodes(self, nodes_vocab: List[str]):
+  def get_expanded_nodes(self, nodes_vocab: Dict[str, int]):
     """
     Returns a list of lists showing how nodes can be expanded once a branch is
     predicted, that is for each branch a list of nodes the node it would be

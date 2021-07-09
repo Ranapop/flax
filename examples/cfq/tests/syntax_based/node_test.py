@@ -27,6 +27,8 @@ def add_child_to_parent(parent: Node, child: Node):
     child.parent = parent
     parent.add_child(child)
 
+#Disable this because FakeGrammar is sent in the tests instead of Grammar.
+# pytype: disable=wrong-arg-types
 class FakeGrammar():
   r"""
   Class with fields for the follwing grammar:
@@ -230,7 +232,7 @@ class GrammarTest(parameterized.TestCase):
     self.assertEqual(current_node_value, expected_node_value)
     self.assertEqual(frontier_nodes_values, expected_frontier_nodes)
 
-    
+# pytype: enable=wrong-arg-types
 
 if __name__ == '__main__':
   absltest.main()

@@ -4,8 +4,10 @@ import numpy as np
 import jax
 from jax import numpy as jnp
 
+# pytype: disable=import-error
 from cfq.syntax_based.grammar import Grammar
 import cfq.syntax_based.asg as asg
+# pytype: enable=import-error
 
 class GrammarInfo():
   """
