@@ -16,13 +16,15 @@
 """This module is for constructing the syntax tree from the action sequence."""
 
 import re
-from typing import List
+from typing import List, Union
+# pytype: disable=import-error
 from cfq.syntax_based.grammar import Grammar, GRAMMAR_STR, TermType
 from cfq.syntax_based.asg import generate_action_sequence, Action, APPLY_RULE, GENERATE_TOKEN
 from collections import deque
+# pytype: enable=import-error
 class Node:
 
-  def __init__(self, parent: 'Node', value: str):
+  def __init__(self, parent: Union['Node',None], value: str):
     self.parent = parent
     # rule head or regex term.
     self.value = value

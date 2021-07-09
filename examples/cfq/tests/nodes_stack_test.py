@@ -121,6 +121,8 @@ class NodesStackTest(parameterized.TestCase):
       self.expanded_nodes = (expanded_nodes_array, expanded_nodes_lengths)
       self.rule_vocab_size = 19
 
+  # Disable error due to using MockGrammarInfo instead of GrammarInfo
+  # pytype: disable=wrong-arg-types
   def test_stack_for_action_sequence(self):
     tokens_vocab = {'a': 0, 'people.person': 1}
     actions = [
@@ -304,6 +306,7 @@ class NodesStackTest(parameterized.TestCase):
     expected_frontier_nodes = jnp.array(expected_frontier_list)
     self.assertTrue(jnp.array_equal(frontier[0], expected_frontier_nodes))
     self.assertTrue(jnp.array_equal(frontier[1], jnp.array(0)))
+  # pytype: enable=wrong-arg-types
 
 
 if __name__ == '__main__':

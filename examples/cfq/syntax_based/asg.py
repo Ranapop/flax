@@ -155,6 +155,8 @@ def query_rule(query, grammar):
   # Replace multiple spaces/new lines with simple space.
   query = re.sub(r'\n|\s+',' ', query)
   match = re.match(r'SELECT (.*) WHERE \{ (.*) \}', query)
+  if match == None:
+    raise Exception('Cannot parse query!')
   (select_clause_input, where_body) = match.groups()
   action_sequence += select_clause_rule(select_clause_input, grammar)
   action_sequence += where_clause_rule(where_body, grammar)

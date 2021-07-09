@@ -17,11 +17,13 @@
 Should be run from cfq with:
 python -m tests.syntax_based.node_test
 """
+from collections import deque
 from absl.testing import absltest
 from absl.testing import parameterized
+# pytype: disable=import-error
 from cfq.syntax_based.node import Node, get_parent_time_steps, apply_action
 from cfq.syntax_based.grammar import RuleBranch
-from collections import deque
+# pytype: enable=import-error
 
 def add_child_to_parent(parent: Node, child: Node):
     child.parent = parent
@@ -98,6 +100,8 @@ class GrammarTest(parameterized.TestCase):
     expected_time_steps = [-1, 0, 1, 2, 3, 2]
     self.assertEqual(generated_time_steps, expected_time_steps)
   
+  #Disable this because FakeGrammar is sent in the tests instead of Grammar.
+  # pytype: disable=wrong-arg-types
   def test_apply_action_for_sequence(self):
     """
     Test the action application for the following query:
@@ -229,7 +233,7 @@ class GrammarTest(parameterized.TestCase):
     expected_frontier_nodes = []
     self.assertEqual(current_node_value, expected_node_value)
     self.assertEqual(frontier_nodes_values, expected_frontier_nodes)
-
+  # pytype: enable=wrong-arg-types
     
 
 if __name__ == '__main__':
