@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,26 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Attention core modules for Flax."""
 
 from collections.abc import Iterable  # pylint: disable=g-importing-member
 
 import warnings
 
-from .. import jax_utils
-from . import base
-from . import initializers
-from . import stochastic
+from flax import jax_utils
+from flax.nn.activation import softmax
+from flax.nn.base import Collection, Module, collection_from_iterable, iterate_collection
+from flax.nn.initializers import zeros
+from flax.nn.stochastic import make_rng
+from flax.nn.linear import DenseGeneral, default_kernel_init
 from flax import struct
 
 import jax
 from jax import lax
 from jax import random
 import jax.numpy as jnp
-from .linear import default_kernel_init
-from .linear import DenseGeneral
-import numpy as onp
+
+import numpy as np
 
 
 def dot_product_attention(query,
@@ -45,7 +45,11 @@ def dot_product_attention(query,
                           dropout_rate=0.,
                           deterministic=False,
                           precision=None):
-  """Computes dot-product attention given query, key, and value.
+  """DEPRECATION WARNING:
+ "The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Computes dot-product attention given query, key, and value.
 
   This is the core function for applying attention based on
   https://arxiv.org/abs/1706.03762. It calculates the attention weights given
@@ -91,7 +95,7 @@ def dot_product_attention(query,
   depth = query.shape[-1]
   n = key.ndim
   # batch_dims is  <bs, <non-attention dims>, num_heads>
-  batch_dims = tuple(onp.delete(range(n), axis + (n - 1,)))
+  batch_dims = tuple(np.delete(range(n), axis + (n - 1,)))
   # q & k -> (bs, <non-attention dims>, num_heads, <attention dims>, channels)
   qk_perm = batch_dims + axis + (n - 1,)
   key = key.transpose(qk_perm)
@@ -113,13 +117,13 @@ def dot_product_attention(query,
 
   # normalize the attention weights
   norm_dims = tuple(range(attn_weights.ndim - len(axis), attn_weights.ndim))
-  attn_weights = jax.nn.softmax(attn_weights, axis=norm_dims)
+  attn_weights = softmax(attn_weights, axis=norm_dims)
   attn_weights = attn_weights.astype(dtype)
 
   # apply dropout
   if not deterministic and dropout_rate > 0.:
     if dropout_rng is None:
-      dropout_rng = stochastic.make_rng()
+      dropout_rng = make_rng()
     keep_prob = jax.lax.tie_in(attn_weights, 1.0 - dropout_rate)
     if broadcast_dropout:
       # dropout is broadcast across the batch+head+non-attention dimension
@@ -154,9 +158,9 @@ def _invert_perm(perm):
 
 @struct.dataclass
 class _CacheEntry:
-  key: onp.ndarray
-  value: onp.ndarray
-  i: onp.ndarray
+  key: np.ndarray
+  value: np.ndarray
+  i: np.ndarray
 
 
 def scan_in_dim(*args, **kwargs):
@@ -165,8 +169,11 @@ def scan_in_dim(*args, **kwargs):
   return jax_utils.scan_in_dim(*args, **kwargs)
 
 
-class Cache(base.Collection):
-  """Collect intermediate activations for efficient autoregressive decoding."""
+class Cache(Collection):
+  """The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Collect intermediate activations for efficient autoregressive decoding."""
 
   def initialize_cache(self, shape, dtype=None):
     """Initialize the cache for the given input shape.
@@ -193,11 +200,14 @@ class Cache(base.Collection):
 
 
 jax.tree_util.register_pytree_node(
-    Cache, base.iterate_collection, base.collection_from_iterable)
+    Cache, iterate_collection, collection_from_iterable)
 
 
-class MultiHeadDotProductAttention(base.Module):
-  """Multi-head dot-product attention."""
+class MultiHeadDotProductAttention(Module):
+  """The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Multi-head dot-product attention."""
 
   def apply(self,
             inputs_q,
@@ -219,7 +229,7 @@ class MultiHeadDotProductAttention(base.Module):
             deterministic=False,
             precision=None,
             kernel_init=default_kernel_init,
-            bias_init=initializers.zeros,
+            bias_init=zeros,
             bias=True,
             attention_fn=dot_product_attention):
     """Applies multi-head dot product attention on the input data.
@@ -246,8 +256,9 @@ class MultiHeadDotProductAttention(base.Module):
       causal_mask: boolean specifying whether to apply a causal mask on the
         attention weights. If True, the output at timestep `t` will not depend
         on inputs at timesteps strictly greater than `t`.
-      padding_mask: boolean specifying query tokens that are pad token.
-      key_padding_mask: boolean specifying key-value tokens that are pad token.
+      padding_mask: boolean specifying query tokens that are pad token w/ False.
+      key_padding_mask: boolean specifying key-value tokens that are pad token
+        w/ False.
       segmentation: segment indices for packed inputs_q data.
       key_segmentation: segment indices for packed inputs_kv data.
       cache: an instance of `flax.nn.attention.Cache` used for efficient
@@ -275,6 +286,8 @@ class MultiHeadDotProductAttention(base.Module):
     if inputs_kv is None:
       inputs_kv = inputs_q
 
+    is_self_attention = inputs_kv is inputs_q
+
     if attention_axis is None:
       attention_axis = tuple(range(1, inputs_q.ndim - 1))
 
@@ -301,7 +314,7 @@ class MultiHeadDotProductAttention(base.Module):
     if cache:
       assert isinstance(cache, Cache), 'cache must be an instance of Cache'
       if self.is_initializing():
-        cache.store(onp.array((key.ndim,) + key.shape[-2:], dtype=onp.int32))
+        cache.store(np.array((key.ndim,) + key.shape[-2:], dtype=np.int32))
       else:
         cache_entry = cache.retrieve(None)
         expected_shape = list(cache_entry.key.shape[:-2])
@@ -319,7 +332,7 @@ class MultiHeadDotProductAttention(base.Module):
         cshape = cache_entry.key.shape
         indices = [0] * len(cshape)
         i = cache_entry.i
-        attn_size = onp.prod(onp.take(cshape, attention_axis))
+        attn_size = np.prod(np.take(cshape, attention_axis))
         for attn_dim in attention_axis:
           attn_size //= cshape[attn_dim]
           indices[attn_dim] = i // attn_size
@@ -333,28 +346,34 @@ class MultiHeadDotProductAttention(base.Module):
                                           value=value)
         cache.store(cache_entry)
 
-        # TODO(levskaya): verify this is still needed in translation decoding.
-        key_padding_mask = jnp.broadcast_to(
-            (jnp.arange(cshape[1]) < cache_entry.i), cshape[:2])
-        key_padding_mask = key_padding_mask.astype(jnp.float32)[..., None]
-
     # create attention masks
     mask_components = []
 
     if causal_mask:
       if cache and not self.is_initializing():
         bias_pre_shape = (1,) * (key.ndim - 1)
-        attn_shape = tuple(onp.take(key.shape, attention_axis))
-        attn_size = onp.prod(attn_shape)
+        attn_shape = tuple(np.take(key.shape, attention_axis))
+        attn_size = np.prod(attn_shape)
         ii = jnp.arange(attn_size, dtype=jnp.uint32)
         mask = ii < cache_entry.i
         mask_components.append(mask.reshape(bias_pre_shape + attn_shape))
       else:
         mask_components.append(_make_causal_mask(key, attention_axis))
 
-    if padding_mask is not None:
+    if (padding_mask is not None or key_padding_mask is not None) and not cache:
       if key_padding_mask is None:
-        key_padding_mask = padding_mask
+        if is_self_attention:
+          key_padding_mask = padding_mask
+        else:
+          key_padding_shape = [inputs_kv.shape[dim] for dim in attention_axis]
+          key_padding_mask = jnp.full(key_padding_shape, True)
+      if padding_mask is None:
+        if is_self_attention:
+          padding_mask = key_padding_mask
+        else:
+          padding_shape = [inputs_q.shape[dim] for dim in attention_axis]
+          padding_mask = jnp.full(padding_shape, True)
+
       padding_mask = make_padding_mask(
           padding_mask_query=padding_mask,
           padding_mask_key=key_padding_mask,
@@ -365,6 +384,7 @@ class MultiHeadDotProductAttention(base.Module):
 
     if segmentation is not None:
       if key_segmentation is None:
+        assert is_self_attention
         key_segmentation = segmentation
       segmentation_mask = make_padding_mask(
           padding_mask_query=segmentation,
@@ -427,7 +447,10 @@ def make_padding_mask(padding_mask_query,
                       key_shape,
                       attention_axis=None,
                       segmentation_mask=False):
-  """Makes padding mask for attention weights.
+  """The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Makes padding mask for attention weights.
 
   In case of 1d inputs (i.e., `[bs, len, features]`, the attention weights will
   be `[bs, len, len]` and this function makes a square matrix [len, len].
@@ -464,7 +487,7 @@ def make_padding_mask(padding_mask_query,
 
   padding_mask_query = padding_mask_query[..., None]
   padding_mask_key = padding_mask_key[..., None]
-  perm = (0,) + tuple(onp.flip(onp.arange(padding_mask_key.ndim)))[:-1]
+  perm = (0,) + tuple(np.flip(np.arange(padding_mask_key.ndim)))[:-1]
   if segmentation_mask:
     mask = jnp.equal(padding_mask_query, padding_mask_key.transpose(perm))
   else:
@@ -476,7 +499,10 @@ def make_padding_mask(padding_mask_query,
 
 
 def _make_causal_mask(key, attention_axis=None, self_mask=False):
-  """Makes a causal mask, to be used for masking out the future for attention.
+  """The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Makes a causal mask, to be used for masking out the future for attention.
 
   In case of 1d inputs (i.e., `[bs, len, features]`, the attention weights will
   be `[bs, len, len]` and this function makes a square matrix [len, len] with

@@ -5,7 +5,7 @@ This code follows [pytorch/examples/vae](https://github.com/pytorch/examples/blo
 
 ```bash
 pip install -r requirements.txt
-python main.py
+python train.py
 ```
 
 ## Examples
@@ -14,8 +14,8 @@ If you run the code by above command, you can get some generated images:
 
 ![generated_mnist](./sample.png)
 
-and reconstructions of test set digitis:
+and reconstructions of test set digits:
 
 ![reconstruction_mnist](./reconstruction.png)
 
-The test set ELBO after 10 epochs should be around `106`.
+The test set loss after 10 epochs should be around `104`.

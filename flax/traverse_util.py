@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 
 # Copyright 2020 The Flax Authors.
 #
@@ -42,9 +41,9 @@ More complex traversals can be constructed using composition.
 It is often useful to start from the identity traversal and use a method chain
 to construct the intended Traversal::
 
-data = [{'foo': 1, 'bar': 2}, {'foo': 3, 'bar': 4}]
-traversal = traverse_util.t_identity.each()['foo']
-traversal.iterate(data) # [1, 3]
+  data = [{'foo': 1, 'bar': 2}, {'foo': 3, 'bar': 4}]
+  traversal = traverse_util.t_identity.each()['foo']
+  traversal.iterate(data) # [1, 3]
 
 Traversals can also be used to make changes using the `update` method::
 
@@ -62,8 +61,19 @@ import dataclasses
 
 import jax
 
+from . import struct
 
-def flatten_dict(xs):
+
+# the empty node is a struct.dataclass to 
+# be compatible with JAX.
+@struct.dataclass
+class _EmptyNode:
+  pass
+
+empty_node = _EmptyNode()
+
+
+def flatten_dict(xs, keep_empty_nodes=False, is_leaf=None):
   """Flatten a nested dictionary.
 
   The nested keys are flattened to a tuple.
@@ -85,17 +95,30 @@ def flatten_dict(xs):
 
   Args:
     xs: a nested dictionary
+    keep_empty_nodes: replaces empty dictionaries
+      with `traverse_util.empty_node`. This must
+      be set to `True` for `unflatten_dict` to
+      correctly restore empty dictionaries.
+    is_leaf: an optional function that takes the
+      next nested dictionary and nested keys and
+      returns True if the nested dictionary is a
+      leaf (i.e., should not be flattened further).
   Returns:
     The flattened dictionary.
   """
   assert isinstance(xs, dict), 'input is not a dict'
+
   def _flatten(xs, prefix):
-    if not isinstance(xs, dict):
+    if not isinstance(xs, dict) or (is_leaf and is_leaf(prefix, xs)):
       return {prefix: xs}
     result = {}
+    is_empty = True
     for key, value in xs.items():
+      is_empty = False
       path = prefix + (key,)
       result.update(_flatten(value, path))
+    if keep_empty_nodes and is_empty:
+      return {prefix: empty_node}
     return result
   return _flatten(xs, ())
 
@@ -126,6 +149,8 @@ def unflatten_dict(xs):
   assert isinstance(xs, dict), 'input is not a dict'
   result = {}
   for path, value in xs.items():
+    if value is empty_node:
+      value = {}
     cursor = result
     for key in path[:-1]:
       if key not in cursor:
@@ -135,7 +160,7 @@ def unflatten_dict(xs):
   return result
 
 
-class Traversal(object):
+class Traversal(abc.ABC):
   """Base class for all traversals."""
 
   @abc.abstractmethod

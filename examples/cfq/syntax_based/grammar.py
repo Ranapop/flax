@@ -19,7 +19,7 @@ import collections
 from typing import Dict, List
 from enum import Enum
 
-GRAMMAR_STR = """
+GRAMMAR_STR = r"""
   query: select_query
   select_query: select_clause "WHERE" "{" where_clause "}"
   select_clause: "SELECT" "DISTINCT" "?x0"
@@ -68,7 +68,7 @@ def extract_sub_rules(grammar_str: str):
   rules = []
   current_rule = ""
   for line in split_lines:
-    if re.match('\s+\|', line):
+    if re.match(r'\s+\|', line):
       current_rule += line
     else:
       rules.append(current_rule)
@@ -86,7 +86,7 @@ class TermType(Enum):
   RULE_TERM = 2
 
 class Term:
-  """
+  r"""
   Class describing a term (token on the right side of a rule). It contains a
   type and a value. If the term is a syntax token, eg. "SELECT", the value
   contains the string "SELECT", if the term is a regex term, it also contains a
@@ -175,6 +175,45 @@ class Grammar:
          if term.term_type == TermType.SYNTAX_TERM:
            syntax_tokens.add(term.value)
     return list(syntax_tokens)
+  
+  def collect_node_types(self):
+    """Collects the node types (the values that will be stored in the frontier
+    nodes. These can be RULE_TERMs or REGEX_TERMs.
+    
+    The method also returns a list of flags, speciffying for each node type
+    if it's a rule node (1) or not (0)."""
+    node_types = [self.grammar_entry]
+    node_flags = [1]
+    for branch in self.branches:
+      for term in branch.body:
+        if term.term_type in [TermType.RULE_TERM, TermType.REGEX_TERM]:
+          if term.value not in node_types:
+            node_types.append(term.value)
+            if term.term_type == TermType.RULE_TERM:
+              node_flags.append(1)
+            else:
+              node_flags.append(0)
+    return list(node_types), node_flags
+
+  def get_expanded_nodes(self, nodes_vocab: Dict[str, int]):
+    """
+    Returns a list of lists showing how nodes can be expanded once a branch is
+    predicted, that is for each branch a list of nodes the node it would be
+    expanded with. The function gets a vocab for the nodes so the lists are
+    already numericalized.
+    """
+    expanded_nodes = []
+    for branch in self.branches:
+      body = branch.body
+      branch_nodes = []
+      for term in body:
+        if term.term_type in [TermType.RULE_TERM, TermType.REGEX_TERM]:
+          node_idx = nodes_vocab[term.value]
+          branch_nodes.append(node_idx)
+      expanded_nodes.append(branch_nodes)
+    # put here an empty list here for token generation.
+    expanded_nodes.append([])
+    return expanded_nodes
 
   def get_branch_id_by_head_and_index(self, head: str, index: int):
     """Returns the branch id given the head and index."""

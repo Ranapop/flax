@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,34 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 from .. import struct
 
 import jax.numpy as jnp
 
-import numpy as onp
+import numpy as np
 
 from .base import OptimizerDef
 
 
 @struct.dataclass
 class _LARSHyperParams:
-  learning_rate: onp.ndarray
-  beta: onp.ndarray
-  weight_decay: onp.ndarray
-  trust_coefficient: onp.ndarray
-  eps: onp.ndarray
+  learning_rate: np.ndarray
+  beta: np.ndarray
+  weight_decay: np.ndarray
+  trust_coefficient: np.ndarray
+  eps: np.ndarray
   nesterov: bool
 
 
 @struct.dataclass
 class _LARSParamState:
-  momentum: onp.ndarray
+  momentum: np.ndarray
 
 
 class LARS(OptimizerDef):
   """Layerwise adaptive rate scaling (LARS) optimizer.
-  
+
   See https://arxiv.org/abs/1708.03888
   """
 
@@ -74,7 +73,7 @@ class LARS(OptimizerDef):
     trust_ratio = hyper_params.trust_coefficient * param_norm / (
         grad_norm + hyper_params.weight_decay * param_norm + hyper_params.eps)
     clipped_trust_ratio = jnp.where(
-        param_norm + grad_norm > 0., trust_ratio, 1.)
+        jnp.logical_or(grad_norm == 0., param_norm == 0.), 1., trust_ratio)
     scaled_lr = hyper_params.learning_rate * clipped_trust_ratio
     if hyper_params.weight_decay != 0:
       grad += hyper_params.weight_decay * param

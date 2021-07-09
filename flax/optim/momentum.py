@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,27 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 from .. import struct
 
 import jax.numpy as jnp
 
-import numpy as onp
+import numpy as np
 
 from .base import OptimizerDef
 
 
 @struct.dataclass
 class _MomentumHyperParams:
-  learning_rate: onp.ndarray
-  beta: onp.ndarray
-  weight_decay: onp.ndarray
+  learning_rate: np.ndarray
+  beta: np.ndarray
+  weight_decay: np.ndarray
   nesterov: bool
 
 
 @struct.dataclass
 class _MomentumParamState:
-  momentum: onp.ndarray
+  momentum: np.ndarray
 
 
 class Momentum(OptimizerDef):

@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Stochastic modules.
 """
 
@@ -28,7 +27,11 @@ _prng_stack = utils.CallStack()
 
 
 class _PRNGFrame:
-  """Random Number generator scope responsible for generation prngs in a stochastic context."""
+  """DEPRECATION WARNING:
+  The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Random Number generator scope responsible for generation prngs in a stochastic context."""
 
   def __init__(self, rng):
     self.base_rng = rng
@@ -50,7 +53,11 @@ class _PRNGFrame:
 
 @contextlib.contextmanager
 def stochastic(rng):
-  """A context manager for stochastic computations.
+  """DEPRECATION WARNING:
+  The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  A context manager for stochastic computations.
 
   Args:
     rng: the random number generator used as a seed for the stochastic context.
@@ -62,12 +69,20 @@ def stochastic(rng):
 
 
 def is_stochastic():
-  """Returns true if a stochastic scope is currently active."""
+  """DEPRECATION WARNING:
+  The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Returns true if a stochastic scope is currently active."""
   return bool(_prng_stack)
 
 
 def make_rng():
-  """Create a new unique random number generator in a stochastic scope.
+  """DEPRECATION WARNING:
+  The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Create a new unique random number generator in a stochastic scope.
 
   In combination with `nn.stochastic()` this function is used to generate random
   keys without manually passing around and splitting a random number generator::
@@ -88,7 +103,11 @@ def make_rng():
 
 
 def dropout(inputs, rate, deterministic=False, rng=None):
-  """Applies a random dropout mask to the input.
+  """DEPRECATION WARNING:
+  The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Applies a random dropout mask to the input.
 
   Args:
     inputs: the inputs that should be randomly masked.

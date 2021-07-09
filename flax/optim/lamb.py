@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,29 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 from .. import struct
 
 from jax import lax
 import jax.numpy as jnp
 
-import numpy as onp
+import numpy as np
 
 from .base import OptimizerDef
 
 @struct.dataclass
 class _LAMBHyperParams:
-  learning_rate: onp.ndarray
-  beta1: onp.ndarray
-  beta2: onp.ndarray
-  weight_decay: onp.ndarray
-  eps: onp.ndarray
+  learning_rate: np.ndarray
+  beta1: np.ndarray
+  beta2: np.ndarray
+  weight_decay: np.ndarray
+  eps: np.ndarray
 
 
 @struct.dataclass
 class _LAMBParamState:
-  grad_ema: onp.ndarray
-  grad_sq_ema: onp.ndarray
+  grad_ema: np.ndarray
+  grad_sq_ema: np.ndarray
 
 
 class LAMB(OptimizerDef):
@@ -75,7 +74,7 @@ class LAMB(OptimizerDef):
     grad_ema = beta1 * state.grad_ema + (1. - beta1) * grad
     grad_sq_ema = beta2 * state.grad_sq_ema + (1. - beta2) * grad_sq
 
-    t = step + 1.
+    t = jnp.array(step + 1, lax.dtype(param.dtype))
     grad_ema_corr = grad_ema / (1. - beta1 ** t)
     grad_sq_ema_corr = grad_sq_ema / (1. - beta2 ** t)
 

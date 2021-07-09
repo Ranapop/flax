@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,216 +12,294 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Input pipeline for the lm1b dataset."""
+"""Input pipeline for a LM1B dataset."""
 
-from absl import logging
-import tensorflow.compat.v2 as tf
+import os
+from typing import Dict, Optional, List, Union
+
+from clu import deterministic_data
+import tokenizer
+import ml_collections
+import tensorflow as tf
 import tensorflow_datasets as tfds
 
-tf.enable_v2_behavior()
-
-
 AUTOTUNE = tf.data.experimental.AUTOTUNE
+Features = Dict[str, tf.Tensor]
 
 
-def train_and_eval_dataset(dataset_name,
-                           data_dir,
-                           eval_holdout_size=0,
-                           train_shuffle_files=True,
-                           eval_shuffle_files=False):
-  """Return train and evaluation datasets, feature info and supervised keys.
+class NormalizeFeatureNamesOp:
+  """Normalizes feature names to 'inputs' and 'targets'."""
 
-  Args:
-    dataset_name: a string, the name of the TFDS dataset.
-    data_dir: directory where the data is located.
-    eval_holdout_size: float from 0 to <1; if >0 use this much of training data
-      for evaluation (instead of looking for a pre-specified VALIDATION split).
-    train_shuffle_files: Boolean determining whether or not to shuffle the train
-      files at startup. Set to False if you want data determinism.
-    eval_shuffle_files: Boolean determining whether or not to shuffle the test
-      files at startup. Set to False if you want data determinism.
+  def __init__(self, ds_info: tfds.core.DatasetInfo):
+    self.ds_info = ds_info
 
-  Returns:
-    a 4-tuple consisting of:
-     * the train tf.Dataset
-     * the eval tf.Dataset
-     * information about features: a python dictionary with feature names
-         as keys and an object as value that provides .shape and .n_classes.
-     * supervised_keys: information what's the input and what's the target,
-         ie., a pair of lists with input and target feature names.
-  """
-  dataset_builder = tfds.builder(dataset_name, data_dir=data_dir)
-  info = dataset_builder.info
-  splits = dataset_builder.info.splits
-  if tfds.Split.TRAIN not in splits:
-    raise ValueError("To train we require a train split in the dataset.")
-  train_split = tfds.Split.TRAIN
-  if eval_holdout_size > 0:
-    holdout_percentage = int(eval_holdout_size * 100.0)
-    train_percentage = 100 - holdout_percentage
-    train_split = tfds.Split.TRAIN.subsplit(tfds.percent[:train_percentage])
-    eval_split = tfds.Split.TRAIN.subsplit(tfds.percent[train_percentage:])
-  else:
-    if tfds.Split.VALIDATION not in splits and "test" not in splits:
-      raise ValueError("We require a validation or test split in the dataset.")
-    eval_split = tfds.Split.VALIDATION
-    if tfds.Split.VALIDATION not in splits:
-      eval_split = tfds.Split.TEST
-  train = tfds.load(
-      name=dataset_name,
-      split=train_split,
-      data_dir=data_dir,
-      shuffle_files=train_shuffle_files)
-  valid = tfds.load(
-      name=dataset_name,
-      split=eval_split,
-      data_dir=data_dir,
-      shuffle_files=eval_shuffle_files)
-  keys = None
-  if info.supervised_keys:
-    keys = (info.supervised_keys[0], info.supervised_keys[1])
-  return train, valid, info.features, keys
+  def __call__(self, features: Features) -> Features:
+    features['inputs'] = features.pop('text')
+    # Unnecessary step used for uniformizing with examples/wmt.
+    features['targets'] = features['inputs']
+    return features
 
 
-def bin_and_batch(dataset,
-                  training,
-                  n_devices,
-                  target_batch_size=256,
-                  target_bucket_length=32,
-                  buckets=None,
-                  max_eval_length=None,
-                  drop_remainder=False):
-  """Batching function, can specify batch size directly or per-device.
+def get_raw_dataset(dataset_builder: tfds.core.DatasetBuilder,
+                    split: str) -> tf.data.Dataset:
+  """Loads a raw text dataset and normalizes feature keys.
 
   Args:
-    dataset: tf dataset containing individual sequences.
-    training: bool: is this a train or eval dataset.
-    n_devices: number of devices this dataset will be run on.
-    target_batch_size: int: the target batch size for binned batches.
-    target_bucket_length: int: the target sequence length for binned batches.
-    buckets: (List[int], List[int]): manually specified length buckets and
-      batch sizes for bins.
-    max_eval_length: int: for eval set allow a extra long-sequence bin.
-    drop_remainder: bool: if true drop last batch if not divisible by
-      batch sizes. (e.g. not divisible by n_devices).
+    dataset_builder: TFDS dataset builder that can build `split`.
+    split: Split to use. This must be the full split. We shard the split across
+      multiple hosts and currently don't support sharding subsplits.
 
   Returns:
-    Dynamically binned batches of sequence that roughly keep the total
-    number of tokens (target_batch_size * target_bucket_length) the same, while
-    insuring batch sizes are divisible by n_devices for distributed training.
+    Dataset with source and target language features mapped to 'inputs' and
+    'targets'.
   """
-  # Create heuristic buckets is none are specified.
-  if buckets is None:
-    logging.info("Heuristically bucketing based on shapes of examples.")
-    bucket_boundaries = [
-        target_bucket_length // 4, target_bucket_length // 2,
-        target_bucket_length, target_bucket_length * 2,
-        target_bucket_length * 4, target_bucket_length * 8,
-        target_bucket_length * 16
-    ]
-    bucket_batch_sizes = [
-        target_batch_size * 4, target_batch_size * 2,
-        target_batch_size, target_batch_size // 2,
-        target_batch_size // 4, target_batch_size // 8,
-        target_batch_size // 16
-    ]
-    # allow for different evaluation max-length bucket and batchsize
-    if not training:
-      max_eval_length = max_eval_length or target_bucket_length * 32
-      bucket_boundaries[-1] = max_eval_length
-      bucket_batch_sizes[-1] = (target_batch_size // 
-                                (max_eval_length // target_bucket_length))
-    # We will pad to boundaries which pads to bucket_boundary-1: add 1 here.
-    bucket_boundaries = [b + 1 for b in bucket_boundaries]
-    # Make batch sizes divisible by n_devices.
-    bucket_batch_sizes = [
-        max(b // n_devices, 1) * n_devices for b in bucket_batch_sizes
-    ]
-    buckets = (bucket_boundaries, bucket_batch_sizes)
-
-  logging.info("Bucketing with buckets %s.", str(buckets))
-
-  def length_fn(sequence):
-    """Returns length of sequence."""
-    return tf.shape(sequence)[0]
-
-  boundaries, batch_sizes = buckets
-  # bucket_by_sequence_length expects a final dummy 1 batch_size
-  batch_sizes.append(1)
-  dataset = dataset.apply(
-      tf.data.experimental.bucket_by_sequence_length(
-          length_fn,
-          boundaries,
-          batch_sizes,
-          pad_to_bucket_boundary=True,
-          drop_remainder=drop_remainder))
-  return dataset
+  num_examples = dataset_builder.info.splits[split].num_examples
+  per_host_split = deterministic_data.get_read_instruction_for_host(
+      split, num_examples, drop_remainder=False)
+  ds = dataset_builder.as_dataset(split=per_host_split, shuffle_files=False)
+  ds = ds.map(
+      NormalizeFeatureNamesOp(dataset_builder.info),
+      num_parallel_calls=AUTOTUNE)
+  return ds
 
 
-def lm1b_preprocess(dataset,
-                    training,
-                    n_devices,
-                    shuffle_buffer_batches=10,
-                    max_target_length=512,
-                    max_eval_target_length=2048,
-                    batch_size=256,
-                    buckets=None,
-                    single_training_epoch=False,
-                    drop_remainder=True,
-                    prefetch_size=AUTOTUNE):
-  """Shuffle and batch the given dataset.
+def pack_dataset(dataset: tf.data.Dataset,
+                 key2length: Union[int, Dict[str, int]],
+                 keys: Optional[List[str]] = None) -> tf.data.Dataset:
+  """Creates a 'packed' version of a dataset on-the-fly.
+
+  Adapted from the mesh-tf implementation.
+
+  This is meant to replace the irritation of having to create a separate
+  "packed" version of a dataset to train efficiently on TPU.
+  Each example in the output dataset represents several examples in the
+  input dataset.
+  For each key in the input dataset, two additional keys are created:
+  <key>_segmentation: an int32 tensor identifying the parts
+     representing the original example.
+  <key>_position: an int32 tensor identifying the position within the original
+     example.
+  Example:
+  Two input examples get combined to form an output example.
+  The input examples are:
+  {"inputs": [8, 7, 1, 0], "targets":[4, 1, 0]}
+  {"inputs": [2, 3, 4, 1], "targets":[5, 6, 1]}
+  The output example is:
+  {
+                 "inputs": [8, 7, 1, 2, 3, 4, 1, 0, 0, 0]
+    "inputs_segmentation": [1, 1, 1, 2, 2, 2, 2, 0, 0, 0]
+        "inputs_position": [0, 1, 2, 0, 1, 2, 3, 0, 0, 0]
+                "targets": [4, 1, 5, 6, 1, 0, 0, 0, 0, 0]
+   "targets_segmentation": [1, 1, 2, 2, 2, 0, 0, 0, 0, 0]
+       "targets_position": [0, 1, 0, 1, 2, 0, 0, 0, 0, 0]
+  }
+  0 represents padding in both the inputs and the outputs.
+  Sequences in the incoming examples are truncated to length "length", and the
+  sequences in the output examples all have fixed (padded) length "length".
 
   Args:
-    dataset: tf dataset containing individual sequences.
-    training: bool: is this a train or eval dataset.
-    n_devices: number of devices this dataset will be run on.
-    shuffle_buffer_batches: int: shuffle buffer as multiples of batch_size.
-    max_target_length: int: drop training sequences longer than this.
-    max_eval_target_length: int: drop evaluation sequences longer than this.
-    batch_size: int: target batch size, if using dynamic binning the actual
-      batch sizes will be small fractions or multiples of this target.
-    buckets: (List[int], List[int]): manually specified length buckets and
-      batch sizes for bins.
-    single_training_epoch: bool: whether to produce only a single training
-      epoch or to repeat training dataset indefinitely.
-    drop_remainder: bool: if true drop last batch if not divisible by
-      batch sizes. (e.g. not divisible by n_devices).
-    prefetch_size: int or AUTOTUNE: number of batches to prefetch.
+    dataset: a tf.data.Dataset
+    key2length: an integer, or a dict from feature-key to integer
+    keys: a list of strings (e.g. ["inputs", "targets"])
 
   Returns:
-    Dynamically binned batches of sequence that roughly keep the total
-    number of tokens the same, while insuring batch sizes are divisible by
-    n_devices for distributed training.
+    a tf.data.Dataset
   """
+  shapes = tf.nest.map_structure(lambda spec: spec.shape, dataset.element_spec)
+  if keys is None:
+    keys = list(shapes.keys())
+  for k in keys:
+    if k not in shapes:
+      raise ValueError('Key %s not found in dataset.  Available keys are %s' %
+                       (k, shapes.keys()))
+    if not shapes[k].is_compatible_with(tf.TensorShape([None])):
+      raise ValueError('Tensors to be packed must be one-dimensional.')
+  # make sure that the length dictionary contains all keys as well as the
+  # keys suffixed by "_segmentation" and "_position"
+  if isinstance(key2length, int):
+    key2length = {k: key2length for k in keys}
+  for k in keys:
+    for suffix in ['_segmentation', '_position']:
+      key2length[k + suffix] = key2length[k]
 
-  # Filter dataset by training or evaluation length cutoffs.
+  # trim to length
+  dataset = dataset.map(
+      lambda x: {k: x[k][:key2length[k]] for k in keys},
+      num_parallel_calls=AUTOTUNE)
+  # Setting batch_size=length ensures that the concatenated sequences (if they
+  # have length >=1) are sufficient to fill at least one packed example.
+  batch_size = max(key2length.values())
+  dataset = dataset.padded_batch(
+      batch_size, padded_shapes={k: [-1] for k in keys})
+  dataset = _pack_with_tf_ops(dataset, keys, key2length)
+
+  # Set the Tensor shapes correctly since they get lost in the process.
+  def my_fn(x):
+    return {k: tf.reshape(v, [key2length[k]]) for k, v in x.items()}
+
+  return dataset.map(my_fn, num_parallel_calls=AUTOTUNE)
+
+
+def _pack_with_tf_ops(dataset: tf.data.Dataset, keys: List[str],
+                      key2length: Dict[str, int]) -> tf.data.Dataset:
+  """Helper-function for packing a dataset which has already been batched.
+
+  Helper for pack_dataset()  Uses tf.while_loop.
+
+  Args:
+    dataset: a dataset containing padded batches of examples.
+    keys: a list of strings
+    key2length: an dict from feature-key to integer
+
+  Returns:
+    a dataset.
+  """
+  empty_example = {}
+  for k in keys:
+    empty_example[k] = tf.zeros([0], dtype=tf.int32)
+    empty_example[k + '_position'] = tf.zeros([0], dtype=tf.int32)
+  keys_etc = empty_example.keys()
+
+  def write_packed_example(partial, outputs):
+    new_partial = empty_example.copy()
+    new_outputs = {}
+    for k in keys_etc:
+      new_outputs[k] = outputs[k].write(
+          outputs[k].size(),
+          tf.pad(partial[k], [[0, key2length[k] - tf.size(partial[k])]]))
+    return new_partial, new_outputs
+
+  def map_fn(x):
+    """Internal function to flat_map over.
+
+    Consumes a batch of input examples and produces a variable number of output
+    examples.
+    Args:
+      x: a single example
+
+    Returns:
+      a tf.data.Dataset
+    """
+    partial = empty_example.copy()
+    i = tf.zeros([], dtype=tf.int32)
+    dynamic_batch_size = tf.shape(x[keys[0]])[0]
+    outputs = {}
+    for k in keys:
+      outputs[k] = tf.TensorArray(
+          tf.int32, size=0, dynamic_size=True, element_shape=[key2length[k]])
+      outputs[k + '_position'] = tf.TensorArray(
+          tf.int32, size=0, dynamic_size=True, element_shape=[key2length[k]])
+
+    def body_fn(i, partial, outputs):
+      """Body function for while_loop.
+
+      Args:
+        i: integer scalar
+        partial: dictionary of Tensor (partially-constructed example)
+        outputs: dictionary of TensorArray
+
+      Returns:
+        A triple containing the new values of the inputs.
+      """
+      can_append = True
+      one_example = {}
+      for k in keys:
+        val = tf.cast(x[k][i], tf.int32)
+        val = val[:tf.reduce_sum(tf.cast(tf.not_equal(val, 0), tf.int32))]
+        one_example[k] = val
+      for k in keys:
+        can_append = tf.logical_and(
+            can_append,
+            tf.less_equal(
+                tf.size(partial[k]) + tf.size(one_example[k]), key2length[k]))
+
+      def false_fn():
+        return write_packed_example(partial, outputs)
+
+      def true_fn():
+        return partial, outputs
+
+      partial, outputs = tf.cond(can_append, true_fn, false_fn)
+      new_partial = {}
+      for k in keys:
+        new_seq = one_example[k][:key2length[k]]
+        new_seq_len = tf.size(new_seq)
+        new_partial[k] = tf.concat([partial[k], new_seq], 0)
+        new_partial[k + '_position'] = tf.concat(
+            [partial[k + '_position'],
+             tf.range(new_seq_len)], 0)
+      partial = new_partial
+      return i + 1, partial, outputs
+
+    # For loop over all examples in the batch.
+    i, partial, outputs = tf.while_loop(
+        cond=lambda *_: True,
+        body=body_fn,
+        loop_vars=(i, partial, outputs),
+        shape_invariants=(
+            tf.TensorShape([]),
+            {k: tf.TensorShape([None]) for k in keys_etc},
+            {k: tf.TensorShape(None) for k in keys_etc},
+        ),
+        maximum_iterations=dynamic_batch_size)
+    _, outputs = write_packed_example(partial, outputs)
+    packed = {k: outputs[k].stack() for k in keys_etc}
+    for k in keys:
+      packed[k + '_segmentation'] = (
+          tf.cumsum(
+              tf.cast(tf.equal(packed[k + '_position'], 0), tf.int32), axis=1) *
+          tf.cast(tf.not_equal(packed[k], 0), tf.int32))
+    return packed
+
+  dataset = dataset.map(map_fn, num_parallel_calls=AUTOTUNE)
+  return dataset.unbatch()
+
+
+# -----------------------------------------------------------------------------
+# Main dataset prep routines.
+# -----------------------------------------------------------------------------
+def preprocess_data(dataset,
+                    shuffle: bool,
+                    num_epochs: Optional[int] = 1,
+                    pack_examples: bool = True,
+                    shuffle_buffer_size: int = 1024,
+                    max_length: int = 512,
+                    batch_size: int = 256,
+                    drop_remainder: bool = True,
+                    prefetch_size: int = AUTOTUNE):
+  """Shuffle and batch/pack the given dataset."""
+
   def length_filter(max_len):
 
-    def filter_fn(source):
-      return tf.less(tf.shape(source)[0], max_len + 1)
+    def filter_fn(x):
+      source, target = x['inputs'], x['targets']
+      l = tf.maximum(tf.shape(source)[0], tf.shape(target)[0])
+      return tf.less(l, max_len + 1)
 
     return filter_fn
 
-  if max_target_length > 0 and training:
-    dataset = dataset.filter(length_filter(max_target_length))
-  if max_eval_target_length > 0 and not training:
-    dataset = dataset.filter(length_filter(max_eval_target_length))
+  if max_length > 0:
+    dataset = dataset.filter(length_filter(max_length))
 
-  # Shuffle and repeat training set.
-  if training:
-    dataset = dataset.shuffle(shuffle_buffer_batches * batch_size)
-    if not single_training_epoch:
-      dataset = dataset.repeat()
+  if shuffle:
+    dataset = dataset.shuffle(shuffle_buffer_size)
+  dataset = dataset.repeat(num_epochs)
 
-  # Batch into padded, length-binned batches.
-  dataset = bin_and_batch(
-      dataset,
-      training,
-      n_devices,
-      target_batch_size=batch_size,
-      max_eval_length=max_eval_target_length,
-      buckets=buckets,
-      drop_remainder=drop_remainder)
+  if pack_examples:
+    dataset = pack_dataset(dataset, max_length)
+    dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
+  else:  # simple (static-shape) padded batching
+    dataset = dataset.padded_batch(
+        batch_size,
+        padded_shapes={
+            'inputs': max_length,
+            'targets': max_length
+        },
+        padding_values={
+            'inputs': 0,
+            'targets': 0
+        },
+        drop_remainder=drop_remainder)
 
   if prefetch_size:
     dataset = dataset.prefetch(prefetch_size)
@@ -229,86 +307,61 @@ def lm1b_preprocess(dataset,
   return dataset
 
 
-def get_lm1b_datasets(n_devices,
-                      data_dir=None,
-                      batch_size=256,
-                      dynamic_batching=True,
-                      max_target_length=512,
-                      max_eval_target_length=2048,
-                      drop_remainder=True,
-                      single_training_epoch=False):
-  """Load and return dataset of batched examples for use during training.
+def get_datasets(config: ml_collections.ConfigDict,
+                 *,
+                 n_devices: int,
+                 vocab_path: Optional[str] = None):
+  """Load and return dataset of batched examples for use during training."""
+  if vocab_path is None:
+    vocab_path = os.path.expanduser('~/lm1b_sentencepiece_model')
 
-  Note that dynamic batching is not currently compatible with multihost
-  training. For that application we need to pre-bin data and e.g. use a shared
-  rng key across hosts in pmap to choose identical bin-shapes to satify the
-  requirement for SPMD shape identity across multihost pmap.
+  train_ds_builder = tfds.builder(config.dataset_name)
+  train_data = get_raw_dataset(train_ds_builder, 'train')
 
-  Args:
-    n_devices: number of devices this dataset will be run on.
-    data_dir: str: path containing dataset.
-    batch_size: int: target batch size, if using dynamic binning the actual
-      batch sizes will be small fractions or multiples of this target.
-    dynamic_batching: bool: whether to use dynamic length-binning to produce
-      batches with roughly constant token count.
-    max_target_length: int: drop training sequences longer than this.
-    max_eval_target_length: int: drop evaluation sequences longer than this.
-    drop_remainder: bool: if true drop last batch if not divisible by
-      batch sizes. (e.g. not divisible by n_devices).
-    single_training_epoch: bool: whether to produce only a single training
-      epoch or to repeat training dataset indefinitely.
-
-  Returns:
-    Tuple of:
-    training tf dataset, evaluation tf dataset, and tfds features info
-  """
-  if batch_size % n_devices:
-    raise ValueError("Batch size %d isn't divided evenly by n_devices %d" %
-                     (batch_size, n_devices))
-
-  (train_data, eval_data, features_info, keys) = train_and_eval_dataset(
-      "lm1b/subwords32k",
-      data_dir,
-      train_shuffle_files=True,
-      eval_shuffle_files=False)
-
-  # For sequence models, TFDS yields a (duplicated) feature dictionary.
-  # We want to simplify things by mapping e.g.
-  # {key0: inputs_data, key1: targets_data} to just inputs_data.
-  # for LM1B: key0 == key1 == text and inputs_data == targets_data
-  inputs_key, targets_key = keys
-  del targets_key
-  to_sequence_data = lambda x: x[inputs_key]
-  train_data = train_data.map(to_sequence_data)
-  eval_data = eval_data.map(to_sequence_data)
-
-  if dynamic_batching:
-    train_buckets = None
-    eval_buckets = None
+  if config.eval_dataset_name:
+    eval_ds_builder = tfds.builder(config.eval_dataset_name)
   else:
-    # buckets should be (bucket_boundaries, bucket_batch_sizes)
-    train_buckets = ([max_target_length + 1], [batch_size])
-    eval_buckets = ([max_eval_target_length + 1], [batch_size])
+    eval_ds_builder = train_ds_builder
+  eval_data = get_raw_dataset(eval_ds_builder, config.eval_split)
 
-  train_batches = lm1b_preprocess(
+  # Tokenize data.
+  sp_tokenizer = tokenizer.load_or_train_tokenizer(
       train_data,
-      training=True,
-      n_devices=n_devices,
-      batch_size=batch_size,
-      max_target_length=max_target_length,
-      max_eval_target_length=max_eval_target_length,
-      buckets=train_buckets,
-      single_training_epoch=single_training_epoch,
-      drop_remainder=drop_remainder)
+      vocab_path=vocab_path,
+      vocab_size=config.vocab_size,
+      max_corpus_chars=config.max_corpus_chars)
+  train_data = train_data.map(
+      tokenizer.TokenizeOp(sp_tokenizer), num_parallel_calls=AUTOTUNE)
+  eval_data = eval_data.map(
+      tokenizer.TokenizeOp(sp_tokenizer), num_parallel_calls=AUTOTUNE)
 
-  eval_batches = lm1b_preprocess(
+  batch_size = config.per_device_batch_size * n_devices
+  if config.eval_per_device_batch_size > 0:
+    eval_batch_size = config.eval_per_device_batch_size * n_devices
+  else:
+    eval_batch_size = batch_size
+
+  train_ds = preprocess_data(
+      train_data,
+      shuffle=True,
+      num_epochs=None,
+      pack_examples=True,
+      batch_size=batch_size,
+      max_length=config.max_target_length)
+
+  eval_ds = preprocess_data(
       eval_data,
-      training=False,
-      n_devices=n_devices,
-      max_target_length=max_target_length,
-      max_eval_target_length=max_eval_target_length,
-      batch_size=batch_size,
-      buckets=eval_buckets,
-      drop_remainder=drop_remainder)
+      shuffle=False,
+      pack_examples=False,
+      batch_size=eval_batch_size,
+      max_length=config.max_eval_target_length)
 
-  return train_batches, eval_batches, features_info
+  predict_ds = preprocess_data(
+      eval_data,
+      shuffle=False,
+      pack_examples=False,
+      batch_size=eval_batch_size,
+      max_length=config.max_predict_length,
+      drop_remainder=False)
+
+  return train_ds, eval_ds, predict_ds, sp_tokenizer

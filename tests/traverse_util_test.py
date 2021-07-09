@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -164,6 +164,28 @@ class TraversalTest(absltest.TestCase):
       'bar': {'a': 2}
     })
 
+  def test_flatten_dict_keep_empty(self):
+    xs = {'foo': 1, 'bar': {'a': 2, 'b': {}}}
+    flat_xs = traverse_util.flatten_dict(xs, keep_empty_nodes=True)
+    self.assertEqual(flat_xs, {
+      ('foo',): 1,
+      ('bar', 'a'): 2,
+      ('bar', 'b'): traverse_util.empty_node,
+    })
+    xs_restore = traverse_util.unflatten_dict(flat_xs)
+    self.assertEqual(xs, xs_restore)
+
+  def test_flatten_dict_is_leaf(self):
+    xs = {'foo': {'c': 4}, 'bar': {'a': 2, 'b': {}}}
+    flat_xs = traverse_util.flatten_dict(
+        xs,
+        is_leaf=lambda k, x: len(k) == 1 and len(x) == 2)
+    self.assertEqual(flat_xs, {
+      ('foo', 'c'): 4,
+      ('bar',): {'a': 2, 'b': {}},
+    })
+    xs_restore = traverse_util.unflatten_dict(flat_xs)
+    self.assertEqual(xs, xs_restore)
 
 if __name__ == '__main__':
   absltest.main()

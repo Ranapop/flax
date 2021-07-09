@@ -18,8 +18,6 @@ import os
 from setuptools import find_packages
 from setuptools import setup
 
-version = "0.2.0"
-
 here = os.path.abspath(os.path.dirname(__file__))
 try:
   README = open(os.path.join(here, "README.md"), encoding='utf-8').read()
@@ -28,24 +26,40 @@ except IOError:
 
 install_requires = [
     "numpy>=1.12",
-    "jax>=0.1.59",
+    "jax>=0.2.13",
     "matplotlib",  # only needed for tensorboard export
     "dataclasses;python_version<'3.7'", # will only install on py3.6
     "msgpack",
+    "optax",
 ]
 
 tests_require = [
+    "atari-py==0.2.5",  # Last version does not have the ROMs we test on pre-packaged
+    "clu",  # All examples.
+    "gym",
     "jaxlib",
+    "ml-collections",
+    "opencv-python",
     "pytest",
     "pytest-cov",
-    "pytest-xdist",
-    "tensorflow",
+    "pytest-xdist==1.34.0",  # upgrading to 2.0 broke tests, need to investigate
+    "pytype",
+    "sentencepiece",  # WMT example.
+    "svn",
+    "tensorflow-cpu>=2.4.0",
+    "tensorflow_text>=2.4.0",  # WMT example.
     "tensorflow_datasets",
+    "tensorflow==2.4.1",  # TODO(marcvanzee): Remove once #1326 is fixed.
 ]
+
+__version__ = None
+
+with open('flax/version.py') as f:
+  exec(f.read(), globals())
 
 setup(
     name="flax",
-    version=version,
+    version=__version__,
     description="Flax: A neural network library for JAX designed for flexibility",
     long_description="\n\n".join([README]),
     long_description_content_type='text/markdown',
