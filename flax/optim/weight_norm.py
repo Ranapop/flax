@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 from typing import Any
 
 from .. import struct
@@ -20,7 +19,7 @@ from .. import struct
 import jax
 import jax.numpy as jnp
 
-import numpy as onp
+import numpy as np
 
 from .base import OptimizerDef
 
@@ -28,15 +27,15 @@ from .base import OptimizerDef
 @struct.dataclass
 class _WeightNormHyperParams:
   inner: Any
-  wn_decay: onp.ndarray
-  wn_eps: onp.ndarray
+  wn_decay: np.ndarray
+  wn_eps: np.ndarray
 
 
 @struct.dataclass
 class _WeightNormParamState:
   direction_state: Any
   scale_state: Any
-  mult: onp.ndarray
+  mult: np.ndarray
 
 
 class WeightNorm(OptimizerDef):
@@ -48,7 +47,7 @@ class WeightNorm(OptimizerDef):
   def __init__(self, wrapped_optimizer, wn_decay=0, wn_eps=1e-8):
     """Constructor for a WeightNorm optimizer.
 
-    Weight vectors are decomposed as w = g * v/||v||_2, for scalar
+    Weight vectors are decomposed as :math:`w = g * v/||v||_2`, for scalar
     scale parameter g, and raw weight vector v. The original optimizer is then
     applied to the (g,v) parameterization and the updated parameters are
     transformed back to w-space, i.e.
@@ -59,7 +58,7 @@ class WeightNorm(OptimizerDef):
 
     Args:
       wrapped_optimizer: another OptimizerDef
-      wn_decay: apply l2 decay to the unnoralized weight vector
+      wn_decay: apply l2 decay to the unnormalized weight vector
       wn_eps: additive constant for stability of
         the normalization (default: 1e-8).
     """

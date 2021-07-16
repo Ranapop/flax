@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,20 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Tests for flax.examples.seq2seq.train."""
 
 import functools
 
 from absl.testing import absltest
+from flax.training import train_state
 import jax
+import jax.numpy as jnp
 from jax import random
 import numpy as np
+import optax
 
-from flax import nn
 import train
 
 jax.config.parse_flags_with_absl()
+
+
+def create_test_state():
+  model = train.Seq2seq(teacher_force=False, hidden_size=train.FLAGS.hidden_size)
+  params = train.get_initial_params(model, jax.random.PRNGKey(0))
+  tx = optax.adam(train.FLAGS.learning_rate)
+  return train_state.TrainState.create(
+      apply_fn=model.apply, params=params, tx=tx)
 
 
 class TrainTest(absltest.TestCase):
@@ -37,48 +46,6 @@ class TrainTest(absltest.TestCase):
     # The text is possibly padded with whitespace, but the trimmed output should
     # be equal to the input.
     self.assertEqual(text, dec_text.strip())
-
-  def test_onehot(self):
-    np.testing.assert_equal(
-        train.onehot(np.array([0, 1, 2]), 4),
-        np.array(
-            [[1, 0, 0, 0],
-             [0, 1, 0, 0],
-             [0, 0, 1, 0]],
-            dtype=np.float32)
-    )
-    np.testing.assert_equal(
-        jax.vmap(functools.partial(train.onehot, vocab_size=4))(
-            np.array([[0, 1], [2, 3]])),
-        np.array(
-            [[[1, 0, 0, 0],
-              [0, 1, 0, 0]],
-             [[0, 0, 1, 0],
-              [0, 0, 0, 1]]],
-            dtype=np.float32)
-    )
-
-  def test_get_sequence_lengths(self):
-    oh_sequence_batch = jax.vmap(functools.partial(train.onehot, vocab_size=4))(
-        np.array(
-            [[0, 1, 0],
-             [1, 0, 2],
-             [1, 2, 0],
-             [1, 2, 3]]
-        )
-    )
-    np.testing.assert_equal(
-        train.get_sequence_lengths(oh_sequence_batch, eos_id=0),
-        np.array([1, 2, 3, 3], np.int32)
-    )
-    np.testing.assert_equal(
-        train.get_sequence_lengths(oh_sequence_batch, eos_id=1),
-        np.array([2, 1, 1, 1], np.int32)
-    )
-    np.testing.assert_equal(
-        train.get_sequence_lengths(oh_sequence_batch, eos_id=2),
-        np.array([3, 3, 2, 2], np.int32)
-    )
 
   def test_mask_sequences(self):
     np.testing.assert_equal(
@@ -94,23 +61,38 @@ class TrainTest(absltest.TestCase):
         )
     )
 
+  def test_get_sequence_lengths(self):
+    oh_sequence_batch = jax.vmap(
+        functools.partial(jax.nn.one_hot, num_classes=4))(
+            np.array([[0, 1, 0], [1, 0, 2], [1, 2, 0], [1, 2, 3]]))
+    np.testing.assert_equal(
+        train.get_sequence_lengths(oh_sequence_batch, eos_id=0),
+        np.array([1, 2, 3, 3], np.int32)
+    )
+    np.testing.assert_equal(
+        train.get_sequence_lengths(oh_sequence_batch, eos_id=1),
+        np.array([2, 1, 1, 1], np.int32)
+    )
+    np.testing.assert_equal(
+        train.get_sequence_lengths(oh_sequence_batch, eos_id=2),
+        np.array([3, 3, 2, 2], np.int32)
+    )
+
   def test_train_one_step(self):
     batch = train.get_batch(128)
-    rng = random.PRNGKey(0)
 
-    with nn.stochastic(rng):
-      model = train.create_model()
-      optimizer = train.create_optimizer(model, 0.003)
-      optimizer, train_metrics = train.train_step(
-          optimizer, batch, nn.make_rng())
+    state = create_test_state()
+    key = random.PRNGKey(0)
+    _, train_metrics = train.train_step(state, batch, key)
 
     self.assertLessEqual(train_metrics['loss'], 5)
     self.assertGreaterEqual(train_metrics['accuracy'], 0)
 
   def test_decode_batch(self):
-    with nn.stochastic(random.PRNGKey(0)):
-      model = train.create_model()
-      train.decode_batch(model, 5)
+    key = random.PRNGKey(0)
+    state = create_test_state()
+    batch = train.get_batch(5)
+    train.decode_batch(state.params, batch, key)
 
 if __name__ == '__main__':
   absltest.main()

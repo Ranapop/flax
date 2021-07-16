@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
-"""Linear modules."""
+"""DEPRECATION WARNING:
+  The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Linear modules."""
 
 from collections.abc import Iterable  # pylint: disable=g-importing-member
 
@@ -23,7 +26,7 @@ from . import initializers
 from jax import lax
 
 import jax.numpy as jnp
-import numpy as onp
+import numpy as np
 
 
 default_kernel_init = initializers.lecun_normal()
@@ -35,7 +38,11 @@ def _normalize_axes(axes, ndim):
 
 
 class DenseGeneral(base.Module):
-  """A linear transformation with flexible axes."""
+  """DEPRECATION WARNING:
+  The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  A linear transformation with flexible axes."""
 
   def apply(self,
             inputs,
@@ -74,7 +81,7 @@ class DenseGeneral(base.Module):
     features, axis, batch_dims = tuple(features), tuple(axis), tuple(batch_dims)
 
     if batch_dims:
-      max_dim = onp.max(batch_dims)
+      max_dim = np.max(batch_dims)
       if set(batch_dims) != set(range(max_dim + 1)):
         raise ValueError('batch_dims %s must be consecutive leading '
                          'dimensions starting from 0.' % str(batch_dims))
@@ -86,9 +93,9 @@ class DenseGeneral(base.Module):
     n_axis, n_features = len(axis), len(features)
 
     def kernel_init_wrap(rng, shape, dtype=jnp.float32):
-      size_batch_dims = onp.prod(shape[:n_batch_dims], dtype=onp.int32)
-      flat_shape = (onp.prod(shape[n_batch_dims:n_axis + n_batch_dims]),
-                    onp.prod(shape[-n_features:]),)
+      size_batch_dims = np.prod(shape[:n_batch_dims], dtype=np.int32)
+      flat_shape = (np.prod(shape[n_batch_dims:n_axis + n_batch_dims]),
+                    np.prod(shape[-n_features:]),)
       kernel = jnp.concatenate([kernel_init(rng, flat_shape, dtype)
                                 for _ in range(size_batch_dims)], axis=0)
       return jnp.reshape(kernel, shape)
@@ -106,8 +113,8 @@ class DenseGeneral(base.Module):
                           precision=precision)
     if bias:
       def bias_init_wrap(rng, shape, dtype=jnp.float32):
-        size_batch_dims = onp.prod(shape[:n_batch_dims], dtype=onp.int32)
-        flat_shape = (onp.prod(shape[-n_features:]),)
+        size_batch_dims = np.prod(shape[:n_batch_dims], dtype=np.int32)
+        flat_shape = (np.prod(shape[-n_features:]),)
         bias = jnp.concatenate([bias_init(rng, flat_shape, dtype)
                                 for _ in range(size_batch_dims)], axis=0)
         return jnp.reshape(bias, shape)
@@ -125,7 +132,11 @@ class DenseGeneral(base.Module):
 
 
 class Dense(base.Module):
-  """A linear transformation applied over the last dimension of the input."""
+  """DEPRECATION WARNING:
+  The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  A linear transformation applied over the last dimension of the input."""
 
   def apply(self,
             inputs,
@@ -163,7 +174,11 @@ class Dense(base.Module):
 
 
 def _conv_dimension_numbers(input_shape):
-  """Computes the dimension numbers based on the input shape."""
+  """DEPRECATION WARNING:
+  The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Computes the dimension numbers based on the input shape."""
   ndim = len(input_shape)
   lhs_spec = (0, ndim - 1) + tuple(range(1, ndim - 1))
   rhs_spec = (ndim - 1, ndim - 2) + tuple(range(0, ndim - 2))
@@ -172,7 +187,11 @@ def _conv_dimension_numbers(input_shape):
 
 
 class Conv(base.Module):
-  """Convolution Module wrapping lax.conv_general_dilated."""
+  """DEPRECATION WARNING:
+  The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Convolution Module wrapping lax.conv_general_dilated."""
 
   def apply(self,
             inputs,
@@ -193,7 +212,9 @@ class Conv(base.Module):
     Args:
       inputs: input data with dimensions (batch, spatial_dims..., features).
       features: number of convolution filters.
-      kernel_size: shape of the convolutional kernel.
+      kernel_size: shape of the convolutional kernel. For 1D convolution,
+        the kernel size can be passed as an integer. For all other cases, it must
+        be a sequence of integers.
       strides: a sequence of `n` integers, representing the inter-window
         strides.
       padding: either the string `'SAME'`, the string `'VALID'`, or a sequence
@@ -220,6 +241,13 @@ class Conv(base.Module):
     """
 
     inputs = jnp.asarray(inputs, dtype)
+    if isinstance(kernel_size, int):
+      kernel_size = (kernel_size,)
+
+    is_single_input = False
+    if inputs.ndim == len(kernel_size) + 1:
+      is_single_input = True
+      inputs = jnp.expand_dims(inputs, axis=0)
 
     if strides is None:
       strides = (1,) * (inputs.ndim - 2)
@@ -242,6 +270,8 @@ class Conv(base.Module):
         feature_group_count=feature_group_count,
         precision=precision)
 
+    if is_single_input:
+      y = jnp.squeeze(y, axis=0)
     if bias:
       bias = self.param('bias', (features,), bias_init)
       bias = jnp.asarray(bias, dtype)
@@ -250,7 +280,11 @@ class Conv(base.Module):
 
 
 class ConvTranspose(base.Module):
-  """Transposed convolution Module wrapping lax.conv_transpose."""
+  """DEPRECATION WARNING:
+  The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Transposed convolution Module wrapping lax.conv_transpose."""
 
   def apply(self,
             inputs,
@@ -270,7 +304,9 @@ class ConvTranspose(base.Module):
     Args:
       inputs: input data with dimensions (batch, spatial_dims..., features).
       features: number of convolution filters.
-      kernel_size: shape of the convolutional kernel.
+      kernel_size: shape of the convolutional kernel. For 1D convolution,
+        the kernel size can be passed as an integer. For all other cases, it must
+        be a sequence of integers.
       strides: a sequence of `n` integers, representing the inter-window
         strides.
       padding: either the string `'SAME'`, the string `'VALID'`, or a sequence
@@ -290,6 +326,14 @@ class ConvTranspose(base.Module):
       The convolved data.
     """
     inputs = jnp.asarray(inputs, dtype)
+    if isinstance(kernel_size, int):
+      kernel_size = (kernel_size,)
+    
+    is_single_input = False
+    if inputs.ndim == len(kernel_size) + 1:
+      is_single_input = True
+      inputs = jnp.expand_dims(inputs, axis=0)
+
     strides = strides or (1,) * (inputs.ndim - 2)
 
     in_features = inputs.shape[-1]
@@ -300,6 +344,8 @@ class ConvTranspose(base.Module):
     y = lax.conv_transpose(inputs, kernel, strides, padding,
                            rhs_dilation=kernel_dilation, precision=precision)
 
+    if is_single_input:
+      y = jnp.squeeze(y, axis=0)
     if bias:
       bias = self.param('bias', (features,), bias_init)
       bias = jnp.asarray(bias, dtype)
@@ -312,7 +358,11 @@ default_embed_init = initializers.variance_scaling(1.0, 'fan_in', 'normal',
 
 
 class Embed(base.Module):
-  """Embedding Module.
+  """DEPRECATION WARNING:
+  The `flax.nn` module is Deprecated, use `flax.linen` instead. 
+  Learn more and find an upgrade guide at 
+  https://github.com/google/flax/blob/master/flax/linen/README.md"
+  Embedding Module.
 
   A parameterized function from integers [0, n) to d-dimensional vectors.
   """
@@ -334,7 +384,7 @@ class Embed(base.Module):
       Output which is embedded input data.  The output shape follows the input,
       with an additional `features` dimension appended.
     """
-    if inputs.dtype not in [jnp.int32, jnp.int64, jnp.uint32, jnp.uint64, jnp.uint8]:
+    if not jnp.issubdtype(inputs.dtype, jnp.integer):
       raise ValueError('Input type must be an integer or unsigned integer.')
     embedding = self.param('embedding', (num_embeddings, features),
                            embedding_init)

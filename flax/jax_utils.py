@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,22 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
-
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Utilities we could consider upstreaming to Jax.
 """
 
@@ -35,15 +32,15 @@ import collections
 from collections.abc import Iterable  # pylint: disable=g-importing-member
 import warnings
 
-import numpy as onp
-
 import jax
-from jax.interpreters import partial_eval as pe
-from jax import linear_util as lu
 from jax import lax
-import jax.numpy as jnp
-import jax.lib.xla_bridge as xb
+from jax import linear_util as lu
 from jax.config import config
+from jax.interpreters import partial_eval as pe
+from jax.interpreters import xla
+import jax.lib.xla_bridge as xb
+import jax.numpy as jnp
+import numpy as np
 
 
 def _replicate(x, devices=None):
@@ -52,14 +49,17 @@ def _replicate(x, devices=None):
     # match the default device assignments used in pmap:
     # for single-host, that's the XLA default device assignment
     # for multi-host, it's the order of jax.local_devices()
-    if jax.host_count() == 1:
+    if jax.process_count() == 1:
       devices = [d for d in xb.get_backend().get_default_device_assignment(
-          jax.device_count()) if d.host_id == jax.host_id()]
+          jax.device_count()) if d.process_index == jax.process_index()]
     else:
       devices = jax.local_devices()
-  aval = jax.ShapedArray((len(devices),) + x.shape, x.dtype)
-  buffers = [jax.interpreters.xla.device_put(x, device=d) for d in devices]
-  return jax.pxla.ShardedDeviceArray(aval, buffers)
+  if hasattr(jax.api, "device_put_sharded"):  # jax >= 0.2.0
+    return jax.api.device_put_sharded(len(devices) * [x], devices)
+  else:
+    aval = jax.ShapedArray((len(devices),) + x.shape, x.dtype)
+    buffers = [xla.device_put(x, device=d) for d in devices]
+    return jax.pxla.ShardedDeviceArray(aval, buffers)
 
 
 def replicate(tree, devices=None):
@@ -113,12 +113,7 @@ def partial_eval_by_shape(fn, input_spec, *args, **kwargs):
   f_flat, out_tree = jax.api_util.flatten_fun_nokwargs(lu.wrap_init(f), in_tree)
   in_pvals = [pe.PartialVal.unknown(jax.ShapedArray(x.shape, x.dtype))
               for x in inputs_flat]
-
-  if config.omnistaging_enabled:
-    _, out_pvals, _ = pe.trace_to_jaxpr(f_flat, in_pvals)
-  else:
-    with jax.core.initial_style_staging():
-      _, out_pvals, _ = pe.trace_to_jaxpr(f_flat, in_pvals, stage_out=True)
+  _, out_pvals, _ = pe.trace_to_jaxpr(f_flat, in_pvals)
   out_flat = [const if pv is None else jax.ShapeDtypeStruct(pv.shape, pv.dtype)
               for pv, const in out_pvals]
   return jax.tree_unflatten(out_tree(), out_flat)
@@ -139,6 +134,8 @@ def prefetch_to_device(iterator, size, devices=None):
   This utility takes an iterator and returns a new iterator which fills an on
   device prefetch buffer. Eager prefetching can improve the performance of
   training loops significantly by overlapping compute and data transfer.
+  
+  This utility is mostly useful for GPUs, for TPUs it should not be necessary.
 
   Args:
     iterator: an iterator that yields a pytree of ndarrays where the first
@@ -153,13 +150,16 @@ def prefetch_to_device(iterator, size, devices=None):
   if devices is None:
     devices = jax.local_devices()
   def _prefetch(xs):
-    aval = jax.xla.abstractify(xs)
-    assert xs.shape[0] == len(devices), (
-      "The first dimension of the iterator's ndarrays is not "
-      "equal to the number of devices.")
-    buffers = [jax.interpreters.xla.device_put(x, devices[i])
-               for i, x in enumerate(xs)]
-    return jax.pxla.ShardedDeviceArray(aval, buffers)
+    if hasattr(jax.api, "device_put_sharded"):  # jax>=0.2.0
+      return jax.api.device_put_sharded(list(xs), devices)
+    else:
+      aval = jax.xla.abstractify(xs)
+      assert xs.shape[0] == len(devices), (
+          "The first dimension of the iterator's ndarrays is not "
+          "equal to the number of devices.")
+      buffers = [xla.device_put(x, devices[i])
+                 for i, x in enumerate(xs)]
+      return jax.pxla.ShardedDeviceArray(aval, buffers)
   try:
     while len(queue) < size:
       queue.append(jax.tree_map(_prefetch, next(iterator)))
@@ -222,10 +222,10 @@ def scan_in_dim(body_fn, init, xs, axis=(0,), keepdims=False):
     axis = (axis,)
 
   def transpose_in(x):
-    perm = axis + tuple(onp.delete(onp.arange(x.ndim), axis))
+    perm = axis + tuple(np.delete(np.arange(x.ndim), axis))
     return x.transpose(perm)
   def transpose_out(x):
-    perm = axis + tuple(onp.delete(onp.arange(x.ndim), axis))
+    perm = axis + tuple(np.delete(np.arange(x.ndim), axis))
     return x.transpose(_invert_perm(perm))
 
   def body_wrapper(c, xs):

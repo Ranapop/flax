@@ -1,4 +1,4 @@
-# Copyright 2020 The Flax Authors.
+# Copyright 2021 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 
 # Copyright 2020 The Flax Authors.
 #
@@ -50,28 +49,46 @@ from absl import flags
 from absl import logging
 from absl.testing import absltest
 
+import tensorflow as tf
+
 from tensorboard.backend.event_processing import directory_watcher
 from tensorboard.backend.event_processing import event_file_loader
+from tensorboard.backend.event_processing import io_wrapper
+from tensorboard.summary import v1 as summary_lib
 from tensorboard.util import tensor_util
 
 
 flags.DEFINE_string(
-  'benchmark_output_dir', default=None, help='Benchmark output directory.')
+    'benchmark_output_dir', default=None, help='Benchmark output directory.')
 
 
 FLAGS = flags.FLAGS
+
+_SCALAR_PLUGIN_NAME = summary_lib.scalar_pb(
+    '', 0).value[0].metadata.plugin_data.plugin_name
 
 
 def _make_events_generator(path):
   """Makes a generator yielding TensorBoard events from files in `path`."""
   return directory_watcher.DirectoryWatcher(
-      path,
-      event_file_loader.EventFileLoader).Load()
+      path, event_file_loader.EventFileLoader,
+      io_wrapper.IsSummaryEventsFile).Load()
+
+
+def _is_scalar_value(value):
+  if value.HasField('metadata') and value.metadata.HasField('plugin_data'):
+    plugin_data = value.metadata.plugin_data
+    return plugin_data.plugin_name == _SCALAR_PLUGIN_NAME
+
+  return False
 
 
 def _process_event(event):
   """Parse TensorBoard scalars into a (tag, wall_time, step, scalar) tuple."""
   for value in event.summary.value:
+    if not _is_scalar_value(value):
+      continue
+
     if value.HasField('tensor'):
       yield (value.tag, event.wall_time,
              event.step, tensor_util.make_ndarray(value.tensor).item())
@@ -116,18 +133,19 @@ class Benchmark(absltest.TestCase):
       if func_name.startswith('assert'):
         func = getattr(self, func_name)
         patched_func = functools.partial(
-            self._collect_assert_wrapper, func=func)
+            self._collect_assert_wrapper, fn=func)
         setattr(self, func_name, patched_func)
 
     # Create target directory if defined.
-    if FLAGS.benchmark_output_dir:
-      os.makedirs(FLAGS.benchmark_output_dir, exist_ok=True)
+    if FLAGS.benchmark_output_dir and not tf.io.gfile.exists(
+        FLAGS.benchmark_output_dir):
+      tf.io.gfile.makedirs(FLAGS.benchmark_output_dir)
 
   # pylint: disable=invalid-name
-  def _collect_assert_wrapper(self, *args, func=None, **kwargs):
+  def _collect_assert_wrapper(self, *args, fn=None, **kwargs):
     """Wrapper around assert methods that caputres and collects failures."""
     try:
-      return func(*args, **kwargs)
+      return fn(*args, **kwargs)
     except self.failureException as ex:
       self._outstanding_fails.append(ex)
 
@@ -158,7 +176,12 @@ class Benchmark(absltest.TestCase):
       model_dir = FLAGS.benchmark_output_dir
     else:
       model_dir = tempfile.mkdtemp()
-    return os.path.join(model_dir, self._reported_name or self._get_test_name())
+    model_dir_path = os.path.join(model_dir, self._reported_name or
+                                  self._get_test_name())
+    # Create directories if they don't exist.
+    if not tf.io.gfile.exists(model_dir_path):
+      tf.io.gfile.makedirs(model_dir_path)
+    return model_dir_path
 
   def has_outstanding_fails(self):
     """Determine whether the benchmark failed, but the error is deferred."""
@@ -268,5 +291,5 @@ class Benchmark(absltest.TestCase):
     benchmark_output_dir = FLAGS.benchmark_output_dir
     if benchmark_output_dir:
       filename = os.path.join(benchmark_output_dir, name + '.json')
-      with open(filename, 'w') as fout:
-        json.dump(results, fout)
+      with tf.io.gfile.GFile(filename, 'w') as fout:
+        fout.write(results_str)

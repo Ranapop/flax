@@ -21,14 +21,12 @@ from absl import flags
 
 import tensorflow.compat.v2 as tf
 from jax.config import config
+import cfq.input_pipeline as inp
+import cfq.train as train
+import cfq.train_syntax_based as train_syntax_based
 
-import input_pipeline as inp
-import train
-import train_syntax_based
-
-# stage out as much as possible to XLA, not only computations depending
-# on arguments, see https://github.com/google/jax/pull/3370
-config.enable_omnistaging()
+# To be able to pass --jax_debug_nans=True for enabling debugging.
+config.parse_flags_with_absl()
 # "magic commands" to make sure jax doesn't take too much memory
 # that cuBLAS can't load its kernels into memory.
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # or pass as env var
@@ -55,6 +53,12 @@ flags.DEFINE_integer('eval_frequency',
                      short_name='e',
                      default=100,
                      help=('At how many steps evaluation is performed.'))
+
+flags.DEFINE_integer('detail_log_frequency',
+                     short_name='l',
+                     default=1000,
+                     help=("""At how many steps detailed logging is performed
+                           for example logging queries or attention scores"""))
 
 flags.DEFINE_integer(
     'max_query_length',
@@ -98,12 +102,10 @@ def main(_):
   if FLAGS.syntax_based:
     train_fn = train_syntax_based.train_model
     test_fn = train_syntax_based.test_model
-    #TODO: replace with Seq2Tree once model ready.
-    data_source = inp.Seq2SeqCfqDataSource(
+    data_source = inp.Seq2TreeCfqDataSource(
       seed=FLAGS.seed,
       fixed_output_len=False,
-      cfq_split=FLAGS.cfq_split,
-      replace_with_dummy=FLAGS.dummy_data)
+      cfq_split=FLAGS.cfq_split)
   else:
     train_fn = train.train_model
     test_fn = train.test_model
@@ -129,7 +131,8 @@ def main(_):
                              batch_size=FLAGS.batch_size,
                              bucketing=FLAGS.use_bucketing,
                              model_dir=FLAGS.model_dir,
-                             eval_freq=FLAGS.eval_frequency)
+                             eval_freq=FLAGS.eval_frequency,
+                             detail_log_freq=FLAGS.detail_log_frequency)
 
 
 if __name__ == '__main__':

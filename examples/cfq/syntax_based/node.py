@@ -16,13 +16,15 @@
 """This module is for constructing the syntax tree from the action sequence."""
 
 import re
-from typing import List
-from syntax_based.grammar import Grammar, GRAMMAR_STR, TermType
-from syntax_based.asg import generate_action_sequence, Action, APPLY_RULE, GENERATE_TOKEN
+from typing import List, Union
+# pytype: disable=import-error
+from cfq.syntax_based.grammar import Grammar, GRAMMAR_STR, TermType
+from cfq.syntax_based.asg import generate_action_sequence, Action, APPLY_RULE, GENERATE_TOKEN
 from collections import deque
+# pytype: enable=import-error
 class Node:
 
-  def __init__(self, parent: 'Node', value: str):
+  def __init__(self, parent: Union['Node',None], value: str):
     self.parent = parent
     # rule head or regex term.
     self.value = value
@@ -53,10 +55,12 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
   if action_type == GENERATE_TOKEN:
     # Fill leaf node with token stored in the action.
     current_node.set_token(action_value)
+    action_str = action_value
   else:
     current_node.set_rule_id(action_value)
     new_frontier_nodes = []
     rule_branch = grammar.branches[action_value]
+    action_str = 'R'+str(action_value)
     for term in rule_branch.body:
       term_type = term.term_type
       if term_type == TermType.RULE_TERM or term_type == TermType.REGEX_TERM:
@@ -65,7 +69,7 @@ def apply_action(frontier_nodes_stack: deque, action: Action, grammar: Grammar):
         current_node.add_child(child)
     new_frontier_nodes.reverse()
     frontier_nodes_stack.extend(new_frontier_nodes)
-  return frontier_nodes_stack
+  return frontier_nodes_stack, action_str
 
 
 def construct_root(grammar: Grammar):
@@ -73,13 +77,19 @@ def construct_root(grammar: Grammar):
 
 
 def apply_sequence_of_actions(action_sequence: List, grammar: Grammar):
-  """Applies a sequence of actions to construct a syntax tree."""
+  """Applies a sequence of actions to construct a syntax tree. Returns
+  the root of the constructed tree and the used actions."""
   root = construct_root(grammar)
   frontier_nodes = deque()
   frontier_nodes.append(root)
+  applied_actions = []
   for action in action_sequence:
-    frontier_nodes = apply_action(frontier_nodes, action, grammar)
-  return root
+    if not frontier_nodes:
+      # Stop applying sequences when the stack is empty.
+      return root, applied_actions
+    frontier_nodes, applied_action = apply_action(frontier_nodes, action, grammar)
+    applied_actions.append(applied_action)
+  return root, applied_actions
 
 
 def extract_query(root: Node, grammar: Grammar):
@@ -93,6 +103,9 @@ def extract_query(root: Node, grammar: Grammar):
     # leaf/token node
     return root.token
   children_substrings = []
+  if root.rule_id is None:
+    # This means the sequence of actions was incomplete.
+    return ''
   rule_branch = grammar.branches[root.rule_id]
   child_idx = 0
   for term in rule_branch.body:
@@ -132,6 +145,13 @@ def get_parent_time_steps(root: Node,
   return parent_time_steps
 
 
+def get_node_types(root: Node):
+    node_types = [root.value]
+    for child in root.children:
+      node_types += get_node_types(child)
+    return node_types
+
+
 if __name__ == "__main__":
   query = """SELECT DISTINCT ?x0 WHERE {
       ?x0 a people.person .
@@ -140,7 +160,7 @@ if __name__ == "__main__":
   grammar = Grammar(GRAMMAR_STR)
   generated_action_sequence = generate_action_sequence(query, grammar)
   print(generated_action_sequence)
-  root = apply_sequence_of_actions(generated_action_sequence, grammar)
+  root, _ = apply_sequence_of_actions(generated_action_sequence, grammar)
   parent_time_steps = get_parent_time_steps(root)
   print(parent_time_steps)
   # query = extract_query(root, grammar)

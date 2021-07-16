@@ -49,7 +49,7 @@ def select_clause_rule(substring, grammar):
 
 
 def var_token_rule(substring, grammar):
-  """
+  r"""
   Rules:
     var_token: VAR
              | TOKEN
@@ -96,7 +96,7 @@ def where_entry_rule(substring, grammar):
     # triples_block branch
     action_sequence = [apply_rule_act(grammar, 'where_entry', 0),
                        apply_rule_act(grammar, 'triples_block', 0)]
-    terms = re.split('\s', substring)
+    terms = re.split(r'\s', substring)
     if len(terms) != 3:
       raise Exception('triples_block rule not matched', substring)
     action_sequence += var_token_rule(terms[0], grammar)
@@ -155,6 +155,8 @@ def query_rule(query, grammar):
   # Replace multiple spaces/new lines with simple space.
   query = re.sub(r'\n|\s+',' ', query)
   match = re.match(r'SELECT (.*) WHERE \{ (.*) \}', query)
+  if match == None:
+    raise Exception('Cannot parse query!')
   (select_clause_input, where_body) = match.groups()
   action_sequence += select_clause_rule(select_clause_input, grammar)
   action_sequence += where_clause_rule(where_body, grammar)

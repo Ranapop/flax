@@ -1,17 +1,26 @@
 ## seq2seq addition
+
 This example trains a simple LSTM on a sequence-to-sequence addition task using
 an encoder-decoder architecture. The data is generated on the fly.
 
+Colab lets you edit the source files and interact with the model:
+
+https://colab.research.google.com/github/google/flax/blob/master/examples/seq2seq/seq2seq.ipynb
+
 ### Example output
 
+From Colab run that also generated [tfhub.dev]
+
 ```
-I0314 18:33:34.921972 139788256962368 train.py:280] train step: 9800, loss: 0.0004, accuracy: 100.00
-I0314 18:33:35.791534 139788256962368 train.py:249] DECODE: 25+45   = 70   (CORRECT)
-I0314 18:33:35.791721 139788256962368 train.py:249] DECODE: 27+92   = 119  (CORRECT)
-I0314 18:33:35.791795 139788256962368 train.py:249] DECODE: 51+420  = 471  (CORRECT)
-I0314 18:33:35.791843 139788256962368 train.py:249] DECODE: 49+450  = 499  (CORRECT)
-I0314 18:33:35.791887 139788256962368 train.py:249] DECODE: 48+853  = 901  (CORRECT)
+INFO:absl:[1900] accuracy=0.992188, loss=0.009365
+INFO:absl:DECODE: 48+57 = 105 (CORRECT)
+INFO:absl:DECODE: 13+59 = 72 (CORRECT)
+INFO:absl:DECODE: 83+948 = 1031 (CORRECT)
+INFO:absl:DECODE: 91+280 = 371 (CORRECT)
+INFO:absl:DECODE: 65+270 = 335 (CORRECT)
 ```
+
+[tfhub.dev]: https://tensorboard.dev/experiment/h81jpOlgS5iBJv4MVdznRQ/#scalars&_smoothingWeight=0
 
 ### How to run
 
