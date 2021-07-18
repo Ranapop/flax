@@ -532,6 +532,7 @@ def train_model(learning_rate: float = None,
                                   no_logged_examples=no_logged_examples)
       log(step, train_summary, dev_metrics)
       save_to_tensorboard(train_summary_writer, train_summary, step + 1)
+      train_summary_writer.histogram('weights', params, step + 1)
       save_to_tensorboard(eval_summary_writer, dev_metrics, step + 1)
 
       # Save best model.
